@@ -1,10 +1,14 @@
 """
 Phase 1 avatar agents — real LlmAgents replacing Phase 0b stubs.
 
-Each avatar is a specialist LlmAgent with:
-  - A focused system prompt
-  - The right model for its task profile
-  - AgentTool wrapper so Narad can invoke it as a tool
+Each avatar is a specialist LlmAgent with a focused system prompt and the
+right model for its task profile.
+
+AgentTool + LiteLlm has a serialisation incompatibility in ADK 1.32 —
+the supervisor outputs the tool call as text rather than executing it.
+Workaround: wrap each LlmAgent in a FunctionTool whose body runs the
+agent via its own mini-runner. FunctionTool ↔ LiteLlm is the proven
+interface (works in Phase 0b).
 
 Matsya note: real-time web search requires a search tool (Tavily/Serper).
 Phase 1 uses model knowledge + explicit uncertainty signalling.
@@ -13,11 +17,43 @@ Phase 2 wires the search tool.
 
 from __future__ import annotations
 
+import uuid
+
 from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
-from google.adk.tools.agent_tool import AgentTool
+from google.adk.runners import Runner
+from google.adk.sessions import InMemorySessionService
+from google.adk.tools import FunctionTool
+from google.genai import types as genai_types
 
 from model_config import AVATAR_MODELS
+
+
+def _make_avatar_tool(agent: LlmAgent) -> FunctionTool:
+    """Wrap an LlmAgent as a FunctionTool so LiteLlm function-calling works."""
+    app_name = f"avatar_{agent.name.lower()}"
+    description = agent.description
+
+    async def _run(task: str) -> dict:
+        svc = InMemorySessionService()
+        runner = Runner(agent=agent, app_name=app_name, session_service=svc)
+        sid = str(uuid.uuid4())
+        await svc.create_session(app_name=app_name, user_id="narad", session_id=sid)
+
+        msg = genai_types.Content(role="user", parts=[genai_types.Part(text=task)])
+
+        result_text = ""
+        async for event in runner.run_async(user_id="narad", session_id=sid, new_message=msg):
+            if event.is_final_response() and event.content and event.content.parts:
+                result_text = "".join(p.text or "" for p in event.content.parts)
+
+        return {"avatar": agent.name, "status": "complete", "result": result_text}
+
+    _run.__name__ = f"invoke_{agent.name.lower()}"
+    _run.__doc__ = description
+    return FunctionTool(_run)
+
+
 
 
 # ── Matsya ────────────────────────────────────────────────────────────────────
@@ -203,25 +239,25 @@ parashurama = LlmAgent(
 )
 
 
-# ── AgentTool wrappers (what Narad sees) ──────────────────────────────────────
+# ── FunctionTool wrappers (what Narad sees) ───────────────────────────────────
 
 AVATAR_AGENT_TOOLS = [
-    AgentTool(agent=matsya),
-    AgentTool(agent=varaha),
-    AgentTool(agent=narasimha),
-    AgentTool(agent=rama),
-    AgentTool(agent=krishna),
-    AgentTool(agent=buddha),
-    AgentTool(agent=parashurama),
+    _make_avatar_tool(matsya),
+    _make_avatar_tool(varaha),
+    _make_avatar_tool(narasimha),
+    _make_avatar_tool(rama),
+    _make_avatar_tool(krishna),
+    _make_avatar_tool(buddha),
+    _make_avatar_tool(parashurama),
 ]
 
 # Name → display name map for SSE server
 AGENT_TOOL_NAMES = {
-    "matsya":      "Matsya",
-    "varaha":      "Varaha",
-    "narasimha":   "Narasimha",
-    "rama":        "Rama",
-    "krishna":     "Krishna",
-    "buddha":      "Buddha",
-    "parashurama": "Parashurama",
+    "invoke_matsya":      "Matsya",
+    "invoke_varaha":      "Varaha",
+    "invoke_narasimha":   "Narasimha",
+    "invoke_rama":        "Rama",
+    "invoke_krishna":     "Krishna",
+    "invoke_buddha":      "Buddha",
+    "invoke_parashurama": "Parashurama",
 }

@@ -123,6 +123,6 @@ def _event_to_sse(event: Event) -> str:
 
 
 def _resolve_avatar(tool_name: str) -> str:
-    """Map tool name to display name — handles both phase-0b and phase-1 patterns."""
-    lower = tool_name.lower().replace("invoke_", "")
-    return AGENT_TOOL_NAMES.get(lower, tool_name.capitalize())
+    lower = tool_name.lower()
+    # phase-1: invoke_matsya → Matsya; phase-0b compat: matsya → Matsya
+    return AGENT_TOOL_NAMES.get(lower, AGENT_TOOL_NAMES.get(lower.replace("invoke_", ""), tool_name.capitalize()))
