@@ -23,6 +23,7 @@ priority: ""
 ## Recent Commits
 | Date | Hash | Message |
 |------|------|---------|
+| 2026-05-02 | `5acdf68` | fix(prompt): surgical fixes for Narasimha/Matsya/Parashurama routing |
 | 2026-05-02 | `0a9bfdd` | fix: parse string output from outlines SteerableGenerator into NaradRouting |
 | 2026-05-02 | `46c3433` | fix: outlines 1.x Generator API for mlx-lm |
 | 2026-05-02 | `8dfe06f` | fix: outlines 1.x mlxlm API + tighten Rama/Krishna/Buddha boundaries |
