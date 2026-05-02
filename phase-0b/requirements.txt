@@ -1,0 +1,6 @@
+# Phase 0b dependencies (add to Phase 0a venv)
+# pip install -r phase-0b/requirements.txt
+
+google-adk[extensions]>=1.32.0
+fastapi[standard]>=0.136.0
+sse-starlette>=3.4.0
