@@ -100,45 +100,46 @@ def print_report(results: list[dict], label: str) -> None:
 
 
 def compare_results(
-    claude_path: str = "results/claude_results.json",
     local_path: str = "results/local_results.json",
 ) -> None:
-    """Side-by-side comparison of Claude baseline vs local model."""
+    """Side-by-side comparison of baseline (Claude or GPT) vs local model."""
     def load(path):
         if not os.path.exists(path):
-            print(f"  Not found: {path} — run that model first.")
             return None
         with open(path) as f:
             return json.load(f)
 
-    claude_results = load(claude_path)
+    # Accept whichever baseline was run
+    baseline_results = load("results/gpt_results.json") or load("results/claude_results.json")
+    baseline_label = "GPT-4o BASELINE" if os.path.exists("results/gpt_results.json") else "CLAUDE BASELINE"
     local_results = load(local_path)
 
-    if claude_results:
-        print_report(claude_results, "CLAUDE BASELINE")
+    if baseline_results:
+        print_report(baseline_results, baseline_label)
+    else:
+        print("  No baseline results found. Run: python run_evaluation.py --model gpt")
     if local_results:
         print_report(local_results, "LOCAL MODEL (Gemma)")
 
-    if claude_results and local_results:
-        claude_acc = weighted_accuracy(claude_results)
+    if baseline_results and local_results:
+        baseline_acc = weighted_accuracy(baseline_results)
         local_acc = weighted_accuracy(local_results)
-        gap = claude_acc - local_acc
+        gap = baseline_acc - local_acc
         print(f"\n{'='*60}")
-        print(f"  Accuracy gap (Claude - Local): {gap*100:.1f} pp")
+        print(f"  Accuracy gap (Baseline - Local): {gap*100:.1f} pp")
         if gap <= 0.15:
             print("  ✅ Gap ≤ 15pp — local model is competitive.")
         else:
             print("  ⚠️  Gap > 15pp — consider upgrading local model.")
 
-        # Find prompts where local failed but Claude succeeded
-        claude_by_id = {r["id"]: r for r in claude_results}
+        baseline_by_id = {r["id"]: r for r in baseline_results}
         regressions = [
             r for r in local_results
             if r["score"] in ("miss", "parse_error")
-            and claude_by_id.get(r["id"], {}).get("score") == "exact_match"
+            and baseline_by_id.get(r["id"], {}).get("score") == "exact_match"
         ]
         if regressions:
-            print(f"\n  Local regressions vs Claude ({len(regressions)} prompts):")
+            print(f"\n  Local regressions vs baseline ({len(regressions)} prompts):")
             for r in regressions:
                 print(f"    [{r['id']:02d}] {r['query'][:70]}")
 
@@ -151,8 +152,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--model",
-        choices=["claude", "local", "all"],
-        help="Which model to evaluate",
+        choices=["claude", "gpt", "local", "all"],
+        help="Which model to evaluate (claude or gpt as baseline, local for Gemma)",
     )
     parser.add_argument("--compare", action="store_true", help="Compare saved results")
     parser.add_argument(
@@ -183,6 +184,15 @@ def main() -> None:
         from narad_claude import run_baseline
         results = run_baseline(args.prompts)
         print_report(results, "CLAUDE BASELINE")
+
+    if args.model in ("gpt", "all"):
+        if not os.environ.get("OPENAI_API_KEY"):
+            print("ERROR: OPENAI_API_KEY environment variable not set.")
+            sys.exit(1)
+        print("\nRunning GPT-4o baseline...")
+        from narad_openai import run_openai_baseline
+        results = run_openai_baseline(args.prompts)
+        print_report(results, "GPT-4o BASELINE")
 
     if args.model in ("local", "all"):
         print(f"\nRunning local model ({args.local_model})...")

@@ -1,8 +1,9 @@
 # Phase 0a dependencies
 # Install in the repo venv: pip install -r phase-0a/requirements.txt
 
-# Anthropic SDK (Claude baseline)
-anthropic>=0.40.0
+# Baseline LLM SDKs (use one — both are optional)
+anthropic>=0.40.0   # Claude baseline
+openai>=1.30.0      # GPT-4o baseline (use this if you have an OpenAI key)
 
 # Pydantic (routing schema)
 pydantic>=2.6.0
