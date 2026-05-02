@@ -83,6 +83,10 @@ def _make_avatar_tool(agent: LlmAgent, user_id: str = "default") -> FunctionTool
 
         return {"avatar": agent.name, "status": "complete", "result": result_text}
 
+    _run.__name__ = f"invoke_{agent.name.lower()}"
+    _run.__doc__ = description
+    return FunctionTool(_run)
+
 
 async def _run_tapas(session_id: str, task: str, avatar: str, result: str) -> None:
     import sys as _s
@@ -93,11 +97,21 @@ async def _run_tapas(session_id: str, task: str, avatar: str, result: str) -> No
     except Exception:
         pass
 
-    _run.__name__ = f"invoke_{agent.name.lower()}"
-    _run.__doc__ = description
-    return FunctionTool(_run)
 
 
+
+# ── Shared product context (injected into avatars that draft on behalf of the user) ──
+
+_PRODUCT_CONTEXT = """\
+CONTEXT ABOUT THIS PRODUCT (use only when drafting on behalf of the user):
+Avatara is a local-first multi-agent AI assistant. It uses a supervisor agent called Narad
+who routes tasks to seven specialist sub-agents (avatars): Matsya (research), Varaha (docs),
+Narasimha (debugging), Rama (planning), Krishna (communication), Buddha (analysis), and
+Parashurama (code). It runs on the user's machine using GPT-4o for routing and DeepSeek V4
+for specialist tasks. It is NOT an infrastructure management or DevOps platform.
+Only use this context if the user is asking you to write on behalf of Avatara/the project.
+Ignore it for all other tasks.
+"""
 
 
 # ── Matsya ────────────────────────────────────────────────────────────────────
@@ -106,7 +120,7 @@ import sys as _sys
 _sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent / "phase-2"))
 from matsya_search import web_search as _web_search  # noqa: E402
 
-_MATSYA_PROMPT = """You are Matsya, Avatara's research and retrieval specialist.
+_MATSYA_PROMPT = f"""You are Matsya, Avatara's research and retrieval specialist.
 
 You have access to a live web_search tool. Always call it before answering
 research queries — do not rely on training knowledge for facts that could be stale.
@@ -116,7 +130,11 @@ Rules:
 - Structure your response as: Summary → Key Facts → Sources (with URLs)
 - Only use training knowledge as a fallback if web_search is unavailable
 - Never fabricate URLs — only cite URLs returned by web_search
-- Be precise. Depth over breadth."""
+- Be precise. Depth over breadth.
+- If asked about a specific URL or website, call web_search with that URL as the query
+- If a site returns no results, say so clearly — do not invent capabilities or comparisons
+
+{_PRODUCT_CONTEXT}"""
 
 matsya = LlmAgent(
     name="Matsya",
@@ -204,7 +222,7 @@ rama = LlmAgent(
 
 # ── Krishna ───────────────────────────────────────────────────────────────────
 
-_KRISHNA_PROMPT = """You are Krishna, Avatara's communication and drafting specialist.
+_KRISHNA_PROMPT = f"""You are Krishna, Avatara's communication and drafting specialist.
 
 Your job: given a communication task, produce polished, audience-appropriate prose.
 
@@ -218,7 +236,10 @@ Rules:
 - Never return a skeleton or template with [PLACEHOLDER] text — always write the full draft
 - Match the format to the medium: email has subject line, Slack is concise, LinkedIn is punchy
 - Active voice. Concrete language. Cut filler.
-- If the user hasn't specified audience or tone, infer from context and state your assumption"""
+- If the user hasn't specified audience or tone, infer from context and state your assumption
+- NEVER invent product details, metrics, or features not mentioned in the task or context
+
+{_PRODUCT_CONTEXT}"""
 
 krishna = LlmAgent(
     name="Krishna",
