@@ -55,8 +55,15 @@ def route_with_local(
     try:
         generator = _get_generator(model_id)
         prompt = f"{NARAD_SYSTEM_PROMPT}\n\nUser task: {query}\n\nJSON routing:"
-        result: NaradRouting = generator(prompt, max_tokens=max_tokens)
+        raw = generator(prompt, max_tokens=max_tokens)
         latency_ms = int((time.perf_counter() - t0) * 1000)
+        # outlines 1.x SteerableGenerator returns a JSON string, not a Pydantic instance
+        if isinstance(raw, str):
+            result = NaradRouting.model_validate_json(raw)
+        elif isinstance(raw, dict):
+            result = NaradRouting.model_validate(raw)
+        else:
+            result = raw  # already a NaradRouting
         return {
             "routing": result,
             "raw": result.model_dump(),
