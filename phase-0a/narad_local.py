@@ -59,7 +59,6 @@ def route_with_local(
     """
     try:
         import outlines
-        import outlines.models as om
     except ImportError as e:
         raise ImportError(
             "outlines not installed. Run: pip install outlines"
@@ -67,11 +66,12 @@ def route_with_local(
 
     if model_id not in _model_cache:
         mlx_model, tokenizer = _load_model(model_id)
-        # Wrap in outlines' mlx_lm model interface
-        model = om.mlxlm(model_id)
-        _model_cache[model_id] = (mlx_model, tokenizer, model)
+        # outlines 1.x API: from_mlxlm(model, tokenizer) — not om.mlxlm(model_id)
+        from outlines.models.mlxlm import from_mlxlm
+        model = from_mlxlm(mlx_model, tokenizer)
+        _model_cache[model_id] = model
 
-    _, _, model = _model_cache[model_id]
+    model = _model_cache[model_id]
 
     # outlines JSON schema-constrained generator
     generator = outlines.generate.json(model, NaradRouting)
