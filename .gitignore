@@ -1,0 +1,37 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# Environment
+.env
+.env.local
+*.env
+
+# Test results (large JSON/CSV outputs)
+phase-0a/results/*.json
+phase-0a/results/*.csv
+
+# macOS
+.DS_Store
+.AppleDouble
+
+# Node (for later phases)
+node_modules/
+.npm/
+
+# MLX model cache (large)
+*.safetensors
+*.gguf
+models/
+
+# IDE
+.vscode/
+.idea/
+*.swp

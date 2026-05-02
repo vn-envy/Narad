@@ -1,0 +1,20 @@
+# Phase 0a dependencies
+# Install in the repo venv: pip install -r phase-0a/requirements.txt
+
+# Anthropic SDK (Claude baseline)
+anthropic>=0.40.0
+
+# Pydantic (routing schema)
+pydantic>=2.6.0
+
+# Outlines — token-level grammar-constrained generation
+# Enforces NaradRouting JSON schema so parse failures are impossible
+outlines>=0.1.0
+
+# MLX stack — Apple Silicon native inference (M1/M2/M3/M4)
+# Skip on non-Apple hardware; use llama.cpp path instead
+mlx>=0.16.0
+mlx-lm>=0.14.0
+
+# HuggingFace Hub — model download
+huggingface-hub>=0.23.0
