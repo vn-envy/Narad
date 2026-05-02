@@ -29,23 +29,42 @@ from google.genai import types as genai_types
 from model_config import AVATAR_MODELS
 
 
-def _make_avatar_tool(agent: LlmAgent) -> FunctionTool:
-    """Wrap an LlmAgent as a FunctionTool so LiteLlm function-calling works."""
+def _make_avatar_tool(agent: LlmAgent, user_id: str = "default") -> FunctionTool:
+    """Wrap an LlmAgent as a FunctionTool so LiteLlm function-calling works.
+
+    Smriti integration:
+      - Before running: relevant past memories are prepended to the task
+      - After running: the result is stored for future recall
+    """
+    import sys as _sys
+    _sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent / "phase-2"))
+
     app_name = f"avatar_{agent.name.lower()}"
     description = agent.description
 
     async def _run(task: str) -> dict:
+        from smriti import recall, remember
+
+        # Enrich task with relevant memories
+        memories = recall(task, user_id=user_id)
+        enriched_task = task
+        if memories:
+            enriched_task = f"Relevant context from past sessions:\n{memories}\n\n---\nCurrent task: {task}"
+
         svc = InMemorySessionService()
         runner = Runner(agent=agent, app_name=app_name, session_service=svc)
         sid = str(uuid.uuid4())
         await svc.create_session(app_name=app_name, user_id="narad", session_id=sid)
 
-        msg = genai_types.Content(role="user", parts=[genai_types.Part(text=task)])
+        msg = genai_types.Content(role="user", parts=[genai_types.Part(text=enriched_task)])
 
         result_text = ""
         async for event in runner.run_async(user_id="narad", session_id=sid, new_message=msg):
             if event.is_final_response() and event.content and event.content.parts:
                 result_text = "".join(p.text or "" for p in event.content.parts)
+
+        # Store result in Smriti (best-effort, non-blocking)
+        remember(task, result_text, agent.name, user_id=user_id)
 
         return {"avatar": agent.name, "status": "complete", "result": result_text}
 

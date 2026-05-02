@@ -36,10 +36,18 @@ _session_service = InMemorySessionService()
 _narad = build_narad_agent()
 _runner = Runner(agent=_narad, app_name="avatara", session_service=_session_service)
 
+def _rebuild_runner_for_user(user_id: str) -> Runner:
+    """Return a runner whose avatar tools are scoped to the given user_id."""
+    from narad_agent import build_narad_agent as _build
+    narad = _build(user_id=user_id)
+    svc = InMemorySessionService()
+    return Runner(agent=narad, app_name="avatara", session_service=svc)
+
 
 class ChatRequest(BaseModel):
     query: str
     session_id: str | None = None
+    user_id: str = "default"
 
 
 @app.get("/health")
@@ -58,15 +66,16 @@ async def chat(req: ChatRequest):
         raise HTTPException(status_code=400, detail="query cannot be empty")
 
     session_id = req.session_id or str(uuid.uuid4())
+    runner = _rebuild_runner_for_user(req.user_id)
 
     async def event_stream():
         try:
-            existing = await _session_service.get_session(
-                app_name="avatara", user_id="user", session_id=session_id
+            existing = await runner.session_service.get_session(
+                app_name="avatara", user_id=req.user_id, session_id=session_id
             )
             if existing is None:
-                await _session_service.create_session(
-                    app_name="avatara", user_id="user", session_id=session_id
+                await runner.session_service.create_session(
+                    app_name="avatara", user_id=req.user_id, session_id=session_id
                 )
 
             from google.genai import types as genai_types
@@ -75,8 +84,8 @@ async def chat(req: ChatRequest):
                 role="user", parts=[genai_types.Part(text=req.query)]
             )
 
-            async for event in _runner.run_async(
-                user_id="user", session_id=session_id, new_message=user_message
+            async for event in runner.run_async(
+                user_id=req.user_id, session_id=session_id, new_message=user_message
             ):
                 yield _event_to_sse(event)
 

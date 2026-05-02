@@ -1,0 +1,4 @@
+# Phase 2 — Smriti memory layer
+# pip install -r phase-2/requirements.txt
+mem0ai>=2.0.0
+lancedb>=0.20.0
