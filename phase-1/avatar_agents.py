@@ -42,8 +42,9 @@ def _make_avatar_tool(agent: LlmAgent, user_id: str = "default") -> FunctionTool
     app_name = f"avatar_{agent.name.lower()}"
     description = agent.description
 
-    async def _run(task: str) -> dict:
+    async def _run(task: str, _session_id: str = "") -> dict:
         from smriti import recall, remember
+        from yantra import Tracer
 
         # Enrich task with relevant memories
         memories = recall(task, user_id=user_id)
@@ -58,14 +59,16 @@ def _make_avatar_tool(agent: LlmAgent, user_id: str = "default") -> FunctionTool
 
         msg = genai_types.Content(role="user", parts=[genai_types.Part(text=enriched_task)])
 
+        # Yantra span — trace this avatar invocation
+        tracer = Tracer(session_id=_session_id or sid, user_id=user_id)
         result_text = ""
-        async for event in runner.run_async(user_id="narad", session_id=sid, new_message=msg):
-            if event.is_final_response() and event.content and event.content.parts:
-                result_text = "".join(p.text or "" for p in event.content.parts)
+        with tracer.avatar_span(agent.name, task) as span:
+            async for event in runner.run_async(user_id="narad", session_id=sid, new_message=msg):
+                if event.is_final_response() and event.content and event.content.parts:
+                    result_text = "".join(p.text or "" for p in event.content.parts)
+            span.finish(result_text)
 
-        # Store result in Smriti (best-effort, non-blocking)
         remember(task, result_text, agent.name, user_id=user_id)
-
         return {"avatar": agent.name, "status": "complete", "result": result_text}
 
     _run.__name__ = f"invoke_{agent.name.lower()}"
@@ -77,22 +80,28 @@ def _make_avatar_tool(agent: LlmAgent, user_id: str = "default") -> FunctionTool
 
 # ── Matsya ────────────────────────────────────────────────────────────────────
 
+import sys as _sys
+_sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent / "phase-2"))
+from matsya_search import web_search as _web_search  # noqa: E402
+
 _MATSYA_PROMPT = """You are Matsya, Avatara's research and retrieval specialist.
 
-Your job: given a research task, produce accurate, well-organised findings.
+You have access to a live web_search tool. Always call it before answering
+research queries — do not rely on training knowledge for facts that could be stale.
 
 Rules:
-- Structure your response as: Summary → Key Facts → Sources/Caveats
-- If you don't have current live data, say so explicitly and provide what you know from training, with the knowledge cutoff date noted
-- Never fabricate URLs or citations — if unsure, describe the source type
-- Be precise and factual. Depth over breadth.
-- Flag if the query needs a live web search for up-to-date accuracy"""
+- Always call web_search first for any factual or current-events query
+- Structure your response as: Summary → Key Facts → Sources (with URLs)
+- Only use training knowledge as a fallback if web_search is unavailable
+- Never fabricate URLs — only cite URLs returned by web_search
+- Be precise. Depth over breadth."""
 
 matsya = LlmAgent(
     name="Matsya",
     model=LiteLlm(model=AVATAR_MODELS["matsya"]),
     description="Matsya: retrieves and synthesises information from external sources. Use for research, current events, live data lookups.",
     instruction=_MATSYA_PROMPT,
+    tools=[FunctionTool(_web_search)],
 )
 
 

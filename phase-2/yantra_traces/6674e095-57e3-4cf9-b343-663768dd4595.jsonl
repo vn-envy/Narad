@@ -1,0 +1,4 @@
+{"ts": "2026-05-02T17:54:56.969847+00:00", "session_id": "6674e095-57e3-4cf9-b343-663768dd4595", "user_id": "test_user", "event": "session_start", "task": "test query"}
+{"ts": "2026-05-02T17:54:56.970759+00:00", "session_id": "6674e095-57e3-4cf9-b343-663768dd4595", "user_id": "test_user", "event": "avatar_start", "avatar": "Narasimha", "task": "fix bug"}
+{"ts": "2026-05-02T17:54:56.983369+00:00", "session_id": "6674e095-57e3-4cf9-b343-663768dd4595", "user_id": "test_user", "event": "avatar_done", "avatar": "Narasimha", "task": "fix bug", "result_len": 24, "latency_ms": 12}
+{"ts": "2026-05-02T17:54:56.983559+00:00", "session_id": "6674e095-57e3-4cf9-b343-663768dd4595", "user_id": "test_user", "event": "session_done", "total_ms": 13}

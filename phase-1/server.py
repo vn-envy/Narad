@@ -1,15 +1,21 @@
 """
-Phase 1 FastAPI SSE server.
+Phase 1 FastAPI SSE server (+ Smriti memory + Yantra observability).
 
-Same event taxonomy as Phase 0b (locked contract):
+SSE event taxonomy (locked):
   avatar_start | avatar_done | narad_synthesis | done | error
+
+New endpoints:
+  GET /trace/{session_id}  — structured trace for a completed session
 """
 
 from __future__ import annotations
 
 import json
 import os
+import sys
 import uuid
+
+sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent / "phase-2"))
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,6 +28,7 @@ from google.adk.events import Event
 
 from narad_agent import build_narad_agent
 from avatar_agents import AGENT_TOOL_NAMES
+from yantra import Tracer
 
 app = FastAPI(title="Avatara — Narad API", version="0.1.0-phase1")
 
@@ -68,6 +75,8 @@ async def chat(req: ChatRequest):
     session_id = req.session_id or str(uuid.uuid4())
     runner = _rebuild_runner_for_user(req.user_id)
 
+    tracer = Tracer(session_id=session_id, user_id=req.user_id)
+
     async def event_stream():
         try:
             existing = await runner.session_service.get_session(
@@ -84,17 +93,28 @@ async def chat(req: ChatRequest):
                 role="user", parts=[genai_types.Part(text=req.query)]
             )
 
+            tracer.session_start(req.query)
+
             async for event in runner.run_async(
                 user_id=req.user_id, session_id=session_id, new_message=user_message
             ):
                 yield _event_to_sse(event)
 
-            yield json.dumps({"type": "done", "data": {}})
+            tracer.session_done()
+            yield json.dumps({"type": "done", "data": {"session_id": session_id}})
 
         except Exception as exc:
             yield json.dumps({"type": "error", "data": {"message": str(exc)}})
 
     return EventSourceResponse(event_stream())
+
+
+@app.get("/trace/{session_id}")
+async def get_trace(session_id: str):
+    events = Tracer.load(session_id)
+    if not events:
+        raise HTTPException(status_code=404, detail="No trace found for session")
+    return {"session_id": session_id, "events": events, "summary": Tracer.summary(session_id)}
 
 
 def _event_to_sse(event: Event) -> str:
