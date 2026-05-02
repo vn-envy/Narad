@@ -16,6 +16,7 @@ import sys
 import uuid
 
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent / "phase-2"))
+sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent / "phase-3"))
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -115,6 +116,13 @@ async def get_trace(session_id: str):
     if not events:
         raise HTTPException(status_code=404, detail="No trace found for session")
     return {"session_id": session_id, "events": events, "summary": Tracer.summary(session_id)}
+
+
+@app.get("/sutras")
+async def get_sutras():
+    from tapas import sutra_summary, load_sutras
+    sutras = load_sutras()
+    return {"summary": sutra_summary(), "recent": sutras[-10:]}
 
 
 def _event_to_sse(event: Event) -> str:

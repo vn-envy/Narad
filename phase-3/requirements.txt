@@ -1,0 +1,2 @@
+# Phase 3 — Tapas self-evolution layer
+# No new deps — uses litellm (already in google-adk[extensions]) and openai

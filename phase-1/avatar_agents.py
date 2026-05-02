@@ -69,7 +69,29 @@ def _make_avatar_tool(agent: LlmAgent, user_id: str = "default") -> FunctionTool
             span.finish(result_text)
 
         remember(task, result_text, agent.name, user_id=user_id)
+
+        # Tapas: score and promote/flag — fire-and-forget, never blocks
+        import asyncio as _asyncio
+        _asyncio.get_event_loop().call_soon(
+            lambda: _asyncio.ensure_future(_run_tapas(
+                session_id=_session_id or sid,
+                task=task,
+                avatar=agent.name,
+                result=result_text,
+            ))
+        )
+
         return {"avatar": agent.name, "status": "complete", "result": result_text}
+
+
+async def _run_tapas(session_id: str, task: str, avatar: str, result: str) -> None:
+    import sys as _s
+    _s.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent / "phase-3"))
+    try:
+        from tapas import process_session
+        process_session(session_id=session_id, query=task, avatar=avatar, result=result)
+    except Exception:
+        pass
 
     _run.__name__ = f"invoke_{agent.name.lower()}"
     _run.__doc__ = description
