@@ -2223,3 +2223,11 @@ Look for directories
 **Avatar:** Parashurama  
 **Task:** Read lines 525-630 of ~/scripts/job_search.py to see the rest of the Microsoft scraper and the LinkedIn scraper. Also check if there's a standalone scrape_microsoft() function wrapping scrape_microsof  
 **Summary:** [Completed in 16.5s, response ~3662 chars]
+
+## 2026-05-06 19:53 UTC
+**Avatar:** Parashurama  
+**Task:** I need to understand the current state before making changes. Please:
+
+1. Check if Playwright is installed: run `pip3 list 2>/dev/null | grep -i playwright` via shell
+2. Check if python-docx is instal  
+**Summary:** [Completed in 16.1s, response ~2226 chars]
