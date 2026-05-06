@@ -1339,3 +1339,8 @@ A single, self-contained H
 1. ~/scripts/job_search.py - the main orchestrator (focus on the Microsoft scraping section)
 2. ~/scripts/_test_ms_xhr2.py - the most recent Pl  
 **Summary:** [Completed in 37.2s, response ~3166 chars]
+
+## 2026-05-06 19:50 UTC
+**Avatar:** Parashurama  
+**Task:** Read lines 394-700 of ~/scripts/job_search.py to see the full Microsoft scraping code + the LinkedIn scraper.  
+**Summary:** [Completed in 14.3s, response ~2489 chars]
