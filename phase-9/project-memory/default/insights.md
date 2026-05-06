@@ -2341,3 +2341,13 @@ find ~/bitsquish-seo -type f -exec ls -lh {} \; | awk '{print $
 1. What is the Netlify site name? Look in the HTML for any Netlify-specific meta tags or script comments
 2. Check the HTTP response headers for `x-nf-*` or serv  
 **Summary:** [Completed in 101.8s, response ~4804 chars]
+
+## 2026-05-06 19:54 UTC
+**Avatar:** Parashurama  
+**Task:** Create a clean deployable folder with ONLY the necessary files (no generator scripts, no .py files). 
+
+```bash
+# Create a clean deploy folder
+mkdir -p ~/bitsquish-deploy/features
+mkdir -p ~/bitsquish-  
+**Summary:** [Completed in 35.8s, response ~1550 chars]
