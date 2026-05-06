@@ -1565,3 +1565,10 @@ with open('/Users/neekhilvatsa/scripts/job_search.py', 'r') as f:
 1. Any Python scripts or projects related to a "job board" or "job scraper"
 2. Check common locations: ~/projects, ~/dev, ~/Documents  
 **Summary:** [Completed in 54.2s, response ~6680 chars]
+
+## 2026-05-06 19:51 UTC
+**Avatar:** Matsya  
+**Task:** Research Microsoft's careers page URL structure and job listing format. Check:
+1. https://jobs.careers.microsoft.com/global/en/search — how the API/search works
+2. What endpoints are used (look at net  
+**Summary:** [Completed in 104.5s, response ~5442 chars]
