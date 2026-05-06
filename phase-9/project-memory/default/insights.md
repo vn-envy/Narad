@@ -734,3 +734,11 @@ A single, self-contained H
 **Avatar:** Rama  
 **Task:** Give a click-by-click step-by-step guide on how to run Mimo 2.5 Pro through an API key in OpenCode. Assume the user has an API key for Mimo already. The steps should be detailed, sequential, and actio  
 **Summary:** [Completed in 22.9s, response ~5358 chars]
+
+## 2026-05-06 19:49 UTC
+**Avatar:** Parashurama  
+**Task:** Read the full ~/scripts/_test_ms_xhr2.py file content. Also run the current Microsoft scraper to see what actually fails: `cd ~/scripts && python3 -c "
+import sys, json
+sys.path.insert(0, '.')
+# Just   
+**Summary:** [Completed in 337.6s, response ~3299 chars]
