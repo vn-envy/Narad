@@ -2743,3 +2743,13 @@ Or alternatively, write a quick one-off script that:
 **Avatar:** Parashurama  
 **Task:** Read the full content of ~/job_board/index.html and display it.  
 **Summary:** [Completed in 16.4s, response ~3173 chars]
+
+## 2026-05-06 19:55 UTC
+**Avatar:** Parashurama  
+**Task:** Create a new script at ~/scripts/auto_resume_generator.py that handles the "mark interested → auto-generate resume" feature. Here's the full spec:
+
+```python
+#!/usr/bin/env python3
+"""
+Auto Resume Gen  
+**Summary:** [Completed in 63.1s, response ~1821 chars]
