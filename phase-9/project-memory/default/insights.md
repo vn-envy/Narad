@@ -786,3 +786,8 @@ sys.path.insert(0, '.')
 
 1. GET `https://apply.careers.microsoft.com/api/pcsx/search?domain=microsoft.com&query=Senior+Program  
 **Summary:** [Completed in 49.9s, response ~5674 chars]
+
+## 2026-05-06 19:49 UTC
+**Avatar:** Parashurama  
+**Task:** Read lines 200-270 of ~/scripts/job_search.py to see the `append_result()` and the output writing functions - I need to see the exact result dict structure and how results are written to JSON.  
+**Summary:** [Completed in 18.5s, response ~2402 chars]
