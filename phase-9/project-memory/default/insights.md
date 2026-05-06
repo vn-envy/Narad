@@ -1992,3 +1992,10 @@ with open('/Users/neekhilvatsa/scripts/job_search.py') as f:
 1. The first 30 lines of ~/scripts/scrape_microsoft_fallback.py (just to see the new docstring and imports)
 2. The last 15 lines of ~/job_board/inde  
 **Summary:** [Completed in 16.3s, response ~2274 chars]
+
+## 2026-05-06 19:53 UTC
+**Avatar:** Parashurama  
+**Task:** Now I will rewrite the Microsoft scraper section in job_search.py. The change replaces the Playwright-based scraper (lines 416-656) with a pure HTTP PCSX API scraper. Let me create the new version.
+
+F  
+**Summary:** [Completed in 355.5s, response ~2694 chars]
