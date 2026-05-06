@@ -1247,3 +1247,14 @@ F
 **What the script should do:**
 1. Scrape job listings from **Amazon** (amazon.jobs), **Microsoft** (ca  
 **Summary:** [Completed in 1084.9s, response ~2583 chars]
+
+## 2026-05-06 19:50 UTC
+**Avatar:** Parashurama  
+**Task:** Verify the file is syntactically valid and check the Microsoft section. Run:
+
+python3 -c "
+import py_compile
+try:
+    py_compile.compile('/Users/neekhilvatsa/scripts/job_search.py', doraise=True)
+      
+**Summary:** [Completed in 26.0s, response ~4410 chars]
