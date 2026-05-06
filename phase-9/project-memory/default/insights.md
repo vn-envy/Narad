@@ -1354,3 +1354,10 @@ A single, self-contained H
 **Avatar:** Parashurama  
 **Task:** Read the full content of ~/scripts/resume_api_server.py and show it to me.  
 **Summary:** [Completed in 10.7s, response ~1942 chars]
+
+## 2026-05-06 19:51 UTC
+**Avatar:** Parashurama  
+**Task:** Run these checks and report output:
+1. `python3 -c "from playwright.sync_api import sync_playwright; print('Playwright OK')"` — to check if Playwright is installed
+2. `playwright --version 2>/dev/null  
+**Summary:** [Completed in 17.1s, response ~2950 chars]
