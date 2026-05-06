@@ -3181,3 +3181,10 @@ Use python-docx to create a well-forma
 3. ~/scripts/resume_api_server.py
 4. ~/scripts/job_search  
 **Summary:** [Completed in 67.9s, response ~13459 chars]
+
+## 2026-05-06 19:58 UTC
+**Avatar:** Parashurama  
+**Task:** Create a presentation HTML file at ~/auto-apply-first-principles.html that explains the end-to-end auto-apply workflow in first principles. 
+
+Think of it like explaining to "a kind 5-year-old" (as Rol  
+**Summary:** [Completed in 3127.4s, response ~2483 chars]
