@@ -1696,3 +1696,11 @@ cp /Users/neekhilvatsa/scripts/scrape_microsoft_pcsx.py /tmp/ms_pcsx.py
 1. The URL pattern for Microsoft job listings (e.g., https://careers.microsoft.com/...)
 2. How their job listings are structur  
 **Summary:** [Completed in 125.4s, response ~8666 chars]
+
+## 2026-05-06 19:52 UTC
+**Avatar:** Parashurama  
+**Task:** Read and display the following files in full:
+1. ~/scripts/scrape_microsoft_fallback.py
+2. ~/scripts/resume_api_server.py
+3. ~/job_board/index.html (focus on the JavaScript section - the UI logic, sta  
+**Summary:** [Completed in 50.6s, response ~10329 chars]
