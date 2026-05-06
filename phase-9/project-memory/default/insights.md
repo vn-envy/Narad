@@ -1084,3 +1084,11 @@ Extract every section completely:
 
 Here is the user's CURRENT R  
 **Summary:** [Completed in 25.9s, response ~8348 chars]
+
+## 2026-05-06 19:50 UTC
+**Avatar:** Parashurama  
+**Task:** I need to see lines 339-620 of ~/scripts/job_search.py (the full Microsoft scraper section). Read it raw by printing each line:
+
+python3 << 'EOF'
+with open('/Users/neekhilvatsa/scripts/job_search.py')  
+**Summary:** [Completed in 14.8s, response ~2126 chars]
