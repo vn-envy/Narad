@@ -1102,3 +1102,10 @@ with open('/Users/neekhilvatsa/scripts/job_search.py') as f:
     lines = f.readlines()
     for i in range(33  
 **Summary:** [Completed in 44.1s, response ~11514 chars]
+
+## 2026-05-06 19:50 UTC
+**Avatar:** Matsya  
+**Task:** Search extensively for current/recent Senior Manager or Principal-level Program Management job openings in Hyderabad, India. Use multiple sources and queries:
+
+1. Amazon careers (amazon.jobs) — "Senio  
+**Summary:** [Completed in 187.9s, response ~14311 chars]
