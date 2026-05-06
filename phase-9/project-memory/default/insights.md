@@ -1850,3 +1850,13 @@ Auto Resume Gen
 python3 << 'EOF'
 with open('/Users/neekhilvatsa/scripts/job_search.py')  
 **Summary:** [Completed in 14.8s, response ~2126 chars]
+
+## 2026-05-06 19:52 UTC
+**Avatar:** Parashurama  
+**Task:** Print the actual raw source code of lines 339-620 with line numbers. Run:
+
+python3 << 'EOF'
+with open('/Users/neekhilvatsa/scripts/job_search.py') as f:
+    lines = f.readlines()
+    for i in range(33  
+**Summary:** [Completed in 44.1s, response ~11514 chars]
