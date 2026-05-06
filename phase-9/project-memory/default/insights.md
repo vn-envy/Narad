@@ -2028,3 +2028,13 @@ try:
     py_compile.compile('/Users/neekhilvatsa/scripts/job_search.py', doraise=True)
       
 **Summary:** [Completed in 26.0s, response ~4410 chars]
+
+## 2026-05-06 19:53 UTC
+**Avatar:** Parashurama  
+**Task:** Fix the JavaScript scope bug in ~/job_board/index.html and add a loading indicator.
+
+## The Bug
+
+The JS file has this structure (roughly):
+- Lines ~540-790: An IIFE `(function() { ... allJobs = []; ..  
+**Summary:** [Completed in 42.4s, response ~2236 chars]
