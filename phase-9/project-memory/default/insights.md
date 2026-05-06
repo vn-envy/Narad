@@ -1398,3 +1398,8 @@ sys.path.insert(0, '.')
 **Task:** 1. Run a Python one-liner to check if port 8787 is in use: `python3 -c "import socket; s=socket.socket(); r=s.connect_ex(('127.0.0.1', 8787)); print('IN USE' if r==0 else 'FREE'); s.close()"`
 2. Also   
 **Summary:** [Completed in 9.0s, response ~676 chars]
+
+## 2026-05-06 19:51 UTC
+**Avatar:** Parashurama  
+**Task:** Read lines 1-90 and 394-602 of ~/scripts/job_search.py. I need the exact imports/config at the top and the exact Microsoft scraper code.  
+**Summary:** [Completed in 26.0s, response ~5270 chars]
