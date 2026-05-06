@@ -1518,3 +1518,12 @@ Run: cat ~/scripts/job_search.py
 1. ~/scripts/job_search.py (specifically the Microsoft scraper section and how scrapers are orchestrated)
 2. ~/scripts/scrape_microsoft_pcsx.py (  
 **Summary:** [Completed in 23.4s, response ~4944 chars]
+
+## 2026-05-06 19:51 UTC
+**Avatar:** Parashurama  
+**Task:** Read and show me the full content of:
+1. ~/scripts/resume_api_server.py
+2. ~/job_board/index.html
+
+I need to understand the current "apply" flow, how jobs show status, and the resume API structure.  
+**Summary:** [Completed in 33.6s, response ~2165 chars]
