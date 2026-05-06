@@ -1920,3 +1920,14 @@ with open('/Users/neekhilvatsa/scripts/job_search.py') as f:
 2. ~/job_board/index.html (all ~430 lines)
 3. ~/scripts/auto_r  
 **Summary:** [Completed in 114.8s, response ~31116 chars]
+
+## 2026-05-06 19:53 UTC
+**Avatar:** Parashurama  
+**Task:** Print lines 36-90:
+
+python3 << 'EOF'
+with open('/Users/neekhilvatsa/scripts/job_search.py') as f:
+    lines = f.readlines()
+    for i in range(35, min(91, len(lines))):
+        print(lines[i], end='')  
+**Summary:** [Completed in 14.4s, response ~2296 chars]
