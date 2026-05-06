@@ -2218,3 +2218,8 @@ Requirements:
 
 Look for directories   
 **Summary:** [Completed in 19.3s, response ~2093 chars]
+
+## 2026-05-06 19:53 UTC
+**Avatar:** Parashurama  
+**Task:** Read lines 525-630 of ~/scripts/job_search.py to see the rest of the Microsoft scraper and the LinkedIn scraper. Also check if there's a standalone scrape_microsoft() function wrapping scrape_microsof  
+**Summary:** [Completed in 16.5s, response ~3662 chars]
