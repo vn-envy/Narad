@@ -2381,3 +2381,8 @@ Specs:
    - Full page content — what does the company do?
    - Their product  
 **Summary:** [Completed in 78.0s, response ~8145 chars]
+
+## 2026-05-06 19:54 UTC
+**Avatar:** Buddha  
+**Task:** Analyze the following company profile and tell me what kind of managerial interview style and questions to expect from DATAECONOMY's hiring manager for an Azure Infrastructure Engineer role in Hyderab  
+**Summary:** [Completed in 38.5s, response ~11424 chars]
