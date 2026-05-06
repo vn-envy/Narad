@@ -712,3 +712,8 @@ A single, self-contained H
 **Avatar:** Parashurama  
 **Task:** Read lines 394-700 of ~/scripts/job_search.py to see the full Microsoft scraping code + the LinkedIn scraper.  
 **Summary:** [Completed in 14.3s, response ~2489 chars]
+
+## 2026-05-06 19:48 UTC
+**Avatar:** Narasimha  
+**Task:** Debug why a Postgres query is doing a sequential scan on a 40M row table despite an index on user_id. Query: SELECT * FROM events WHERE user_id = 123 AND created_at > NOW() - INTERVAL '7 days'. Possib  
+**Summary:** [Completed in 12.6s, response ~3556 chars]
