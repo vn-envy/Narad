@@ -2121,3 +2121,17 @@ ps aux | grep resume_api | grep -v grep
 ```bash
 pkill -f resume_api_server 2>/  
 **Summary:** [Completed in 24.7s, response ~1568 chars]
+
+## 2026-05-06 19:53 UTC
+**Avatar:** Parashurama  
+**Task:** Make sure both servers are running cleanly:
+
+```bash
+# Kill any existing instances
+pkill -f "http.server 8080" 2>/dev/null
+pkill -f resume_api_server 2>/dev/null
+sleep 1
+
+# Start job board server
+cd ~  
+**Summary:** [Completed in 20.7s, response ~1334 chars]
