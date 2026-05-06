@@ -874,3 +874,14 @@ with open('/Users/neekhilvatsa/scripts/job_search.py', 'r') as f:
 cp /Users/neekhilvatsa/scripts/job_search.py /tmp/job_search_full_copy.py
 wc -l /tmp/job_search_full_copy.  
 **Summary:** [Completed in 9.1s, response ~610 chars]
+
+## 2026-05-06 19:49 UTC
+**Avatar:** Parashurama  
+**Task:** I need to see the raw code. Run:
+
+python3 -c "
+with open('/tmp/job_search_full_copy.py') as f:
+    data = f.read()
+print(repr(data[:5000]))
+"  
+**Summary:** [Completed in 25.4s, response ~1759 chars]
