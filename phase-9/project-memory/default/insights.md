@@ -2071,3 +2071,17 @@ grep -n "window.allJobs" ~/job_board/index.html
 **Avatar:** Parashurama  
 **Task:** Read the full content of ~/scripts/job_search.py and show it to me.  
 **Summary:** [Completed in 16.7s, response ~3075 chars]
+
+## 2026-05-06 19:53 UTC
+**Avatar:** Parashurama  
+**Task:** Do a live test:
+
+1. Check if the HTTP server is still running:
+```bash
+ps aux | grep "http.server 8080" | grep -v grep
+```
+
+2. If not running, start it:
+```bash
+cd ~/job_board && python3 -m http.serve  
+**Summary:** [Completed in 22.4s, response ~1339 chars]
