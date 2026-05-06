@@ -186,3 +186,8 @@ In 2026, the landscape of open-source agent frameworks is defined by three promi
 **Avatar:** Narasimha  
 **Task:** Postgres table with 40 million rows is doing sequential scans despite having indexes. Diagnose potential causes and provide fix steps. Common causes: query not using index due to data type mismatch (e  
 **Summary:** [Completed in 15.3s, response ~5231 chars]
+
+## 2026-05-06 19:46 UTC
+**Avatar:** Narasimha  
+**Task:** Postgres query on a 45M row orders table is doing a sequential scan. An index on created_at exists but is being ignored. Diagnose why the index is being skipped and suggest fixes: possible reasons inc  
+**Summary:** [Completed in 20.0s, response ~5721 chars]
