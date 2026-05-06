@@ -1572,3 +1572,11 @@ with open('/Users/neekhilvatsa/scripts/job_search.py', 'r') as f:
 1. https://jobs.careers.microsoft.com/global/en/search — how the API/search works
 2. What endpoints are used (look at net  
 **Summary:** [Completed in 104.5s, response ~5442 chars]
+
+## 2026-05-06 19:51 UTC
+**Avatar:** Parashurama  
+**Task:** Write the ENTIRE content of ~/scripts/job_search.py to a new temp file so I can see it. Run:
+
+cp /Users/neekhilvatsa/scripts/job_search.py /tmp/job_search_full_copy.py
+wc -l /tmp/job_search_full_copy.  
+**Summary:** [Completed in 9.1s, response ~610 chars]
