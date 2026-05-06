@@ -2169,3 +2169,15 @@ grep -n -A 20 "window.updateStatus" ~/job_board/index.html
 **Avatar:** Parashurama  
 **Task:** Read the full content of ~/scripts/resume_api_server.py and show it to me.  
 **Summary:** [Completed in 10.7s, response ~1942 chars]
+
+## 2026-05-06 19:53 UTC
+**Avatar:** Parashurama  
+**Task:** Find all generated resume files on the filesystem:
+
+```bash
+# Search broadly for resume files
+find ~ -name "Resume_*.docx" -type f 2>/dev/null | head -20
+echo "---"
+# Also check the resumes directory
+  
+**Summary:** [Completed in 118.0s, response ~3118 chars]
