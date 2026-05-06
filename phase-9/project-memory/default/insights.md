@@ -1470,3 +1470,8 @@ sys.path.insert(0, '.')
 - 800 colourful particles
 - Each part  
 **Summary:** [Completed in 54.7s, response ~944 chars]
+
+## 2026-05-06 19:51 UTC
+**Avatar:** Parashurama  
+**Task:** Display ONLY the scrape_microsoft_playwright() function from ~/scripts/job_search.py — lines 426-510. Show me the full function signature, body, and return statement.  
+**Summary:** [Completed in 13.5s, response ~2997 chars]
