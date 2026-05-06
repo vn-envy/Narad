@@ -1648,3 +1648,13 @@ From ~/scripts/job_search.py:
 1. The `write_jobs_json()` function (lines 167-234 area) — I need the exact merge logic
 2. The `scrape_microsoft()  
 **Summary:** [Completed in 70.5s, response ~16466 chars]
+
+## 2026-05-06 19:52 UTC
+**Avatar:** Parashurama  
+**Task:** I need to see the ACTUAL source code lines. Print them RAW. Run:
+
+python3 -c "
+with open('/Users/neekhilvatsa/scripts/scrape_microsoft_pcsx.py') as f:
+    lines = f.readlines()
+    for i, line in enum  
+**Summary:** [Completed in 15.4s, response ~1997 chars]
