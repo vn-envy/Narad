@@ -1156,3 +1156,14 @@ with open('/Users/neekhilvatsa/scripts/job_search.py') as f:
     for i in range(13, min(36, len(lines))):
         print(lines[i], end='')  
 **Summary:** [Completed in 7.2s, response ~927 chars]
+
+## 2026-05-06 19:50 UTC
+**Avatar:** Parashurama  
+**Task:** Print lines 36-90:
+
+python3 << 'EOF'
+with open('/Users/neekhilvatsa/scripts/job_search.py') as f:
+    lines = f.readlines()
+    for i in range(35, min(91, len(lines))):
+        print(lines[i], end='')  
+**Summary:** [Completed in 14.4s, response ~2296 chars]
