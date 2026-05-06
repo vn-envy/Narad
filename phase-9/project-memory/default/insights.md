@@ -2472,3 +2472,12 @@ curl -s -X POST "https://apply.careers.microsoft.com/api/pcsx/search" \
 1. ~/Downloads/Submit_Applications_Guide.md — what does this guide say about applying?
 2. ~/job_board/check_resume.py — what does this check?  
 **Summary:** [Completed in 17.3s, response ~3350 chars]
+
+## 2026-05-06 19:54 UTC
+**Avatar:** Parashurama  
+**Task:** Read and report back the FULL contents of these files. I need every line of code:
+
+1. `~/scripts/job_search.py` — read the entire file
+2. `~/scripts/scrape_microsoft_pcsx.py` — entire file
+3. `~/scrip  
+**Summary:** [Completed in 53.1s, response ~10112 chars]
