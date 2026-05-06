@@ -2692,3 +2692,12 @@ Please do the following:
 
 Do NOT output the secret values to me —  
 **Summary:** [Completed in 8.8s, response ~1050 chars]
+
+## 2026-05-06 19:55 UTC
+**Avatar:** Parashurama  
+**Task:** Run: python3 ~/zerodha/kite_auth.py --verify-only
+
+Or alternatively, write a quick one-off script that:
+1. Loads the .env from ~/zerodha/.env
+2. Initializes KiteConnect with the API key and access tok  
+**Summary:** [Completed in 71.3s, response ~1972 chars]
