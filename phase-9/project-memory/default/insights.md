@@ -1587,3 +1587,14 @@ wc -l /tmp/job_search_full_copy.
 
 1. ~/scripts/job_search.py — Main orchestrator. I need: how it calls scraper  
 **Summary:** [Completed in 59.2s, response ~9394 chars]
+
+## 2026-05-06 19:51 UTC
+**Avatar:** Parashurama  
+**Task:** I need to see the raw code. Run:
+
+python3 -c "
+with open('/tmp/job_search_full_copy.py') as f:
+    data = f.read()
+print(repr(data[:5000]))
+"  
+**Summary:** [Completed in 25.4s, response ~1759 chars]
