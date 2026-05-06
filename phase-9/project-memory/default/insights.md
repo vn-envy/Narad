@@ -3009,3 +3009,12 @@ Look for directories
 2. List ALL the JavaScript files loaded (the Vite chunks)
 3. List ALL the CSS files lo  
 **Summary:** [Completed in 69.1s, response ~8493 chars]
+
+## 2026-05-06 19:56 UTC
+**Avatar:** Matsya  
+**Task:** Check if there's any public git repository or source code available for bitsquish.app.
+
+1. Check if there's a /.git/config exposed:
+```bash
+curl -s -o /dev/null -w "%{http_code}" https://bitsquish.app  
+**Summary:** [Completed in 68.2s, response ~4107 chars]
