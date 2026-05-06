@@ -1832,3 +1832,13 @@ bash -c 'sed -n "1,80p" /Users/neekhilvatsa/scripts/scrape_microsoft_pcsx.py'
 **Avatar:** Parashurama  
 **Task:** Check the file was written correctly. Run: head -30 /Users/neekhilvatsa/scripts/playwright_skills.py && echo "---" && wc -l /Users/neekhilvatsa/scripts/playwright_skills.py  
 **Summary:** [Completed in 5.2s, response ~556 chars]
+
+## 2026-05-06 19:52 UTC
+**Avatar:** Parashurama  
+**Task:** Create a new script at ~/scripts/auto_resume_generator.py that handles the "mark interested → auto-generate resume" feature. Here's the full spec:
+
+```python
+#!/usr/bin/env python3
+"""
+Auto Resume Gen  
+**Summary:** [Completed in 63.1s, response ~1821 chars]
