@@ -1361,3 +1361,8 @@ A single, self-contained H
 1. `python3 -c "from playwright.sync_api import sync_playwright; print('Playwright OK')"` — to check if Playwright is installed
 2. `playwright --version 2>/dev/null  
 **Summary:** [Completed in 17.1s, response ~2950 chars]
+
+## 2026-05-06 19:51 UTC
+**Avatar:** Parashurama  
+**Task:** I need to see lines 371-524 of ~/scripts/job_search.py — the Microsoft scraper section. Show me the exact code.  
+**Summary:** [Completed in 29.6s, response ~7611 chars]
