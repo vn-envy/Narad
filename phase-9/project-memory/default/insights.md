@@ -2107,3 +2107,17 @@ grep -n "localhost\|8787\|generate-resume\|generate_resume" ~/job_board/index.ht
 
 2. What routes does  
 **Summary:** [Completed in 19.4s, response ~963 chars]
+
+## 2026-05-06 19:53 UTC
+**Avatar:** Parashurama  
+**Task:** Check two things:
+
+1. Is the resume API server still running?
+```bash
+ps aux | grep resume_api | grep -v grep
+```
+
+2. If not running, start it in the background:
+```bash
+pkill -f resume_api_server 2>/  
+**Summary:** [Completed in 24.7s, response ~1568 chars]
