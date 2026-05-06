@@ -2947,3 +2947,15 @@ grep -n -A 20 "window.updateStatus" ~/job_board/index.html
 
 2. Check if there's a CSS issue —  
 **Summary:** [Completed in 192.7s, response ~2926 chars]
+
+## 2026-05-06 19:56 UTC
+**Avatar:** Parashurama  
+**Task:** Find all generated resume files on the filesystem:
+
+```bash
+# Search broadly for resume files
+find ~ -name "Resume_*.docx" -type f 2>/dev/null | head -20
+echo "---"
+# Also check the resumes directory
+  
+**Summary:** [Completed in 118.0s, response ~3118 chars]
