@@ -1384,3 +1384,11 @@ sys.path.insert(0, '.')
 **Avatar:** Parashurama  
 **Task:** Read the FULL content of ~/scripts/_test_ms_xhr2.py file. I want every line of code.  
 **Summary:** [Completed in 24.3s, response ~5113 chars]
+
+## 2026-05-06 19:51 UTC
+**Avatar:** Parashurama  
+**Task:** I need to understand the current state before making changes. Please:
+
+1. Check if Playwright is installed: run `pip3 list 2>/dev/null | grep -i playwright` via shell
+2. Check if python-docx is instal  
+**Summary:** [Completed in 16.1s, response ~2226 chars]
