@@ -1900,3 +1900,14 @@ with open('/Users/neekhilvatsa/scripts/job_search.py') as f:
 1. ~/scripts/scrape_microsoft_fallback.py (the existing MS fallback scraper)
 2. ~/scripts/job_search.py (the main job s  
 **Summary:** [Completed in 49.1s, response ~8564 chars]
+
+## 2026-05-06 19:53 UTC
+**Avatar:** Parashurama  
+**Task:** Print lines 14-35:
+
+python3 << 'EOF'
+with open('/Users/neekhilvatsa/scripts/job_search.py') as f:
+    lines = f.readlines()
+    for i in range(13, min(36, len(lines))):
+        print(lines[i], end='')  
+**Summary:** [Completed in 7.2s, response ~927 chars]
