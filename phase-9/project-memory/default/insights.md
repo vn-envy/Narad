@@ -757,3 +757,10 @@ sys.path.insert(0, '.')
 **Avatar:** Parashurama  
 **Task:** Read lines 1-90 and 394-602 of ~/scripts/job_search.py. I need the exact imports/config at the top and the exact Microsoft scraper code.  
 **Summary:** [Completed in 26.0s, response ~5270 chars]
+
+## 2026-05-06 19:49 UTC
+**Avatar:** Parashurama  
+**Task:** Read the full content of ~/job_board/index.html. I need to see the entire file to understand the HTML/JS structure, especially:
+1. The job card template and how "Apply Now" button works
+2. Any existin  
+**Summary:** [Completed in 31.6s, response ~5704 chars]
