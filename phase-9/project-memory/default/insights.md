@@ -181,3 +181,8 @@ In 2026, the landscape of open-source agent frameworks is defined by three promi
 
 1. **Ideal weight range** for a 12-month  
 **Summary:** [Completed in 318.8s, response ~12201 chars]
+
+## 2026-05-06 19:46 UTC
+**Avatar:** Narasimha  
+**Task:** Postgres table with 40 million rows is doing sequential scans despite having indexes. Diagnose potential causes and provide fix steps. Common causes: query not using index due to data type mismatch (e  
+**Summary:** [Completed in 15.3s, response ~5231 chars]
