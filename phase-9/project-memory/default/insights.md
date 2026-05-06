@@ -1548,3 +1548,13 @@ curl -s -X POST "https://apply.careers.microsoft.com/api/pcsx/search" \
   -H "Content-Type: application/json" \
   -H "Origin: https://careers.microsoft.  
 **Summary:** [Completed in 116.2s, response ~3645 chars]
+
+## 2026-05-06 19:51 UTC
+**Avatar:** Parashurama  
+**Task:** I need the ACTUAL source code line-by-line. Run this Python command precisely:
+
+python3 -c "
+with open('/Users/neekhilvatsa/scripts/job_search.py', 'r') as f:
+    lines = f.readlines()
+    for i, line  
+**Summary:** [Completed in 36.2s, response ~4217 chars]
