@@ -99,3 +99,13 @@ The current code at line ~30 does:
 try:
     from scrape_microsoft_fallback  
 **Summary:** [Completed in 131.7s, response ~2420 chars]
+
+## 2026-05-06 19:53 UTC
+**Avatar:** Parashurama  
+**Task:** You will build TWO features for the existing job board system at ~/job_board/ and ~/scripts/.
+
+## SYSTEM CONTEXT
+
+The job board consists of:
+- **Frontend**: `~/job_board/index.html` — Vanilla JS SPA.   
+**Summary:** [Completed in 831.7s, response ~3104 chars]
