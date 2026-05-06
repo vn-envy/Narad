@@ -1842,3 +1842,11 @@ bash -c 'sed -n "1,80p" /Users/neekhilvatsa/scripts/scrape_microsoft_pcsx.py'
 """
 Auto Resume Gen  
 **Summary:** [Completed in 63.1s, response ~1821 chars]
+
+## 2026-05-06 19:52 UTC
+**Avatar:** Parashurama  
+**Task:** I need to see lines 339-620 of ~/scripts/job_search.py (the full Microsoft scraper section). Read it raw by printing each line:
+
+python3 << 'EOF'
+with open('/Users/neekhilvatsa/scripts/job_search.py')  
+**Summary:** [Completed in 14.8s, response ~2126 chars]
