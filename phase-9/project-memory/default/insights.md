@@ -1366,3 +1366,11 @@ A single, self-contained H
 **Avatar:** Parashurama  
 **Task:** I need to see lines 371-524 of ~/scripts/job_search.py — the Microsoft scraper section. Show me the exact code.  
 **Summary:** [Completed in 29.6s, response ~7611 chars]
+
+## 2026-05-06 19:51 UTC
+**Avatar:** Parashurama  
+**Task:** Read the full ~/scripts/_test_ms_xhr2.py file content. Also run the current Microsoft scraper to see what actually fails: `cd ~/scripts && python3 -c "
+import sys, json
+sys.path.insert(0, '.')
+# Just   
+**Summary:** [Completed in 337.6s, response ~3299 chars]
