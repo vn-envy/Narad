@@ -2415,3 +2415,11 @@ I need to understand the current "apply" flow, how jobs show status, and the res
 **Avatar:** Varaha  
 **Task:** Search the local filesystem for any existing code or documentation related to a "job search and resume customization engine" or "auto-apply" system. Look in common project directories, home directory,  
 **Summary:** [Completed in 47.4s, response ~2750 chars]
+
+## 2026-05-06 19:54 UTC
+**Avatar:** Parashurama  
+**Task:** Test the current Microsoft PCSX API by running:
+curl -s -X POST "https://apply.careers.microsoft.com/api/pcsx/search" \
+  -H "Content-Type: application/json" \
+  -H "Origin: https://careers.microsoft.  
+**Summary:** [Completed in 116.2s, response ~3645 chars]
