@@ -1403,3 +1403,8 @@ sys.path.insert(0, '.')
 **Avatar:** Parashurama  
 **Task:** Read lines 1-90 and 394-602 of ~/scripts/job_search.py. I need the exact imports/config at the top and the exact Microsoft scraper code.  
 **Summary:** [Completed in 26.0s, response ~5270 chars]
+
+## 2026-05-06 19:51 UTC
+**Avatar:** Parashurama  
+**Task:** Read and show the COMPLETE content of ~/scripts/job_search.py — every line from line 1 to end. I need to see the entire file to plan edits.  
+**Summary:** [Completed in 13.1s, response ~2260 chars]
