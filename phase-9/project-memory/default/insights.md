@@ -2260,3 +2260,12 @@ Look for directories
 **Avatar:** Parashurama  
 **Task:** Read and show the COMPLETE content of ~/scripts/job_search.py — every line from line 1 to end. I need to see the entire file to plan edits.  
 **Summary:** [Completed in 13.1s, response ~2260 chars]
+
+## 2026-05-06 19:54 UTC
+**Avatar:** Matsya  
+**Task:** Check if there's any public git repository or source code available for bitsquish.app.
+
+1. Check if there's a /.git/config exposed:
+```bash
+curl -s -o /dev/null -w "%{http_code}" https://bitsquish.app  
+**Summary:** [Completed in 68.2s, response ~4107 chars]
