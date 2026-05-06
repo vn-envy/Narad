@@ -212,3 +212,8 @@ Here is the full portfolio context:
 
 **Current Portfoli  
 **Summary:** [Completed in 44.8s, response ~9810 chars]
+
+## 2026-05-06 19:46 UTC
+**Avatar:** Parashurama  
+**Task:** Check if ~/zerodha/portfolio_dashboard.html exists and is valid (non-empty, ends with </html>). Also check its file size.  
+**Summary:** [Completed in 7.1s, response ~680 chars]
