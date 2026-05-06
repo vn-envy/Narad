@@ -2846,3 +2846,13 @@ python3 -c "import docx; print('python-docx available:', docx.
 ```bash
 ls -la ~/job_board/jobs.json && wc -l ~/job_board/jobs.json && head -c 500 ~/job_board/jobs.js  
 **Summary:** [Completed in 72.9s, response ~4092 chars]
+
+## 2026-05-06 19:55 UTC
+**Avatar:** Parashurama  
+**Task:** Fix the JavaScript scope bug in ~/job_board/index.html and add a loading indicator.
+
+## The Bug
+
+The JS file has this structure (roughly):
+- Lines ~540-790: An IIFE `(function() { ... allJobs = []; ..  
+**Summary:** [Completed in 42.4s, response ~2236 chars]
