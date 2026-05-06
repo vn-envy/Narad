@@ -929,3 +929,13 @@ with open('/Users/neekhilvatsa/scripts/scrape_microsoft_pcsx.py') as f:
     for i, line in enumerate(lines, 1):
         
 **Summary:** [Completed in 18.2s, response ~2638 chars]
+
+## 2026-05-06 19:49 UTC
+**Avatar:** Parashurama  
+**Task:** I need to see the ACTUAL source code lines. Print them RAW. Run:
+
+python3 -c "
+with open('/Users/neekhilvatsa/scripts/scrape_microsoft_pcsx.py') as f:
+    lines = f.readlines()
+    for i, line in enum  
+**Summary:** [Completed in 15.4s, response ~1997 chars]
