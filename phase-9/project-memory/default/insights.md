@@ -2038,3 +2038,16 @@ try:
 The JS file has this structure (roughly):
 - Lines ~540-790: An IIFE `(function() { ... allJobs = []; ..  
 **Summary:** [Completed in 42.4s, response ~2236 chars]
+
+## 2026-05-06 19:53 UTC
+**Avatar:** Parashurama  
+**Task:** Verify the fixes by checking:
+
+1. That window.allJobs is declared inside the IIFE:
+```bash
+grep -n "window.allJobs" ~/job_board/index.html
+```
+
+2. That the global functions reference window.allJobs:
+`  
+**Summary:** [Completed in 38.5s, response ~2474 chars]
