@@ -2365,3 +2365,10 @@ Specs:
 **Avatar:** Parashurama  
 **Task:** Explore the current project for the personal job board. List all files in the current directory and any subdirectories related to a job board, scraper, or resume system. I need to understand the exist  
 **Summary:** [Completed in 44.9s, response ~4372 chars]
+
+## 2026-05-06 19:54 UTC
+**Avatar:** Parashurama  
+**Task:** Read and show me the full contents of these two files:
+1. ~/scripts/job_search.py (specifically the Microsoft scraper section and how scrapers are orchestrated)
+2. ~/scripts/scrape_microsoft_pcsx.py (  
+**Summary:** [Completed in 23.4s, response ~4944 chars]
