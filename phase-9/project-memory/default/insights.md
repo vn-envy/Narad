@@ -1178,3 +1178,10 @@ with open('/Users/neekhilvatsa/scripts/job_search.py') as f:
     for i in range(90, min(201, len(lines))):
         print(f"{i+1}:{lines[  
 **Summary:** [Completed in 14.4s, response ~2645 chars]
+
+## 2026-05-06 19:50 UTC
+**Avatar:** Parashurama  
+**Task:** I need you to regenerate a clean, properly formatted PDF resume at ~/Downloads/Neekhil_Vatsa_Resume_Amazon_SrPM_2025.pdf
+
+The previous version had formatting issues — the name "NEЕKHIL VATSA" at the t  
+**Summary:** [Completed in 126.3s, response ~1493 chars]
