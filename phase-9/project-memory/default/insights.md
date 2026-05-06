@@ -707,3 +707,8 @@ A single, self-contained H
 **Avatar:** Rama  
 **Task:** Create a structured migration plan for moving a monolithic Python Flask application to microservices. Include: (1) key phases in logical order, (2) dependencies between phases (what must be done befor  
 **Summary:** [Completed in 47.3s, response ~14955 chars]
+
+## 2026-05-06 19:48 UTC
+**Avatar:** Parashurama  
+**Task:** Read lines 394-700 of ~/scripts/job_search.py to see the full Microsoft scraping code + the LinkedIn scraper.  
+**Summary:** [Completed in 14.3s, response ~2489 chars]
