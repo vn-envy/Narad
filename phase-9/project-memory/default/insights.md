@@ -1511,3 +1511,10 @@ Specs:
 
 Run: cat ~/scripts/job_search.py  
 **Summary:** [Completed in 16.8s, response ~3348 chars]
+
+## 2026-05-06 19:51 UTC
+**Avatar:** Parashurama  
+**Task:** Read and show me the full contents of these two files:
+1. ~/scripts/job_search.py (specifically the Microsoft scraper section and how scrapers are orchestrated)
+2. ~/scripts/scrape_microsoft_pcsx.py (  
+**Summary:** [Completed in 23.4s, response ~4944 chars]
