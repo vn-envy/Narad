@@ -1435,3 +1435,10 @@ sys.path.insert(0, '.')
 **Avatar:** Varaha  
 **Task:** Read and extract all content from the PDF file ~/Downloads/Neekhil_Vatsa_Resume.pdf. I need the FULL text content — every section, every bullet point, contact info, skills, experience, education, ever  
 **Summary:** [Completed in 34.3s, response ~5299 chars]
+
+## 2026-05-06 19:51 UTC
+**Avatar:** Matsya  
+**Task:** Make a direct API call to the Microsoft careers API endpoint. Use Python-like urllib requests to:
+
+1. GET `https://apply.careers.microsoft.com/api/pcsx/search?domain=microsoft.com&query=Senior+Program  
+**Summary:** [Completed in 49.9s, response ~5674 chars]
