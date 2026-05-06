@@ -2560,3 +2560,10 @@ From ~/scripts/job_search.py:
 1. The URL pattern for Microsoft job listings (e.g., https://careers.microsoft.com/...)
 2. How their job listings are structur  
 **Summary:** [Completed in 125.4s, response ~8666 chars]
+
+## 2026-05-06 19:55 UTC
+**Avatar:** Parashurama  
+**Task:** Create a presentation HTML file at ~/auto-apply-first-principles.html that explains the end-to-end auto-apply workflow in first principles. 
+
+Think of it like explaining to "a kind 5-year-old" (as Rol  
+**Summary:** [Completed in 3127.4s, response ~2483 chars]
