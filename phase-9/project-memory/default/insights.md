@@ -2771,3 +2771,8 @@ Auto Resume Gen
 1. ~/scripts/scrape_microsoft_fallback.py (the existing MS fallback scraper)
 2. ~/scripts/job_search.py (the main job s  
 **Summary:** [Completed in 49.1s, response ~8564 chars]
+
+## 2026-05-06 19:55 UTC
+**Avatar:** Parashurama  
+**Task:** Check if ~/zerodha/portfolio_dashboard.html exists and is valid (non-empty, ends with </html>). Also check its file size.  
+**Summary:** [Completed in 7.1s, response ~680 chars]
