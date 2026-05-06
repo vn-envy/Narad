@@ -3286,3 +3286,8 @@ Or alternatively, write a quick one-off script that:
 **PHASE 1 — FETCH ALL DATA FROM KITE**
 1. Load env from ~/zerodh  
 **Summary:** [Completed in 1525.4s, response ~4814 chars]
+
+## 2026-05-06 19:59 UTC
+**Avatar:** Parashurama  
+**Task:** Check if ~/zerodha/portfolio_dashboard.html exists and is valid (non-empty, ends with </html>). Also check its file size.  
+**Summary:** [Completed in 7.1s, response ~680 chars]
