@@ -752,3 +752,8 @@ sys.path.insert(0, '.')
 **Avatar:** Matsya  
 **Task:** Research the current landscape of ed-tech platforms and visualization tools for school teachers. Find information about: 1) Popular platforms that help teachers visualize concepts (like Canva for Educ  
 **Summary:** [Completed in 66.1s, response ~9555 chars]
+
+## 2026-05-06 19:49 UTC
+**Avatar:** Parashurama  
+**Task:** Read lines 1-90 and 394-602 of ~/scripts/job_search.py. I need the exact imports/config at the top and the exact Microsoft scraper code.  
+**Summary:** [Completed in 26.0s, response ~5270 chars]
