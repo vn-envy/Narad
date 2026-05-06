@@ -1540,3 +1540,11 @@ with open('/Users/neekhilvatsa/scripts/job_search.py') as f:
     print(f.read())
 "  
 **Summary:** [Completed in 19.5s, response ~3472 chars]
+
+## 2026-05-06 19:51 UTC
+**Avatar:** Parashurama  
+**Task:** Test the current Microsoft PCSX API by running:
+curl -s -X POST "https://apply.careers.microsoft.com/api/pcsx/search" \
+  -H "Content-Type: application/json" \
+  -H "Origin: https://careers.microsoft.  
+**Summary:** [Completed in 116.2s, response ~3645 chars]
