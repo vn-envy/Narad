@@ -1408,3 +1408,8 @@ sys.path.insert(0, '.')
 **Avatar:** Parashurama  
 **Task:** Read and show the COMPLETE content of ~/scripts/job_search.py — every line from line 1 to end. I need to see the entire file to plan edits.  
 **Summary:** [Completed in 13.1s, response ~2260 chars]
+
+## 2026-05-06 19:51 UTC
+**Avatar:** Parashurama  
+**Task:** Read and show the COMPLETE content of ~/job_board/index.html — every line from 1 to end. I need the full file.  
+**Summary:** [Completed in 14.9s, response ~2964 chars]
