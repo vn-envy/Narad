@@ -526,3 +526,10 @@ Extract every section completely:
 **Avatar:** Krishna  
 **Task:** Write a launch email for our SaaS product going to our existing waitlist. The tone should be excited, grateful, and action-oriented. Include: a hook about the wait, what's launching, a clear CTA to si  
 **Summary:** [Completed in 6.1s, response ~1787 chars]
+
+## 2026-05-06 19:48 UTC
+**Avatar:** Krishna  
+**Task:** I need you to help prepare content for a resume tailored for an Amazon Senior Program Manager role in Hyderabad. Don't send an email — just help craft the resume content.
+
+Here is the user's CURRENT R  
+**Summary:** [Completed in 25.9s, response ~8348 chars]
