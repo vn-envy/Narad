@@ -2546,3 +2546,10 @@ From ~/scripts/job_search.py:
 3. ~/scripts/resume_api_server.py
 4. ~/scripts/job_search  
 **Summary:** [Completed in 67.9s, response ~13459 chars]
+
+## 2026-05-06 19:54 UTC
+**Avatar:** Parashurama  
+**Task:** I need to understand what currently exists in the user's personal job board project. Please:
+
+1. Look at the current directory structure — find the project root for what seems to be a "personal job bo  
+**Summary:** [Completed in 59.2s, response ~5927 chars]
