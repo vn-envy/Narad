@@ -147,3 +147,16 @@ From ~/scripts/job_search.py:
 1. The `write_jobs_json()` function (lines 167-234 area) — I need the exact merge logic
 2. The `scrape_microsoft()  
 **Summary:** [Completed in 70.5s, response ~16466 chars]
+
+## 2026-05-07 10:50 UTC
+**Avatar:** Parashurama  
+**Task:** Show me the full contents of these files:
+1. ~/scripts/job_search.py (the main orchestrator)
+2. ~/scripts/scrape_microsoft_pcsx.py (the new working scraper)
+3. Any HTML files related to the job search  
+**Summary:** [Completed in 42.9s, response ~4098 chars]
+
+## 2026-05-07 10:50 UTC
+**Avatar:** Parashurama  
+**Task:** bash -c 'sed -n "1,90p" /Users/neekhilvatsa/scripts/job_search.py'  
+**Summary:** [Completed in 13.4s, response ~2647 chars]
