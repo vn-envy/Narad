@@ -45,3 +45,9 @@ List to trash:
 1. `python3 -c "from playwright.sync_api import sync_playwright; print('Playwright OK')"` — to check if Playwright is installed
 2. `playwright --version 2>/dev/null  
 **Summary:** [Completed in 17.1s, response ~2950 chars]
+
+## 2026-05-07 10:47 UTC
+**Avatar:** Matsya  
+**Task:** Search for Amazon Senior Manager job postings in Hyderabad, India. Look for:
+1. Current live job listings on Amazon's careers page, LinkedIn, Indeed, or other job portals for "Senior Manager" roles in  
+**Summary:** [Completed in 133.2s, response ~17501 chars]
