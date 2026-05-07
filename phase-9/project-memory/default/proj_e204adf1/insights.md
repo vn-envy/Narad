@@ -296,3 +296,13 @@ with open('/Users/neekhilvatsa/scripts/job_search.py') as f:
     for i in range(90, min(201, len(lines))):
         print(f"{i+1}:{lines[  
 **Summary:** [Completed in 14.4s, response ~2645 chars]
+
+## 2026-05-07 10:54 UTC
+**Avatar:** Parashurama  
+**Task:** I need to see the ACTUAL raw lines 240-290 of the file. Run this EXACT command:
+
+python3 -c "
+with open('/Users/neekhilvatsa/scripts/job_search.py') as f:
+    lines = f.readlines()
+    for i in range(  
+**Summary:** [Completed in 18.4s, response ~3270 chars]
