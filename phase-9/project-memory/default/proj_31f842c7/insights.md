@@ -24,3 +24,10 @@ curl -s -X POST "https://apply.careers.microsoft.com/api/pcsx/search" \
   -H "Content-Type: application/json" \
   -H "Origin: https://careers.microsoft.  
 **Summary:** [Completed in 116.2s, response ~3645 chars]
+
+## 2026-05-07 10:53 UTC
+**Avatar:** Matsya  
+**Task:** Research Microsoft's careers page URL structure and job listing format. Check:
+1. https://jobs.careers.microsoft.com/global/en/search — how the API/search works
+2. What endpoints are used (look at net  
+**Summary:** [Completed in 104.5s, response ~5442 chars]
