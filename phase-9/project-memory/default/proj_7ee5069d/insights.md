@@ -57,3 +57,13 @@ try:
 
 bash -c 'sed -n "1,80p" /Users/neekhilvatsa/scripts/scrape_microsoft_pcsx.py'  
 **Summary:** [Completed in 11.1s, response ~1816 chars]
+
+## 2026-05-07 10:51 UTC
+**Avatar:** Parashurama  
+**Task:** I need to see the ACTUAL source code lines. Print them RAW. Run:
+
+python3 -c "
+with open('/Users/neekhilvatsa/scripts/scrape_microsoft_pcsx.py') as f:
+    lines = f.readlines()
+    for i, line in enum  
+**Summary:** [Completed in 15.4s, response ~1997 chars]
