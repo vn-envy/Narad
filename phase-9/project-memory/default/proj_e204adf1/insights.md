@@ -210,3 +210,8 @@ with open('/Users/neekhilvatsa/scripts/job_search.py') as f:
 cp /Users/neekhilvatsa/scripts/job_search.py /tmp/job_search_full_copy.py
 wc -l /tmp/job_search_full_copy.  
 **Summary:** [Completed in 9.1s, response ~610 chars]
+
+## 2026-05-07 10:52 UTC
+**Avatar:** Parashurama  
+**Task:** Read lines 200-270 of ~/scripts/job_search.py to see the `append_result()` and the output writing functions - I need to see the exact result dict structure and how results are written to JSON.  
+**Summary:** [Completed in 18.5s, response ~2402 chars]
