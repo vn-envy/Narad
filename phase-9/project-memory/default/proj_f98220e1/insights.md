@@ -15,3 +15,8 @@ import sys, json
 sys.path.insert(0, '.')
 # Just   
 **Summary:** [Completed in 337.6s, response ~3299 chars]
+
+## 2026-05-07 10:53 UTC
+**Avatar:** Parashurama  
+**Task:** Read lines 1-90 and 394-602 of ~/scripts/job_search.py. I need the exact imports/config at the top and the exact Microsoft scraper code.  
+**Summary:** [Completed in 26.0s, response ~5270 chars]
