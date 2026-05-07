@@ -12,3 +12,9 @@ First, let me also see lines 240-290 to see write_jobs_json:
 python3 << 'EOF'
 with open('/Users/neekhilvatsa/scr  
 **Summary:** [Completed in 27.5s, response ~1011 chars]
+
+## 2026-05-07 10:49 UTC
+**Avatar:** Parashurama  
+**Task:** 1. Run a Python one-liner to check if port 8787 is in use: `python3 -c "import socket; s=socket.socket(); r=s.connect_ex(('127.0.0.1', 8787)); print('IN USE' if r==0 else 'FREE'); s.close()"`
+2. Also   
+**Summary:** [Completed in 9.0s, response ~676 chars]
