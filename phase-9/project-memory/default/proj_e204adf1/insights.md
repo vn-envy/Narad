@@ -170,3 +170,19 @@ From ~/scripts/job_search.py:
 **Avatar:** Parashurama  
 **Task:** Read lines 525-630 of ~/scripts/job_search.py to see the rest of the Microsoft scraper and the LinkedIn scraper. Also check if there's a standalone scrape_microsoft() function wrapping scrape_microsof  
 **Summary:** [Completed in 16.5s, response ~3662 chars]
+
+## 2026-05-07 10:51 UTC
+**Avatar:** Parashurama  
+**Task:** I need to see the raw code. Run:
+
+python3 -c "
+with open('/tmp/job_search_full_copy.py') as f:
+    data = f.read()
+print(repr(data[:5000]))
+"  
+**Summary:** [Completed in 25.4s, response ~1759 chars]
+
+## 2026-05-07 10:51 UTC
+**Avatar:** Matsya  
+**Task:** Look up any previous conversation context or project details for this user session. The user is referencing a project they mentioned earlier. Search for any stored information.  
+**Summary:** [Completed in 34.5s, response ~3271 chars]
