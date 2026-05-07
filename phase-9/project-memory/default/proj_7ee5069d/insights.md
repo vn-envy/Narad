@@ -85,3 +85,10 @@ with open('/Users/neekhilvatsa/scripts/job_search.py')
 **Avatar:** Parashurama  
 **Task:** Read the full content of ~/scripts/_sniff_ms_api.py and show it to me.  
 **Summary:** [Completed in 17.1s, response ~3671 chars]
+
+## 2026-05-07 10:52 UTC
+**Avatar:** Parashurama  
+**Task:** Now I will rewrite the Microsoft scraper section in job_search.py. The change replaces the Playwright-based scraper (lines 416-656) with a pure HTTP PCSX API scraper. Let me create the new version.
+
+F  
+**Summary:** [Completed in 355.5s, response ~2694 chars]
