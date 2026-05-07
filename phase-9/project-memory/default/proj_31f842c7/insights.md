@@ -31,3 +31,9 @@ curl -s -X POST "https://apply.careers.microsoft.com/api/pcsx/search" \
 1. https://jobs.careers.microsoft.com/global/en/search — how the API/search works
 2. What endpoints are used (look at net  
 **Summary:** [Completed in 104.5s, response ~5442 chars]
+
+## 2026-05-07 10:54 UTC
+**Avatar:** Matsya  
+**Task:** Research the Microsoft Careers API to help with scraping. Check:
+1. Go to https://careers.microsoft.com/ and look at how job search results are loaded. Specifically check if there's an XHR/JSON endpoi  
+**Summary:** [Completed in 129.4s, response ~6032 chars]

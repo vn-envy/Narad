@@ -285,3 +285,14 @@ with open('/Users/neekhilvatsa/scripts/job_search.py') as f:
     lines = f.readlines()
     for i in rang  
 **Summary:** [Completed in 7.1s, response ~916 chars]
+
+## 2026-05-07 10:54 UTC
+**Avatar:** Parashurama  
+**Task:** Print lines 91-200:
+
+python3 << 'EOF'
+with open('/Users/neekhilvatsa/scripts/job_search.py') as f:
+    lines = f.readlines()
+    for i in range(90, min(201, len(lines))):
+        print(f"{i+1}:{lines[  
+**Summary:** [Completed in 14.4s, response ~2645 chars]
