@@ -118,3 +118,8 @@ with open('/Users/neekhilvatsa/scripts/job_search.py') as f:
     for i in range(35, min(91, len(lines))):
         print(lines[i], end='')  
 **Summary:** [Completed in 14.4s, response ~2296 chars]
+
+## 2026-05-07 10:48 UTC
+**Avatar:** Buddha  
+**Task:** Analyze the following company profile and tell me what kind of managerial interview style and questions to expect from DATAECONOMY's hiring manager for an Azure Infrastructure Engineer role in Hyderab  
+**Summary:** [Completed in 38.5s, response ~11424 chars]
