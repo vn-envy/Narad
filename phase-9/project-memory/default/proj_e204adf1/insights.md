@@ -51,3 +51,8 @@ List to trash:
 **Task:** Search for Amazon Senior Manager job postings in Hyderabad, India. Look for:
 1. Current live job listings on Amazon's careers page, LinkedIn, Indeed, or other job portals for "Senior Manager" roles in  
 **Summary:** [Completed in 133.2s, response ~17501 chars]
+
+## 2026-05-07 10:47 UTC
+**Avatar:** Parashurama  
+**Task:** bash -c 'sed -n "350,610p" /Users/neekhilvatsa/scripts/job_search.py'  
+**Summary:** [Completed in 18.9s, response ~3323 chars]
