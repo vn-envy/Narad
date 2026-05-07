@@ -72,3 +72,11 @@ with open('/Users/neekhilvatsa/scripts/scrape_microsoft_pcsx.py') as f:
 **Avatar:** Parashurama  
 **Task:** bash -c 'sed -n "270,331p" /Users/neekhilvatsa/scripts/scrape_microsoft_pcsx.py'  
 **Summary:** [Completed in 13.7s, response ~2792 chars]
+
+## 2026-05-07 10:51 UTC
+**Avatar:** Parashurama  
+**Task:** I need to see lines 339-620 of ~/scripts/job_search.py (the full Microsoft scraper section). Read it raw by printing each line:
+
+python3 << 'EOF'
+with open('/Users/neekhilvatsa/scripts/job_search.py')  
+**Summary:** [Completed in 14.8s, response ~2126 chars]
