@@ -28,3 +28,8 @@ grep -n "localhost\|8787\|generate-resume\|generate_resume" ~/job_board/index.ht
 
 2. What routes does  
 **Summary:** [Completed in 19.4s, response ~963 chars]
+
+## 2026-05-07 10:54 UTC
+**Avatar:** Parashurama  
+**Task:** Read the rest of ~/scripts/job_search.py (from line 400 onwards) and show all remaining content. Also read ~/scripts/resume_api_server.py in full.  
+**Summary:** [Completed in 28.1s, response ~5416 chars]
