@@ -1,5 +1,7 @@
 # Phase 2 — Smriti memory + Matsya real search
 # pip install -r phase-2/requirements.txt
 lancedb>=0.20.0
-tavily-python>=0.5.0
+tavily-python>=0.5.0   # fallback search provider
+requests>=2.32.0       # Tinyfish API calls
 pyarrow>=18.0.0
+google-genai>=1.0.0    # Gemini embeddings (text-embedding-005), Imagen, Veo

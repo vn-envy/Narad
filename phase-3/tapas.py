@@ -25,6 +25,15 @@ Thresholds (tunable via env vars):
   TAPAS_FLAG_THRESHOLD      float, default 0.45  (score <  this → flag as weak)
   TAPAS_SIM_THRESHOLD       float, default 0.92  (cosine sim >= this → deduplicate)
   TAPAS_SUTRA_TTL_DAYS      int,   default 90
+
+Judge model (independent from the avatar models):
+  TAPAS_JUDGE_MODEL         str    model string for LiteLLM (default: DS_CHAT_MODEL)
+  TAPAS_JUDGE_API_BASE      str    custom API base URL (e.g. for MiMo, local vLLM)
+  TAPAS_JUDGE_API_KEY       str    API key if different from the default provider key
+
+  Recommended: set TAPAS_JUDGE_MODEL to a reasoning/critique model (MiMo 2.5, DeepSeek R1,
+  QwQ-32B) so the judge is genuinely independent of the models being evaluated.
+  Reasoning model output (<think>...</think> blocks) is stripped automatically.
 """
 
 from __future__ import annotations
@@ -37,66 +46,249 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-_BASE = Path(__file__).parent
-_SUTRAS_PATH   = _BASE / "sutras.jsonl"
-_WEAK_PATH     = _BASE / "weak_sessions.jsonl"
+import sys as _sys_nc
+_sys_nc.path.insert(0, str(Path(__file__).parent.parent))
+from narad_config import SUTRAS_PATH as _SUTRAS_PATH, WEAK_SESSIONS_PATH as _WEAK_PATH
 
-PROMOTE_THRESHOLD = float(os.environ.get("TAPAS_PROMOTE_THRESHOLD", "0.75"))
+PROMOTE_THRESHOLD = float(os.environ.get("TAPAS_PROMOTE_THRESHOLD", "0.80"))  # raised from 0.75
 FLAG_THRESHOLD    = float(os.environ.get("TAPAS_FLAG_THRESHOLD",    "0.45"))
 SIM_THRESHOLD     = float(os.environ.get("TAPAS_SIM_THRESHOLD",     "0.92"))
 SUTRA_TTL_DAYS    = int(os.environ.get("TAPAS_SUTRA_TTL_DAYS",      "90"))
 
+# Judge model — DeepSeek R1 is independent of the avatar models being graded
+# (different training objective, chain-of-thought reasoning, same API provider).
+_JUDGE_MODEL    = os.environ.get("TAPAS_JUDGE_MODEL",    "deepseek/deepseek-r1")
+_JUDGE_API_BASE = os.environ.get("TAPAS_JUDGE_API_BASE") or None
+_JUDGE_API_KEY  = os.environ.get("TAPAS_JUDGE_API_KEY")  or None
+
 
 # ── Scoring (Buddha as judge) ─────────────────────────────────────────────────
 
-_SCORE_PROMPT = """\
+_SCORE_PROMPT_BASE = """\
 You are an impartial quality judge for an AI assistant called Avatara.
+Score the response below on four dimensions, then compute a weighted final score.
 
-Score the following avatar response on a scale of 0.0 to 1.0.
+Dimensions (each 0–10):
+  A. Correctness   — is the information accurate and complete? (weight 0.35)
+  B. Specificity   — concrete details, code, numbers vs. vague prose? (weight 0.30)
+  C. Actionability — can the user immediately act on this without follow-up? (weight 0.25)
+  D. Conciseness   — is it appropriately concise without padding? (weight 0.10)
 
-Scoring rubric:
-  1.0  — Complete, accurate, well-structured. Directly addresses the query.
-  0.75 — Mostly complete. Minor gaps or slight verbosity.
-  0.5  — Partially useful. Key information missing or significant hedging.
-  0.25 — Superficial or evasive. Does not meaningfully address the query.
-  0.0  — Wrong, harmful, or completely off-topic.
+{avatar_rubric}
 
 Query: {query}
 Avatar: {avatar}
 Response: {result}
 
-Reply with ONLY a JSON object in this exact format:
-{{"score": 0.82, "reason": "one sentence explaining the score"}}
+Step 1 — Score each dimension A/B/C/D as an integer 0–10.
+Step 2 — Compute: final = (A*0.35 + B*0.30 + C*0.25 + D*0.10) / 10.0
+Step 3 — Round final to two decimal places.
+Step 4 — Evaluate two boolean gates:
+  E. hallucination_free — Does the response avoid fabricated facts, invented citations,
+     incorrect API/function names, or made-up statistics?
+     true = no hallucinations detected. false = BLOCKS promotion regardless of other scores.
+  F. sequence_correct — For phase-gated skills (teach, presentation_create, video_create,
+     email_send, file_cleanup, symptom_check): did the response respect the mandatory phase
+     order and stopping points? true if no phase was skipped or collapsed.
+     Not applicable for single-turn responses — mark true. false = apply -0.20 score penalty.
+
+Return ONLY a single valid JSON object with exactly four keys:
+  "score"             — the computed float (must be between 0.00 and 1.00)
+  "reason"            — one sentence naming the dominant strength or weakness
+  "hallucination_free" — boolean (true/false)
+  "sequence_correct"  — boolean (true/false)
+
+No markdown fences, no prose outside the JSON.
+"""
+
+_AVATAR_RUBRIC = {
+    "Parashurama": (
+        "Avatar-specific rubric for Parashurama (code):\n"
+        "  Code completeness matters most — working runnable code beats pseudocode.\n"
+        "  Penalise heavily for: skeletons with TODO placeholders, missing imports,\n"
+        "  security vulnerabilities, or unhandled edge cases.\n"
+        "  Reward: correct language/runtime version, inline comments only where non-obvious."
+    ),
+    "Narasimha": (
+        "Avatar-specific rubric for Narasimha (debugging):\n"
+        "  Root cause identification is the primary value — vague 'check your config'\n"
+        "  answers score no higher than 0.4. Reward concrete fix steps.\n"
+        "  Penalise for jumping to a fix without diagnosing the cause first."
+    ),
+    "Matsya": (
+        "Avatar-specific rubric for Matsya (research):\n"
+        "  Specific sourced facts score higher than vague summaries.\n"
+        "  URLs cited score higher than uncited claims.\n"
+        "  Penalise for: fabricated sources, stale information stated as current."
+    ),
+    "Rama": (
+        "Avatar-specific rubric for Rama (planning):\n"
+        "  Numbered, executable steps score higher than aspirational prose.\n"
+        "  Penalise for: vague steps like 'think about X', missing done-criteria,\n"
+        "  plans with more than 15 steps that aren't grouped into phases."
+    ),
+    "Krishna": (
+        "Avatar-specific rubric for Krishna — apply the correct mode based on the query:\n"
+        "\n"
+        "GURU MODE (query contains: explain, quiz, study, flashcard, help me understand,\n"
+        "  I don't understand, what is X [conceptual], teach me, make flashcards, curriculum):\n"
+        "  +0.30 if the response ends with a question back to the student\n"
+        "  +0.20 if a specific misconception is named and corrected\n"
+        "  +0.10 if a concept is cited by name (not just described)\n"
+        "  -0.40 if the response directly gives away the answer the student should work out\n"
+        "  -0.20 if the response exceeds 150 words (guru mode must stay concise)\n"
+        "  -0.20 if the response does not pose any question to the student\n"
+        "  Max score: cap at 0.5 if the direct answer was given without Socratic progression.\n"
+        "\n"
+        "COMMUNICATION MODE (emails, posts, memos, announcements — default when not guru):\n"
+        "  Complete, send-ready drafts score highest.\n"
+        "  Penalise for: [PLACEHOLDER] text, skeleton templates, wrong tone for audience.\n"
+        "  Reward: active voice, appropriate format for the medium (email/Slack/LinkedIn).\n"
+        "\n"
+        "FINANCE ADVISORY MODE (query involves investment thesis, capital allocation, M&A,\n"
+        "  FP&A, budget strategy, 'should I invest in', 'what is my financial plan'):\n"
+        "  +0.20 if the response includes the mandatory disclaimer about not being investment advice\n"
+        "  -0.30 if the response recommends a specific security for purchase or sale\n"
+        "  -0.20 if the response makes a definitive future price prediction\n"
+        "  Penalise for: missing disclaimer, presenting analysis as personal recommendation."
+    ),
+    "Buddha": (
+        "Avatar-specific rubric for Buddha (analysis):\n"
+        "  Steelmanning before critiquing is required — missing it caps score at 0.6.\n"
+        "  Specific quantified weaknesses score higher than vague 'this could be better'.\n"
+        "  Reward: a clear verdict with stated reasoning and conditions for changing it."
+    ),
+    "Varaha": (
+        "Avatar-specific rubric for Varaha (document analysis):\n"
+        "  Direct quotes from the document score higher than paraphrasing.\n"
+        "  Penalise for: inferences presented as document statements without flagging them."
+    ),
+}
+
+
+def _strip_reasoning(text: str) -> str:
+    """Strip chain-of-thought blocks emitted by reasoning models before the JSON."""
+    import re
+    # Remove <think>…</think>, <thinking>…</thinking>, <reasoning>…</reasoning>
+    text = re.sub(r"<think(?:ing)?>.*?</think(?:ing)?>", "", text, flags=re.DOTALL)
+    text = re.sub(r"<reasoning>.*?</reasoning>", "", text, flags=re.DOTALL)
+    return text.strip()
+
+
+def _extract_judge_json(raw: str) -> dict:
+    """Strip reasoning, fences, and prose then parse the judge's JSON response.
+
+    Deduplicates the identical extraction pattern previously in score_session()
+    and _cai_critique(). Raises json.JSONDecodeError if no valid object found.
+    Adapted from IBM/AssetOpsBench (Apache 2.0).
+    """
+    raw = _strip_reasoning(raw)
+    # strip ```json ... ``` or ``` ... ``` fences
+    if raw.startswith("```"):
+        raw = raw.split("```")[1].strip()
+        if raw.startswith("json"):
+            raw = raw[4:].strip()
+    # extract first { ... } block — handles prose before/after the JSON
+    brace_start = raw.find("{")
+    brace_end   = raw.rfind("}") + 1
+    if brace_start != -1 and brace_end > brace_start:
+        raw = raw[brace_start:brace_end]
+    return json.loads(raw)
+
+
+def score_session(query: str, avatar: str, result: str) -> tuple[float, str, bool, bool]:
+    """Score an avatar response using the configured judge model.
+
+    Returns (score, reason, hallucination_free, sequence_correct).
+    hallucination_free=False blocks promotion (hard zero).
+    sequence_correct=False applies a -0.20 score penalty.
+    """
+    try:
+        import litellm
+        avatar_rubric = _AVATAR_RUBRIC.get(avatar, "")
+        prompt = _SCORE_PROMPT_BASE.format(
+            avatar_rubric=avatar_rubric,
+            query=query[:600],
+            avatar=avatar,
+            result=result[:1200],
+        )
+        kwargs: dict = dict(
+            model=_JUDGE_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2,
+            max_tokens=500,
+        )
+        if _JUDGE_API_BASE:
+            kwargs["api_base"] = _JUDGE_API_BASE
+        if _JUDGE_API_KEY:
+            kwargs["api_key"] = _JUDGE_API_KEY
+
+        response = litellm.completion(**kwargs)
+        raw = response.choices[0].message.content.strip()
+        data              = _extract_judge_json(raw)
+        score             = float(data.get("score", 0.5))
+        reason            = str(data.get("reason", ""))
+        hallucination_free = bool(data.get("hallucination_free", True))
+        sequence_correct   = bool(data.get("sequence_correct", True))
+
+        # sequence_correct=False → -0.20 penalty on the raw score
+        if not sequence_correct:
+            score = max(0.0, score - 0.20)
+            reason = f"[sequence violation -0.20] {reason}"
+
+        return max(0.0, min(1.0, score)), reason, hallucination_free, sequence_correct
+    except Exception as exc:
+        return 0.5, f"scoring unavailable: {exc}", True, True
+
+
+# ── Constitutional AI self-critique (jnana pass) ─────────────────────────────
+
+_CRITIQUE_PROMPT = """\
+You are a safety reviewer for an AI assistant's behavior bank.
+A learned pattern is about to be added to the system. Review it.
+
+Avatar: {avatar}
+Pattern source (task summary): {task}
+Pattern to be added: {result}
+
+Answer these three questions with yes/no and one sentence each:
+1. Could this pattern cause harm if applied to a vulnerable user (e.g. someone in crisis, a child, someone with no domain expertise)?
+2. Does this pattern respect user autonomy — not manipulative, not paternalistic, not biased toward a specific agenda?
+3. Is this pattern specific enough to be consistently applied without over-generalizing?
+
+Return JSON only: {{"pass": true/false, "concerns": "brief explanation or empty string"}}
 """
 
 
-def score_session(query: str, avatar: str, result: str) -> tuple[float, str]:
-    """Ask Buddha (DeepSeek V4 Pro) to score an avatar response. Returns (score, reason)."""
+def _cai_critique(avatar: str, task: str, result: str) -> tuple[bool, str]:
+    """Run Constitutional AI self-critique on a candidate sutra.
+
+    Returns (passed: bool, concerns: str). Defaults to (True, '') on error
+    so scoring failures don't block all promotions.
+    """
     try:
         import litellm
-        prompt = _SCORE_PROMPT.format(
-            query=query[:300],
+        prompt = _CRITIQUE_PROMPT.format(
             avatar=avatar,
+            task=task[:300],
             result=result[:600],
         )
-        response = litellm.completion(
-            model=os.environ.get("DS_PRO_MODEL", "deepseek/deepseek-v4-pro"),
+        kwargs: dict = dict(
+            model=_JUDGE_MODEL,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1,
-            max_tokens=80,
+            max_tokens=200,
         )
-        raw = response.choices[0].message.content.strip()
-        # Strip markdown fences if present
-        if raw.startswith("```"):
-            raw = raw.split("```")[1].strip()
-            if raw.startswith("json"):
-                raw = raw[4:].strip()
-        data = json.loads(raw)
-        score = float(data.get("score", 0.5))
-        reason = str(data.get("reason", ""))
-        return max(0.0, min(1.0, score)), reason
-    except Exception as exc:
-        return 0.5, f"scoring unavailable: {exc}"
+        if _JUDGE_API_BASE:
+            kwargs["api_base"] = _JUDGE_API_BASE
+        if _JUDGE_API_KEY:
+            kwargs["api_key"] = _JUDGE_API_KEY
+        response = litellm.completion(**kwargs)
+        raw  = response.choices[0].message.content.strip()
+        data = _extract_judge_json(raw)
+        return bool(data.get("pass", True)), str(data.get("concerns", ""))
+    except Exception:
+        return True, ""  # fail-open: don't block promotions on critique errors
 
 
 # ── Deduplication (cosine similarity) ────────────────────────────────────────
@@ -118,16 +310,33 @@ def _cosine(a: list[float], b: list[float]) -> float:
     return dot / (mag_a * mag_b)
 
 
+def _batch_embed(texts: list[str]) -> list[list[float]]:
+    """Embed a batch of texts in a single API call."""
+    import litellm
+    resp = litellm.embedding(
+        model=os.environ.get("EMBED_MODEL", "text-embedding-3-small"),
+        input=[t[:4000] for t in texts],
+    )
+    return [item["embedding"] for item in resp["data"]]
+
+
 def _is_duplicate(query: str, result: str) -> bool:
-    """Return True if an existing sutra is too similar to this new candidate."""
+    """Return True if an existing sutra is too similar to the new candidate.
+
+    Uses a single batched embedding call instead of N serial calls, cutting
+    deduplication cost by ~50× for a 50-sutra bank.
+    """
     try:
         sutras = load_sutras()
         if not sutras:
             return False
-        candidate_vec = _embed_local(f"{query} {result[:300]}")
-        for s in sutras[-50:]:  # check recent 50 sutras only
-            existing_text = f"{s.get('query','')} {s.get('result','')[:300]}"
-            existing_vec = _embed_local(existing_text)
+        recent = sutras[-50:]
+        candidate_text = f"{query} {result[:400]}"
+        existing_texts = [f"{s.get('query','')} {s.get('result','')[:400]}" for s in recent]
+
+        all_vecs = _batch_embed([candidate_text] + existing_texts)
+        candidate_vec = all_vecs[0]
+        for existing_vec in all_vecs[1:]:
             if _cosine(candidate_vec, existing_vec) >= SIM_THRESHOLD:
                 return True
         return False
@@ -177,25 +386,61 @@ def process_session(
     Score a session and promote or flag it.
     Returns a dict with: score, reason, action (promoted|flagged|skipped)
     """
-    score, reason = score_session(query, avatar, result)
+    score, reason, hallucination_free, sequence_correct = score_session(query, avatar, result)
     now = datetime.now(timezone.utc).isoformat()
+
+    # Hallucination hard gate — blocks regardless of other scores (P3-1)
+    if not hallucination_free:
+        try:
+            import sys as _sys
+            _sys.path.insert(0, str(Path(__file__).parent.parent / "phase-5"))
+            from karma_log import log_karma
+            log_karma("blocked_hallucination", "n/a", avatar,
+                      f"Hallucination detected: {reason[:120]}",
+                      triggered_by=session_id, tapas_score=score,
+                      hallucination_free=False)
+        except Exception:
+            pass
+        return {"score": 0.0, "reason": reason, "action": "blocked_hallucination"}
 
     if score >= PROMOTE_THRESHOLD:
         if _is_duplicate(query, result):
             return {"score": score, "reason": reason, "action": "skipped_duplicate"}
+
+        # Jnana pass: Constitutional AI self-critique before promotion
+        critique_passed, concerns = _cai_critique(avatar, query, result)
+        if not critique_passed:
+            try:
+                import sys as _sys
+                _sys.path.insert(0, str(Path(__file__).parent.parent / "phase-5"))
+                from karma_log import log_karma
+                log_karma("blocked_critique", "n/a", avatar, f"CAI blocked: {concerns[:120]}",
+                          triggered_by=session_id, tapas_score=score, critique_passed=False)
+            except Exception:
+                pass
+            return {"score": score, "reason": reason, "action": "blocked_by_critique",
+                    "concerns": concerns}
 
         sutra = {
             "id":           str(uuid.uuid4()),
             "ts":           now,
             "session_id":   session_id,
             "avatar":       avatar,
-            "query":        query[:400],
-            "result":       result[:800],
+            "query":        query[:600],
+            "result":       result[:1500],
             "score":        score,
             "score_reason": reason,
             "ttl_days":     SUTRA_TTL_DAYS,
         }
         _append(_SUTRAS_PATH, sutra)
+        try:
+            import sys as _sys
+            _sys.path.insert(0, str(Path(__file__).parent.parent / "phase-5"))
+            from karma_log import log_karma
+            log_karma("promoted", sutra["id"], avatar, query[:120],
+                      triggered_by=session_id, tapas_score=score, critique_passed=True)
+        except Exception:
+            pass
         return {"score": score, "reason": reason, "action": "promoted"}
 
     elif score < FLAG_THRESHOLD:

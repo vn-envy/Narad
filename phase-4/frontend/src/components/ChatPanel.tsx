@@ -1,47 +1,299 @@
-/**
- * Chat Panel — left side, the daily-use surface.
- *
- * Rule from visual-system.md:
- *   Daily-use chat surface = calm cream base, kajal text.
- *   Avatar colours only on the active message bubble.
- *   Restraint comes through grid and clarity, not palette muting.
- */
-
 import { useState, useRef, useEffect } from 'react'
-import type { Message, AvatarName } from '../hooks/useAvatara'
+import type { Message, AvatarName, AvatarStatus, TokenUsage } from '../hooks/useAvatara'
+import { useTTS, VOICE_AVATARS } from '../hooks/useTTS'
+import type { TTSAvatar } from '../hooks/useTTS'
 import { MahatiLogo } from './MahatiLogo'
+import { ZigzagBank } from './Motifs'
+import { cn } from '@/lib/utils'
+import { Pencil, RotateCcw, Square, Copy, Check, Volume2, VolumeX, Loader, Paperclip, X } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+
+const MEDIA_RE = /https?:\/\/\S+\/media\/[^\s"')]+\.(mp4|wav|mp3)/gi
+
+function MediaEmbed({ url }: { url: string }) {
+  const lc = url.toLowerCase()
+  if (lc.endsWith('.mp4')) {
+    return (
+      <video
+        src={url}
+        controls
+        className="rounded w-full mt-2"
+        style={{ maxHeight: '240px', background: 'rgba(45,42,38,0.08)' }}
+      />
+    )
+  }
+  if (lc.endsWith('.wav') || lc.endsWith('.mp3')) {
+    return (
+      <audio
+        src={url}
+        controls
+        className="w-full mt-2"
+        style={{ borderRadius: '4px' }}
+      />
+    )
+  }
+  return null
+}
+
+function MarkdownMessage({ text }: { text: string }) {
+  const mediaUrls = Array.from(new Set(text.match(MEDIA_RE) ?? []))
+  return (
+    <>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          p: ({ children }) => (
+            <p className="text-[13px] leading-relaxed mb-2 last:mb-0 break-words" style={{ fontFamily: 'var(--font-body)' }}>
+              {children}
+            </p>
+          ),
+          h1: ({ children }) => (
+            <h1 className="text-[17px] font-semibold mt-4 mb-2 first:mt-0 pb-1.5" style={{ borderBottom: '1px solid rgba(45,42,38,0.12)' }}>
+              {children}
+            </h1>
+          ),
+          h2: ({ children }) => (
+            <h2 className="text-[15px] font-semibold mt-3 mb-1.5 first:mt-0">{children}</h2>
+          ),
+          h3: ({ children }) => (
+            <h3 className="text-[14px] font-semibold mt-2.5 mb-1 first:mt-0">{children}</h3>
+          ),
+          h4: ({ children }) => (
+            <h4 className="text-[13px] font-semibold mt-2 mb-0.5 first:mt-0 uppercase tracking-wide opacity-70">{children}</h4>
+          ),
+          ul: ({ children }) => (
+            <ul className="pl-5 mb-2 space-y-0.5" style={{ listStyleType: 'disc' }}>{children}</ul>
+          ),
+          ol: ({ children }) => (
+            <ol className="pl-5 mb-2 space-y-0.5" style={{ listStyleType: 'decimal' }}>{children}</ol>
+          ),
+          li: ({ children }) => (
+            <li className="text-[13px] leading-relaxed" style={{ fontFamily: 'var(--font-body)' }}>{children}</li>
+          ),
+          pre: ({ children }) => (
+            <div className="overflow-x-auto rounded mb-2" style={{ background: 'rgba(45,42,38,0.055)', border: '1px solid rgba(45,42,38,0.10)' }}>
+              <pre className="p-3 overflow-x-auto">{children}</pre>
+            </div>
+          ),
+          code: ({ children, className }: { children?: React.ReactNode; className?: string }) => {
+            const str = String(children ?? '')
+            const isBlock = str.includes('\n') || !!className?.startsWith('language-')
+            if (!isBlock) {
+              return (
+                <code className="font-mono text-[11.5px] px-1 py-0.5 rounded" style={{ background: 'rgba(45,42,38,0.09)', color: 'var(--kajal)' }}>
+                  {children}
+                </code>
+              )
+            }
+            return (
+              <code className={cn('font-mono text-[12px] block leading-relaxed', className)} style={{ color: 'var(--kajal)' }}>
+                {children}
+              </code>
+            )
+          },
+          table: ({ children }) => (
+            <div className="overflow-x-auto mb-3 rounded" style={{ border: '1px solid rgba(45,42,38,0.12)' }}>
+              <table className="w-full text-[12.5px] border-collapse">{children}</table>
+            </div>
+          ),
+          thead: ({ children }) => (
+            <thead style={{ background: 'rgba(45,42,38,0.05)' }}>{children}</thead>
+          ),
+          tbody: ({ children }) => <tbody>{children}</tbody>,
+          tr: ({ children }) => (
+            <tr style={{ borderBottom: '1px solid rgba(45,42,38,0.08)' }}>{children}</tr>
+          ),
+          th: ({ children }) => (
+            <th className="font-mono text-[11px] font-semibold text-left px-3 py-2" style={{ color: 'rgba(45,42,38,0.65)', borderRight: '1px solid rgba(45,42,38,0.07)' }}>
+              {children}
+            </th>
+          ),
+          td: ({ children }) => (
+            <td className="text-[12.5px] px-3 py-1.5" style={{ fontFamily: 'var(--font-body)', borderRight: '1px solid rgba(45,42,38,0.05)' }}>
+              {children}
+            </td>
+          ),
+          blockquote: ({ children }) => (
+            <blockquote className="pl-3 py-0.5 mb-2 italic" style={{ borderLeft: '3px solid rgba(45,42,38,0.25)', color: 'rgba(45,42,38,0.68)' }}>
+              {children}
+            </blockquote>
+          ),
+          strong: ({ children }) => (
+            <strong className="font-semibold" style={{ color: 'var(--kajal)' }}>{children}</strong>
+          ),
+          em: ({ children }) => <em className="italic">{children}</em>,
+          a: ({ href, children }) => (
+            <a href={href} target="_blank" rel="noopener noreferrer" className="underline" style={{ color: 'var(--sindoor)' }}>
+              {children}
+            </a>
+          ),
+          hr: () => <hr className="my-3" style={{ borderColor: 'rgba(45,42,38,0.15)' }} />,
+        }}
+      >
+        {text}
+      </ReactMarkdown>
+      {mediaUrls.map(url => <MediaEmbed key={url} url={url} />)}
+    </>
+  )
+}
+
+function UserMessageText({ text }: { text: string }) {
+  return (
+    <p className="font-body text-[13px] leading-relaxed whitespace-pre-wrap break-words">
+      {text}
+    </p>
+  )
+}
 
 const AVATAR_COLOURS: Record<AvatarName, string> = {
-  Matsya:      '#1E2A5E',
-  Varaha:      '#E55A1F',
-  Narasimha:   '#C0392B',
-  Rama:        '#2E7D4F',
-  Krishna:     '#1F7A8C',
-  Buddha:      '#F2C14E',
-  Parashurama: '#4A4A4A',
+  Matsya:      '#065f46',
+  Varaha:      '#c2410c',
+  Narasimha:   '#c2410c',
+  Rama:        '#2d2a26',
+  Krishna:     '#065f46',
+  Buddha:      '#92610a',
+  Parashurama: '#57534e',
+  Vamana:      '#78716c',
 }
+
+const AVATAR_RGB: Record<AvatarName, string> = {
+  Matsya:      '6,95,70',
+  Varaha:      '194,65,12',
+  Narasimha:   '194,65,12',
+  Rama:        '45,42,38',
+  Krishna:     '6,95,70',
+  Buddha:      '146,97,10',
+  Parashurama: '87,83,78',
+  Vamana:      '120,113,108',
+}
+
+interface TokenTickerProps {
+  usage?: TokenUsage
+  tokenEstimate?: number
+  totalDurationMs?: number
+  clientTokPerSec?: number
+  avatarsInvolved?: AvatarName[]
+  avatarLatencies?: Record<string, number>
+}
+function TokenTicker({
+  usage, tokenEstimate, totalDurationMs, clientTokPerSec,
+  avatarsInvolved: _avatarsInvolved, avatarLatencies,
+}: TokenTickerProps) {
+  const total     = usage?.totalTokens ?? (tokenEstimate ?? null)
+  const perSec    = usage?.tokPerSec ?? clientTokPerSec ?? null
+  const rawDurMs  = (usage?.synthDurationMs != null && usage.synthDurationMs > 100)
+    ? usage.synthDurationMs
+    : (totalDurationMs != null && totalDurationMs > 500 ? totalDurationMs : null)
+  const durationS = rawDurMs != null ? rawDurMs / 1000 : null
+  const isEstimate = !usage?.totalTokens && total != null
+
+  const hasGlobal = total != null
+  const avatarEntries = avatarLatencies
+    ? Object.entries(avatarLatencies).filter(([, ms]) => ms > 200)
+    : []
+
+  if (!hasGlobal && avatarEntries.length === 0) return null
+
+  return (
+    <div className="flex flex-col gap-0.5 mt-0.5 pl-0.5">
+      {/* Row 1: global metrics */}
+      {hasGlobal && (
+        <div className="flex items-center gap-1.5 font-mono text-[9px]"
+          style={{ color: 'rgba(45,42,38,0.38)' }}>
+          <span title={isEstimate ? 'Character-based estimate' : 'Real token count from model'}>
+            {isEstimate ? '~' : ''}{total!.toLocaleString()} tok
+          </span>
+          {perSec != null && (
+            <>
+              <span style={{ opacity: 0.4 }}>·</span>
+              <span>{perSec.toLocaleString()} tok/s</span>
+            </>
+          )}
+          {durationS != null && (
+            <>
+              <span style={{ opacity: 0.4 }}>·</span>
+              <span>{durationS.toFixed(1)}s</span>
+            </>
+          )}
+        </div>
+      )}
+      {/* Row 2: per-avatar latency chips */}
+      {avatarEntries.length > 0 && (
+        <div className="flex items-center flex-wrap gap-1">
+          {avatarEntries.map(([name, ms]) => {
+            const avatarName = name as AvatarName
+            const rgb   = AVATAR_RGB[avatarName]   ?? '45,42,38'
+            const colour = AVATAR_COLOURS[avatarName] ?? 'rgba(45,42,38,0.6)'
+            return (
+              <span
+                key={name}
+                className="text-[8px] font-mono px-1.5 py-px rounded-sm leading-tight"
+                style={{
+                  color:      colour,
+                  background: `rgba(${rgb}, 0.07)`,
+                  border:     `1px solid rgba(${rgb}, 0.18)`,
+                }}
+                title={`${name}: ${(ms / 1000).toFixed(2)}s wall-clock`}
+              >
+                {name.slice(0, 4).toLowerCase()} {(ms / 1000).toFixed(1)}s
+              </span>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+const ACTION_BTN = cn(
+  'flex items-center gap-1 px-1.5 py-1 rounded',
+  'font-mono text-[10px] leading-none',
+  'border hover:border-kajal/25',
+  'text-kajal/40 hover:text-kajal/70',
+  'transition-all duration-150 cursor-pointer bg-transparent outline-none',
+  'hover:bg-kajal/5 active:scale-95',
+  'border-kajal/10'
+)
 
 interface Props {
   messages: Message[]
+  avatars: Record<AvatarName, AvatarStatus>
   streaming: boolean
   error: string | null
-  onSend: (query: string) => void
+  onSend: (query: string, images?: string[]) => void
+  stop: () => void
 }
 
-export function ChatPanel({ messages, streaming, error, onSend }: Props) {
+export function ChatPanel({ messages, avatars, streaming, error, onSend, stop }: Props) {
   const [input, setInput] = useState('')
+  const [pendingImages, setPendingImages] = useState<string[]>([])
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+  const tts = useTTS()
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
+  const attachImages = (files: FileList) => {
+    Array.from(files).forEach(file => {
+      const reader = new FileReader()
+      reader.onload = () => {
+        const dataUri = reader.result as string  // full "data:image/png;base64,..." URI
+        if (dataUri) setPendingImages(prev => [...prev, dataUri])
+      }
+      reader.readAsDataURL(file)
+    })
+  }
+
   const handleSend = () => {
     const q = input.trim()
     if (!q || streaming) return
-    onSend(q)
+    onSend(q, pendingImages)
     setInput('')
+    setPendingImages([])
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
   }
 
@@ -58,77 +310,297 @@ export function ChatPanel({ messages, streaming, error, onSend }: Props) {
     e.target.style.height = Math.min(e.target.scrollHeight, 140) + 'px'
   }
 
+  const handleEdit = (text: string) => {
+    setInput(text)
+    setTimeout(() => {
+      textareaRef.current?.focus()
+      const ta = textareaRef.current
+      if (ta) {
+        ta.style.height = 'auto'
+        ta.style.height = Math.min(ta.scrollHeight, 140) + 'px'
+      }
+    }, 0)
+  }
+
+  const handleRestart = (msgId: string) => {
+    const idx = messages.findIndex(m => m.id === msgId)
+    const prev = idx > 0 ? messages[idx - 1] : null
+    if (prev?.role === 'user') onSend(prev.text)
+  }
+
+  const [copiedId, setCopiedId] = useState<string | null>(null)
+  const handleCopy = (msgId: string, text: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedId(msgId)
+      setTimeout(() => setCopiedId(id => id === msgId ? null : id), 1500)
+    })
+  }
+
+  const activeAvatar = Object.values(avatars).find(a => a.state === 'active') ?? null
+
   return (
-    <div style={styles.panel}>
-      {/* Header */}
-      <div style={styles.header}>
+    <div className="flex flex-col h-full overflow-hidden" style={{ background: 'var(--paper)' }}>
+
+      {/* Header — dark kajal with Playfair italic */}
+      <div
+        className="flex items-center gap-3 px-5 py-3 flex-shrink-0 relative overflow-hidden"
+        style={{ background: 'var(--kajal)', minHeight: 56 }}
+      >
         <MahatiLogo size={32} />
-        <div style={styles.wordmark}>
-          <span style={styles.wordmarkLatin}>AVATĀRA</span>
-          <span style={styles.wordmarkDeva}>अवतारा</span>
+        <div className="flex flex-col gap-0">
+          <span
+            className="label-hero text-[22px] leading-none"
+            style={{ color: 'var(--paper)', letterSpacing: '-0.01em' }}
+          >
+            NARAD.OS
+          </span>
+          <span className="font-deva text-[11px] leading-tight" style={{ color: 'rgba(252,250,242,0.55)', fontFamily: 'var(--font-deva)' }}>
+            नारद  अवतारा
+          </span>
+        </div>
+        {/* Zigzag motif at bottom edge of header */}
+        <div className="absolute bottom-0 left-0 w-full overflow-hidden" style={{ height: 16, opacity: 0.12 }}>
+          <ZigzagBank color="var(--paper)" className="w-full" />
         </div>
       </div>
 
       {/* Messages */}
-      <div style={styles.messages}>
+      <div className="flex-1 min-h-0 overflow-y-auto px-4 py-5 flex flex-col gap-2.5" style={{ background: 'var(--paper)' }}>
         {messages.length === 0 && (
-          <div style={styles.empty}>
-            <p style={styles.emptyTitle}>नमस्ते</p>
-            <p style={styles.emptyHint}>Ask anything. Narad will route it.</p>
+          <div className="flex flex-col items-center justify-center gap-2 opacity-40 mt-[30%]">
+            <p className="text-[36px] leading-none" style={{ fontFamily: 'var(--font-deva)', color: 'var(--marigold)' }}>नमस्ते</p>
+            <p className="text-body-sm text-kajal">Ask anything. Narad will route it.</p>
           </div>
         )}
 
-        {messages.map(msg => (
-          <div
-            key={msg.id}
-            style={{
-              ...styles.msgRow,
-              justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
-            }}
-          >
-            <div
-              style={{
-                ...styles.bubble,
-                ...(msg.role === 'user' ? styles.userBubble : styles.assistantBubble),
-              }}
-            >
-              {/* Avatar tags on assistant messages */}
-              {msg.role === 'assistant' && msg.avatarsInvolved && msg.avatarsInvolved.length > 0 && (
-                <div style={styles.avatarTags}>
-                  {msg.avatarsInvolved.map(a => (
-                    <span
-                      key={a}
-                      style={{
-                        ...styles.avatarTag,
-                        borderColor: AVATAR_COLOURS[a],
-                        color: AVATAR_COLOURS[a],
-                      }}
-                    >
-                      {a}
-                    </span>
-                  ))}
-                </div>
-              )}
+        {messages.map(msg => {
+          const primaryAvatar = msg.avatarsInvolved?.[0]
+          const avatarClass = primaryAvatar
+            ? `avatar-glass-${primaryAvatar.toLowerCase()}`
+            : ''
 
-              <p style={styles.msgText}>{msg.text}</p>
+          return (
+            <div
+              key={msg.id}
+              className={cn(
+                'group/bubble flex flex-col gap-0.5 w-full',
+                msg.role === 'user' ? 'items-end' : 'items-start'
+              )}
+            >
+              {/* Bubble */}
+              <div
+                className={cn(
+                  'max-w-[82%] px-3.5 py-2.5 text-body-sm',
+                  msg.role === 'user'
+                    ? 'rounded-[16px_16px_4px_16px]'
+                    : cn('folk-card folk-shadow rounded-[4px_16px_16px_16px]', avatarClass)
+                )}
+                style={
+                  msg.role === 'user'
+                    ? {
+                        background: 'var(--kajal)',
+                        color: 'var(--paper)',
+                        borderRadius: '16px 16px 4px 16px',
+                      }
+                    : { color: 'var(--kajal)' }
+                }
+              >
+                {/* Avatar tags */}
+                {msg.role === 'assistant' && msg.avatarsInvolved && msg.avatarsInvolved.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    {msg.avatarsInvolved.map(a => (
+                      <span
+                        key={a}
+                        className="text-chip px-2 py-px rounded organic-border"
+                        style={{
+                          color: AVATAR_COLOURS[a],
+                          borderColor: `rgba(${AVATAR_RGB[a]}, 0.30)`,
+                          background: `rgba(${AVATAR_RGB[a]}, 0.08)`,
+                        }}
+                      >
+                        {a}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {msg.role === 'assistant'
+                  ? <MarkdownMessage text={msg.text} />
+                  : <UserMessageText text={msg.text} />
+                }
+              </div>
+
+              {/* Action buttons + token ticker */}
+              <div
+                className={cn(
+                  'flex flex-col gap-0.5',
+                  msg.role === 'user' ? 'items-end pr-0.5' : 'items-start pl-0.5'
+                )}
+              >
+                <div className="flex gap-1 opacity-0 group-hover/bubble:opacity-100 transition-opacity duration-150">
+                  {msg.role === 'user' && (
+                    <button
+                      className={ACTION_BTN}
+                      onClick={() => handleEdit(msg.text)}
+                      title="Edit and resend"
+                    >
+                      <Pencil size={10} />
+                      edit
+                    </button>
+                  )}
+                  {msg.role === 'assistant' && (
+                    <button
+                      className={ACTION_BTN}
+                      onClick={() => handleCopy(msg.id, msg.text)}
+                      title="Copy to clipboard"
+                    >
+                      {copiedId === msg.id
+                        ? <><Check size={10} />copied</>
+                        : <><Copy size={10} />copy</>
+                      }
+                    </button>
+                  )}
+                  {msg.role === 'assistant' && !streaming && (
+                    <button
+                      className={ACTION_BTN}
+                      onClick={() => handleRestart(msg.id)}
+                      title="Restart from this prompt"
+                    >
+                      <RotateCcw size={10} />
+                      restart
+                    </button>
+                  )}
+                  {msg.role === 'assistant' && !streaming && (() => {
+                    const voiceAvatar = msg.avatarsInvolved?.find(
+                      a => VOICE_AVATARS.includes(a as TTSAvatar)
+                    ) as TTSAvatar | undefined
+                    if (!voiceAvatar) return null
+
+                    const enKey = `${msg.id}:en`
+                    const hiKey = `${msg.id}:hi`
+                    const isEnPlaying = tts.playingId === enKey
+                    const isHiPlaying = tts.playingId === hiKey
+                    const isEnLoading = tts.state === 'loading' && isEnPlaying
+                    const isHiLoading = tts.state === 'loading' && isHiPlaying
+
+                    return (
+                      <>
+                        <button
+                          className={cn(ACTION_BTN, isEnPlaying && 'opacity-100')}
+                          onClick={() => tts.speak(msg.text, voiceAvatar, msg.id, 'en')}
+                          title={isEnPlaying ? 'Stop' : `Speak as ${voiceAvatar}`}
+                          style={isEnPlaying ? { color: 'var(--marigold)', borderColor: 'rgba(194,65,12,0.35)' } : {}}
+                        >
+                          {isEnLoading
+                            ? <><Loader size={10} style={{ animation: 'spin 1s linear infinite' }} />loading</>
+                            : isEnPlaying
+                            ? <><VolumeX size={10} />stop</>
+                            : <><Volume2 size={10} />speak</>
+                          }
+                        </button>
+                        <button
+                          className={cn(ACTION_BTN, isHiPlaying && 'opacity-100')}
+                          onClick={() => tts.speak(msg.text, voiceAvatar, msg.id, 'hi')}
+                          title={isHiPlaying ? 'Stop Hindi' : `Speak in Hindi`}
+                          style={isHiPlaying ? { color: 'var(--marigold)', borderColor: 'rgba(194,65,12,0.35)' } : {}}
+                        >
+                          {isHiLoading
+                            ? <><Loader size={10} style={{ animation: 'spin 1s linear infinite' }} />loading</>
+                            : isHiPlaying
+                            ? <><VolumeX size={10} />stop</>
+                            : <span style={{ fontFamily: 'var(--font-deva)', fontSize: 11 }}>हिं</span>
+                          }
+                        </button>
+                      </>
+                    )
+                  })()}
+                </div>
+                {msg.role === 'assistant' && (
+                  <TokenTicker
+                    usage={msg.usage}
+                    tokenEstimate={msg.tokenEstimate}
+                    totalDurationMs={msg.totalDurationMs}
+                    clientTokPerSec={msg.clientTokPerSec}
+                    avatarsInvolved={msg.avatarsInvolved}
+                    avatarLatencies={msg.avatarLatencies}
+                  />
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          )
+        })}
 
         {/* Streaming indicator */}
         {streaming && (
-          <div style={{ ...styles.msgRow, justifyContent: 'flex-start' }}>
-            <div style={{ ...styles.bubble, ...styles.assistantBubble, ...styles.thinkingBubble }}>
-              <span style={styles.dot} />
-              <span style={{ ...styles.dot, animationDelay: '0.2s' }} />
-              <span style={{ ...styles.dot, animationDelay: '0.4s' }} />
+          <div className="flex flex-col gap-2 max-w-[82%]">
+
+            {/* Active avatar label + task */}
+            {activeAvatar && (
+              <div className="flex items-center gap-2 px-1">
+                <span
+                  className="font-mono text-[11px] font-medium"
+                  style={{ color: `rgba(${AVATAR_RGB[activeAvatar.name as AvatarName]}, 0.85)` }}
+                >
+                  {activeAvatar.name}
+                </span>
+                {activeAvatar.task && (
+                  <span className="font-mono text-[11px] opacity-35 truncate flex-1" style={{ color: 'var(--kajal)' }}>
+                    {activeAvatar.task}
+                  </span>
+                )}
+              </div>
+            )}
+
+            {/* Progress bar */}
+            <div
+              className="h-[2px] rounded-full overflow-hidden mx-1"
+              style={{ background: 'rgba(45,42,38,0.08)' }}
+            >
+              <div
+                className="h-full w-[35%] rounded-full"
+                style={{
+                  background: 'var(--marigold)',
+                  animation: 'progress-sweep 1.6s ease-in-out infinite',
+                }}
+              />
             </div>
+
+            {/* Dots + stop button */}
+            <div className="flex items-center gap-2.5">
+              <div className="folk-card flex items-center gap-1.5 px-4 py-3.5 rounded w-fit">
+                {[0, 200, 400].map(delay => (
+                  <span
+                    key={delay}
+                    className="inline-block w-[7px] h-[7px] rounded-full"
+                    style={{
+                      background: 'var(--marigold)',
+                      animation: `bounce 1.2s ease-in-out ${delay}ms infinite`,
+                    }}
+                  />
+                ))}
+              </div>
+              <button
+                className={cn(ACTION_BTN, 'border-sindoor/25 text-sindoor/50 hover:text-sindoor/80 hover:border-sindoor/40')}
+                onClick={stop}
+                title="Stop generation"
+              >
+                <Square size={10} />
+                stop
+              </button>
+            </div>
+
           </div>
         )}
 
         {error && (
-          <div style={styles.errorRow}>
-            <span style={styles.errorText}>⚠ {error}</span>
+          <div
+            className="px-3.5 py-2.5 rounded organic-border mx-1"
+            style={{
+              background: 'rgba(194,65,12,0.05)',
+              borderColor: 'rgba(194,65,12,0.30)',
+            }}
+          >
+            <span className="font-mono text-[12px]" style={{ color: 'var(--sindoor)' }}>⚠ {error}</span>
           </div>
         )}
 
@@ -136,7 +608,66 @@ export function ChatPanel({ messages, streaming, error, onSend }: Props) {
       </div>
 
       {/* Input area */}
-      <div style={styles.inputArea}>
+      <div
+        className="flex flex-col gap-2 px-4 py-3 flex-shrink-0"
+        style={{
+          background: 'var(--speckle)',
+          borderTop: '1px solid color-mix(in srgb, var(--kajal) 10%, transparent)',
+        }}
+      >
+        {/* Thumbnail strip */}
+        {pendingImages.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {pendingImages.map((b64, i) => (
+              <div key={i} className="relative w-14 h-14 flex-shrink-0 rounded overflow-hidden"
+                style={{ border: '1px solid color-mix(in srgb, var(--kajal) 15%, transparent)' }}>
+                <img
+                  src={b64}
+                  alt=""
+                  className="w-full h-full object-cover"
+                />
+                <button
+                  className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full flex items-center justify-center"
+                  style={{ background: 'rgba(45,42,38,0.7)' }}
+                  onClick={() => setPendingImages(prev => prev.filter((_, idx) => idx !== i))}
+                >
+                  <X size={8} style={{ color: 'var(--paper)' }} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="flex items-end gap-2.5">
+        {/* Hidden file input */}
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
+          multiple
+          className="hidden"
+          onChange={e => { if (e.target.files) attachImages(e.target.files); e.target.value = '' }}
+        />
+        {/* Paperclip button */}
+        <button
+          onClick={() => fileRef.current?.click()}
+          disabled={streaming}
+          className={cn(
+            'w-10 h-10 rounded flex-shrink-0 flex items-center justify-center',
+            'transition-all duration-150 border outline-none cursor-pointer',
+            streaming ? 'opacity-30 cursor-not-allowed' : 'hover:scale-105 active:scale-95'
+          )}
+          style={{
+            background: 'var(--paper)',
+            borderColor: 'color-mix(in srgb, var(--kajal) 12%, transparent)',
+            color: 'var(--kajal)',
+            opacity: streaming ? 0.3 : 0.55,
+            borderRadius: '4px',
+          }}
+          title="Attach image"
+        >
+          <Paperclip size={15} />
+        </button>
         <textarea
           ref={textareaRef}
           value={input}
@@ -145,191 +676,47 @@ export function ChatPanel({ messages, streaming, error, onSend }: Props) {
           placeholder="Ask Narad…"
           disabled={streaming}
           rows={1}
+          className={cn(
+            'flex-1 resize-none px-3.5 py-2.5',
+            'font-body text-[13px] leading-relaxed placeholder:opacity-35',
+            'outline-none',
+            'transition-all duration-150',
+            'min-h-[42px] max-h-[140px]',
+            streaming && 'opacity-50'
+          )}
           style={{
-            ...styles.textarea,
-            opacity: streaming ? 0.5 : 1,
+            background: 'var(--paper)',
+            color: 'var(--kajal)',
+            border: '1px solid color-mix(in srgb, var(--kajal) 12%, transparent)',
+            borderRadius: '4px',
+            boxShadow: 'none',
+          }}
+          onFocus={e => {
+            e.target.style.borderColor = 'rgba(194,65,12,0.50)'
+            e.target.style.boxShadow = '0 0 0 2px rgba(194,65,12,0.12)'
+          }}
+          onBlur={e => {
+            e.target.style.borderColor = 'color-mix(in srgb, var(--kajal) 12%, transparent)'
+            e.target.style.boxShadow = 'none'
           }}
         />
         <button
           onClick={handleSend}
           disabled={streaming || !input.trim()}
-          style={{
-            ...styles.sendBtn,
-            opacity: streaming || !input.trim() ? 0.4 : 1,
-            cursor: streaming || !input.trim() ? 'not-allowed' : 'pointer',
-          }}
+          className={cn(
+            'w-10 h-10 rounded flex-shrink-0 flex items-center justify-center',
+            'font-bold text-[18px] transition-all duration-150',
+            'border-0 outline-none cursor-pointer',
+            (streaming || !input.trim())
+              ? 'opacity-30 cursor-not-allowed'
+              : 'hover:scale-105 active:scale-95'
+          )}
+          style={{ background: 'var(--marigold)', color: 'var(--paper)', borderRadius: '4px' }}
         >
           ↑
         </button>
+        </div>
       </div>
     </div>
   )
-}
-
-const styles: Record<string, React.CSSProperties> = {
-  panel: {
-    display: 'flex',
-    flexDirection: 'column',
-    height: '100%',
-    background: 'transparent',
-  },
-  header: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 12,
-    padding: '14px 20px',
-    borderBottom: '2.5px solid var(--kajal)',
-    background: 'var(--paper)',
-  },
-  wordmark: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 0,
-  },
-  wordmarkLatin: {
-    fontFamily: 'var(--font-hero)',
-    fontSize: 22,
-    letterSpacing: '0.08em',
-    color: 'var(--kajal)',
-    lineHeight: 1,
-  },
-  wordmarkDeva: {
-    fontFamily: 'var(--font-deva)',
-    fontSize: 12,
-    color: 'var(--nila)',
-    lineHeight: 1.2,
-    opacity: 0.8,
-  },
-  messages: {
-    flex: 1,
-    overflowY: 'auto',
-    padding: '20px 16px',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 12,
-  },
-  empty: {
-    flex: 1,
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    opacity: 0.5,
-    marginTop: '30%',
-  },
-  emptyTitle: {
-    fontFamily: 'var(--font-deva)',
-    fontSize: 32,
-    color: 'var(--nila)',
-  },
-  emptyHint: {
-    fontFamily: 'var(--font-body)',
-    fontSize: 14,
-    color: 'var(--kajal)',
-  },
-  msgRow: {
-    display: 'flex',
-    width: '100%',
-  },
-  bubble: {
-    maxWidth: '82%',
-    padding: '10px 14px',
-    borderRadius: 'var(--radius-md)',
-    border: '2px solid var(--kajal)',
-    lineHeight: 1.6,
-  },
-  userBubble: {
-    background: 'var(--nila)',
-    color: 'var(--paper)',
-    borderRadius: '12px 12px 2px 12px',
-  },
-  assistantBubble: {
-    background: 'var(--paper)',
-    color: 'var(--kajal)',
-    borderRadius: '12px 12px 12px 2px',
-  },
-  avatarTags: {
-    display: 'flex',
-    flexWrap: 'wrap',
-    gap: 4,
-    marginBottom: 8,
-  },
-  avatarTag: {
-    fontFamily: 'var(--font-mono)',
-    fontSize: 10,
-    padding: '1px 7px',
-    borderRadius: 20,
-    border: '1.5px solid',
-    fontWeight: 600,
-  },
-  msgText: {
-    fontFamily: 'var(--font-body)',
-    fontSize: 14,
-    whiteSpace: 'pre-wrap',
-    wordBreak: 'break-word',
-  },
-  thinkingBubble: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 5,
-    padding: '14px 18px',
-  },
-  dot: {
-    display: 'inline-block',
-    width: 7,
-    height: 7,
-    borderRadius: '50%',
-    background: 'var(--marigold)',
-    animation: 'bounce 1.2s ease-in-out infinite',
-  },
-  errorRow: {
-    padding: '8px 12px',
-    borderRadius: 8,
-    background: 'rgba(192,57,43,0.1)',
-    border: '1.5px solid var(--sindoor)',
-  },
-  errorText: {
-    fontFamily: 'var(--font-mono)',
-    fontSize: 12,
-    color: 'var(--sindoor)',
-  },
-  inputArea: {
-    display: 'flex',
-    alignItems: 'flex-end',
-    gap: 8,
-    padding: '12px 16px',
-    borderTop: '2.5px solid var(--kajal)',
-    background: 'var(--paper)',
-  },
-  textarea: {
-    flex: 1,
-    resize: 'none',
-    border: '2px solid var(--kajal)',
-    borderRadius: 'var(--radius-sm)',
-    padding: '10px 12px',
-    fontFamily: 'var(--font-body)',
-    fontSize: 14,
-    background: 'var(--paper)',
-    color: 'var(--kajal)',
-    lineHeight: 1.5,
-    outline: 'none',
-    minHeight: 42,
-  },
-  sendBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: '50%',
-    border: '2.5px solid var(--kajal)',
-    background: 'var(--marigold)',
-    color: 'var(--kajal)',
-    fontSize: 20,
-    fontWeight: 700,
-    cursor: 'pointer',
-    flexShrink: 0,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    transition: 'transform 0.1s',
-  },
 }

@@ -1,0 +1,8 @@
+moviepy>=1.0.3
+Pillow>=10.0.0
+numpy>=1.26.0
+matplotlib>=3.8.0
+scipy>=1.12.0
+soundfile>=0.12.1
+pydub>=0.25.1
+midiutil>=1.2.1

@@ -1,44 +1,58 @@
 """
-Yantra — Avatara's observability layer.
+Yantra — Avatara's observability layer (v2).
 
 Writes a structured JSONL trace for every session: routing decisions,
-per-avatar latency, token estimates, and errors. No external service
-required — plain files in yantra_traces/.
+per-avatar latency, token costs, phase transitions, and errors.
+No external service required — plain files in ~/.narad/sessions/.
 
 Trace schema (one JSON object per line):
   {
-    "ts":         ISO timestamp,
-    "session_id": str,
-    "user_id":    str,
-    "event":      "session_start" | "avatar_start" | "avatar_done" | "session_done" | "error",
-    "avatar":     str | null,
-    "task":       str | null,       # truncated to 200 chars
-    "result_len": int | null,       # chars in result
-    "latency_ms": int | null,       # wall-clock ms for this avatar
-    "total_ms":   int | null,       # session_done only
-    "error":      str | null,
+    "ts":              ISO timestamp,
+    "session_id":      str,
+    "user_id":         str,
+    "event":           "session_start" | "avatar_start" | "avatar_done"
+                       | "session_done" | "phase_transition"
+                       | "routing_decision" | "error" | <custom>,
+    "avatar":          str | null,
+    "task":            str | null,        # truncated to 200 chars
+    "result_len":      int | null,        # chars in result
+    "result_digest":   str | null,        # first 100 chars of result (avatar_done only)
+    "usage":           dict | null,       # {prompt_tokens, completion_tokens, total} (avatar_done)
+    "trajectory":      dict | null,       # Trajectory.to_dict() — all tool calls (avatar_done only)
+    "latency_ms":      int | null,        # wall-clock ms for this avatar
+    "total_ms":        int | null,        # session_done only
+    "phase":           str | null,        # phase_transition only
+    "avatars_invoked": list | null,       # routing_decision only
+    "error":           str | null,
   }
 
 Usage:
   tracer = Tracer(session_id, user_id)
   tracer.session_start(query)
   with tracer.avatar_span("Narasimha", task) as span:
+      # inside the run loop, call span.record_usage(usage_metadata) each LLM event
       result = await run_avatar(...)
-      span.finish(result)
+      span.finish(result, trajectory=traj)   # traj is a Trajectory instance or None
+  tracer.log_event("phase_transition", avatar="Narasimha", phase="assess")
+  tracer.log_event("routing_decision", avatars_invoked=["Narasimha"], query_preview="...")
   tracer.session_done()
 """
 
 from __future__ import annotations
 
 import json
+import sys as _sys_nc
 import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Generator
+from typing import TYPE_CHECKING, Any, Generator
 
-_TRACE_DIR = Path(__file__).parent / "yantra_traces"
-_TRACE_DIR.mkdir(exist_ok=True)
+_sys_nc.path.insert(0, str(Path(__file__).parent.parent))
+from narad_config import TRACE_DIR as _TRACE_DIR
+
+if TYPE_CHECKING:
+    from yantra_models import Trajectory
 
 
 def _now() -> str:
@@ -53,21 +67,68 @@ def _write(path: Path, record: dict) -> None:
         pass
 
 
+class _TokenMeter:
+    """Accumulates token usage across all LLM events within one avatar run.
+
+    Adapted from IBM/AssetOpsBench (Apache 2.0).
+    Call record_usage() for every event that carries usage_metadata.
+    Fixes the prior = (not +=) bug where only the last event's tokens were kept.
+    """
+    __slots__ = ("prompt", "completion")
+
+    def __init__(self) -> None:
+        self.prompt = 0
+        self.completion = 0
+
+    def record(self, usage_metadata: Any) -> None:
+        """Accept a google.genai UsageMetadata object or any object with token count attrs."""
+        if usage_metadata is None:
+            return
+        self.prompt     += getattr(usage_metadata, "prompt_token_count",     0) or 0
+        self.completion += getattr(usage_metadata, "candidates_token_count", 0) or 0
+
+    @property
+    def total(self) -> int:
+        return self.prompt + self.completion
+
+
 class _AvatarSpan:
     def __init__(self, tracer: "Tracer", avatar: str, task: str) -> None:
         self._tracer = tracer
         self._avatar = avatar
         self._task = task
         self._start = time.monotonic()
+        self.meter = _TokenMeter()
 
-    def finish(self, result: str = "") -> None:
+    def record_usage(self, usage_metadata: Any) -> None:
+        """Call once per LLM event that carries usage_metadata to accumulate tokens."""
+        self.meter.record(usage_metadata)
+
+    def finish(
+        self,
+        result: str = "",
+        trajectory: "Trajectory | None" = None,
+    ) -> None:
         latency_ms = int((time.monotonic() - self._start) * 1000)
+        digest = result[:100].strip() if result else ""
+        extra: dict[str, Any] = {}
+        if digest:
+            extra["result_digest"] = digest
+        if self.meter.total > 0:
+            extra["usage"] = {
+                "prompt_tokens":     self.meter.prompt,
+                "completion_tokens": self.meter.completion,
+                "total_tokens":      self.meter.total,
+            }
+        if trajectory is not None:
+            extra["trajectory"] = trajectory.to_dict()
         self._tracer._write_event(
             event="avatar_done",
             avatar=self._avatar,
             task=self._task,
             result_len=len(result),
             latency_ms=latency_ms,
+            **extra,
         )
 
 
@@ -79,19 +140,27 @@ class Tracer:
         self._path = _TRACE_DIR / f"{session_id}.jsonl"
 
     def _write_event(self, event: str, **kwargs: Any) -> None:
-        record = {
+        record: dict[str, Any] = {
             "ts":         _now(),
             "session_id": self.session_id,
             "user_id":    self.user_id,
             "event":      event,
-            "avatar":     kwargs.get("avatar"),
-            "task":       (kwargs.get("task") or "")[:200] or None,
-            "result_len": kwargs.get("result_len"),
-            "latency_ms": kwargs.get("latency_ms"),
-            "total_ms":   kwargs.get("total_ms"),
-            "error":      kwargs.get("error"),
         }
-        _write(self._path, {k: v for k, v in record.items() if v is not None})
+        # Standard fields
+        for key in ("avatar", "task", "result_len", "result_digest", "usage",
+                    "trajectory", "latency_ms", "total_ms", "phase",
+                    "avatars_invoked", "error"):
+            val = kwargs.get(key)
+            if val is not None:
+                record[key] = val
+        # Truncate task to 200 chars
+        if "task" in record and isinstance(record["task"], str):
+            record["task"] = record["task"][:200] or None
+        _write(self._path, record)
+
+    def log_event(self, event: str, **kwargs: Any) -> None:
+        """Emit an arbitrary named event to the trace JSONL."""
+        self._write_event(event, **kwargs)
 
     def session_start(self, query: str) -> None:
         self._write_event(event="session_start", task=query)
@@ -120,13 +189,21 @@ class Tracer:
 
     @staticmethod
     def summary(session_id: str) -> dict:
-        """Return a summary dict: avatars called, latencies, total time."""
+        """Return a summary dict: avatars called, latencies, token costs, total time."""
         events = Tracer.load(session_id)
         done_events = [e for e in events if e.get("event") == "avatar_done"]
         session_done = next((e for e in events if e.get("event") == "session_done"), {})
+        phase_events = [e for e in events if e.get("event") == "phase_transition"]
+        total_prompt = sum(e.get("usage", {}).get("prompt_tokens", 0) for e in done_events)
+        total_completion = sum(e.get("usage", {}).get("completion_tokens", 0) for e in done_events)
         return {
-            "session_id":   session_id,
-            "avatars":      [e["avatar"] for e in done_events],
-            "latencies_ms": {e["avatar"]: e.get("latency_ms") for e in done_events},
-            "total_ms":     session_done.get("total_ms"),
+            "session_id":        session_id,
+            "avatars":           [e["avatar"] for e in done_events],
+            "latencies_ms":      {e["avatar"]: e.get("latency_ms") for e in done_events},
+            "total_ms":          session_done.get("total_ms"),
+            "total_prompt_tokens":     total_prompt,
+            "total_completion_tokens": total_completion,
+            "phase_transitions": [
+                {"avatar": e.get("avatar"), "phase": e.get("phase")} for e in phase_events
+            ],
         }

@@ -15,7 +15,7 @@
 import type { AvatarName, AvatarState } from '../hooks/useAvatara'
 
 const AVATAR_NAMES: AvatarName[] = [
-  'Matsya', 'Varaha', 'Narasimha', 'Rama', 'Krishna', 'Buddha', 'Parashurama'
+  'Matsya', 'Varaha', 'Narasimha', 'Rama', 'Krishna', 'Buddha', 'Parashurama', 'Vamana'
 ]
 
 const AVATAR_COLOURS: Record<AvatarName, string> = {
@@ -26,6 +26,7 @@ const AVATAR_COLOURS: Record<AvatarName, string> = {
   Krishna:     '#1F7A8C',
   Buddha:      '#F2C14E',
   Parashurama: '#4A4A4A',
+  Vamana:      '#6B4C9A',
 }
 
 interface Props {
@@ -48,11 +49,11 @@ export function MahatiLogo({ avatarStates = {}, naradActive = false, size = 80 }
   const stemBot  = bottomCY - bottomR
   const cx       = W / 2
 
-  // 7 strings evenly spaced across stem width
-  const stringXs = Array.from({ length: 7 }, (_, i) => {
+  // One string per avatar, evenly spaced across stem width
+  const stringXs = Array.from({ length: AVATAR_NAMES.length }, (_, i) => {
     const left  = cx - stemW / 2 + 2
     const right = cx + stemW / 2 - 2
-    return left + (i / 6) * (right - left)
+    return left + (i / (AVATAR_NAMES.length - 1)) * (right - left)
   })
 
   return (

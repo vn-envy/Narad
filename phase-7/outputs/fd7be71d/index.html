@@ -1,0 +1,719 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Automated Job Application Workflow &mdash; Presentation</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --primary: #4f8cf7; --accent: #f7c948;
+    --bg: #0a0f1e; --bg2: #0f172a; --card-bg: #1a2332;
+    --text: #e2e8f0; --text-bright: #f8fafc; --muted: #8896a6;
+    --border: #2a3a4e; --green: #34d399; --red: #f87171; --orange: #fb923c;
+    --radius: 12px;
+  }
+  html { font-size: clamp(14px, 1.1vw, 20px); scroll-behavior: smooth; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background: var(--bg); color: var(--text);
+    overflow: hidden; width: 100vw; height: 100vh;
+  }
+  .presentation {
+    width: 100vw; height: 100vh; position: relative; overflow: hidden;
+  }
+  .slide {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    display: flex; flex-direction: column; justify-content: center;
+    padding: 5% 8%; opacity: 0; pointer-events: none;
+    transition: opacity 0.5s ease, transform 0.5s ease;
+    transform: translateY(20px); overflow-y: auto;
+  }
+  .slide.active { opacity: 1; pointer-events: auto; transform: translateY(0); }
+  .slide.exit { opacity: 0; transform: translateY(-20px); }
+  
+  /* Slide backgrounds */
+  .slide-title {
+    background: radial-gradient(ellipse at 30% 20%, rgba(79,140,247,0.12) 0%, transparent 60%),
+                radial-gradient(ellipse at 70% 80%, rgba(247,201,72,0.08) 0%, transparent 50%),
+                var(--bg);
+  }
+  .slide-content { background: var(--bg2); }
+  .slide-content:nth-child(odd) { background: var(--bg); }
+  
+  /* Typography */
+  h1 { font-size: 2.6rem; font-weight: 700; color: var(--text-bright); line-height: 1.2; }
+  h2 { font-size: 1.8rem; font-weight: 600; color: var(--text-bright); margin-bottom: 0.25em; }
+  h3 { font-size: 1.3rem; font-weight: 600; color: var(--primary); margin-bottom: 0.5em; }
+  h4 { font-size: 1.1rem; font-weight: 600; color: var(--text-bright); margin-bottom: 0.3em; }
+  p { font-size: 1.05rem; line-height: 1.6; color: var(--text); margin-bottom: 0.8em; }
+  .subtitle { font-size: 1.15rem; color: var(--muted); margin-top: 0.3em; font-weight: 400; }
+  .small { font-size: 0.85rem; color: var(--muted); }
+  
+  /* Title slide */
+  .slide-title h1 { font-size: 3rem; margin-bottom: 0.4em; }
+  .slide-title .primary-tag { display: inline-block; background: var(--primary); color: #fff; padding: 0.2em 0.8em; border-radius: 6px; font-size: 0.9rem; font-weight: 600; letter-spacing: 0.5px; margin-bottom: 1.5em; }
+  .slide-title .byline { color: var(--muted); font-size: 1rem; border-top: 1px solid var(--border); padding-top: 1.2em; margin-top: 1.5em; }
+  
+  /* Cards */
+  .card-grid { display: grid; gap: 1rem; margin: 0.8em 0; }
+  .card-grid-2 { grid-template-columns: 1fr 1fr; }
+  .card-grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+  .card-grid-4 { grid-template-columns: 1fr 1fr 1fr 1fr; }
+  .card-grid-5 { grid-template-columns: repeat(5, 1fr); }
+  .card {
+    background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 1.2em; transition: border-color 0.2s, transform 0.2s;
+  }
+  .card:hover { border-color: var(--primary); transform: translateY(-2px); }
+  .card .icon { font-size: 1.8rem; margin-bottom: 0.4em; display: block; }
+  .card h4 { font-size: 0.95rem; margin-bottom: 0.3em; }
+  .card p { font-size: 0.85rem; margin-bottom: 0; color: var(--muted); line-height: 1.5; }
+  
+  /* Architecture flow diagram */
+  .flow { display: flex; align-items: center; justify-content: center; gap: 0.4rem; flex-wrap: wrap; margin: 1em 0; }
+  .flow-box {
+    background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 0.7em 1em; text-align: center; font-size: 0.8rem; font-weight: 500;
+    max-width: 160px; flex-shrink: 0;
+  }
+  .flow-box .label { display: block; font-size: 0.7rem; color: var(--muted); margin-top: 0.2em; }
+  .flow-arrow { font-size: 1.2rem; color: var(--primary); flex-shrink: 0; }
+  .flow-box.highlight { border-color: var(--primary); background: rgba(79,140,247,0.08); }
+  
+  /* Lists */
+  ul, ol { margin: 0.5em 0 0.5em 1.5em; }
+  li { font-size: 0.95rem; line-height: 1.6; margin-bottom: 0.3em; }
+  .tag { display: inline-block; padding: 0.1em 0.5em; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
+  .tag-green { background: rgba(52,211,153,0.15); color: var(--green); }
+  .tag-orange { background: rgba(251,146,60,0.15); color: var(--orange); }
+  .tag-red { background: rgba(248,113,113,0.15); color: var(--red); }
+  .tag-blue { background: rgba(79,140,247,0.15); color: var(--primary); }
+  
+  /* Timeline/Gantt */
+  .gantt { display: flex; flex-direction: column; gap: 0.5rem; margin: 0.8em 0; }
+  .gantt-row { display: flex; align-items: center; gap: 0.8rem; }
+  .gantt-label { width: 100px; font-size: 0.75rem; font-weight: 600; color: var(--muted); flex-shrink: 0; text-align: right; }
+  .gantt-bar-wrap { flex: 1; height: 28px; background: rgba(255,255,255,0.04); border-radius: 6px; position: relative; overflow: hidden; }
+  .gantt-bar { height: 100%; border-radius: 6px; display: flex; align-items: center; padding-left: 8px; font-size: 0.68rem; font-weight: 600; color: #fff; }
+  .gantt-bar.phase0 { background: linear-gradient(90deg, #6366f1, #818cf8); width: 13%; }
+  .gantt-bar.phase1 { background: linear-gradient(90deg, #4f8cf7, #60a5fa); width: 13%; }
+  .gantt-bar.phase2 { background: linear-gradient(90deg, #34d399, #6ee7b7); width: 20%; }
+  .gantt-bar.phase3 { background: linear-gradient(90deg, #f7c948, #fbbf24); width: 13%; }
+  .gantt-bar.phase4 { background: linear-gradient(90deg, #fb923c, #f97316); width: 20%; }
+  .gantt-bar.phase5 { background: linear-gradient(90deg, #f87171, #ef4444); width: 13%; }
+  .gantt-bar.phase6 { background: linear-gradient(90deg, #a78bfa, #8b5cf6); width: 8%; }
+  .gantt-week { position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(255,255,255,0.06); }
+  
+  /* Table */
+  table { width: 100%; border-collapse: collapse; margin: 0.8em 0; font-size: 0.85rem; }
+  th { text-align: left; padding: 0.5em 0.6em; background: rgba(255,255,255,0.04); color: var(--muted); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--border); }
+  td { padding: 0.5em 0.6em; border-bottom: 1px solid rgba(255,255,255,0.04); vertical-align: top; }
+  tr:hover td { background: rgba(79,140,247,0.04); }
+  
+  /* Navigation */
+  .nav-bar {
+    position: fixed; bottom: 1.5rem; left: 50%; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 1rem;
+    background: rgba(15,23,42,0.9); backdrop-filter: blur(12px);
+    border: 1px solid var(--border); border-radius: 100px;
+    padding: 0.5rem 1.2rem; z-index: 100;
+  }
+  .nav-btn {
+    background: none; border: none; color: var(--muted); font-size: 1.1rem;
+    cursor: pointer; padding: 0.3em 0.5em; border-radius: 6px; transition: all 0.2s;
+  }
+  .nav-btn:hover { color: var(--text-bright); background: rgba(255,255,255,0.06); }
+  .nav-btn:disabled { opacity: 0.3; cursor: default; }
+  .slide-counter { font-size: 0.8rem; color: var(--muted); font-weight: 500; min-width: 60px; text-align: center; }
+  .progress-dots { display: flex; gap: 4px; }
+  .progress-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--border); transition: all 0.2s; }
+  .progress-dot.active { background: var(--primary); width: 18px; border-radius: 4px; }
+  
+  /* Milestones */
+  .milestone { display: flex; align-items: flex-start; gap: 0.8rem; padding: 0.6em 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
+  .milestone:last-child { border-bottom: none; }
+  .milestone .m-num { width: 32px; height: 32px; border-radius: 50%; background: var(--card-bg); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 700; color: var(--primary); flex-shrink: 0; }
+  .milestone .m-content { flex: 1; }
+  .milestone .m-title { font-weight: 600; font-size: 0.9rem; color: var(--text-bright); }
+  .milestone .m-desc { font-size: 0.8rem; color: var(--muted); }
+  .milestone .m-week { font-size: 0.7rem; color: var(--primary); font-weight: 600; }
+  
+  /* Score bars */
+  .score-bar { display: flex; align-items: center; gap: 0.6rem; margin: 0.3em 0; }
+  .score-bar .sb-label { width: 80px; font-size: 0.8rem; color: var(--muted); flex-shrink: 0; }
+  .score-bar .sb-track { flex: 1; height: 8px; background: rgba(255,255,255,0.06); border-radius: 4px; overflow: hidden; }
+  .score-bar .sb-fill { height: 100%; border-radius: 4px; }
+  .score-bar .sb-pct { width: 32px; font-size: 0.75rem; color: var(--muted); text-align: right; }
+  
+  /* Risk matrix */
+  .risk-row { display: flex; align-items: flex-start; gap: 0.6rem; padding: 0.4em 0; }
+  .risk-tag { flex-shrink: 0; width: 60px; text-align: center; }
+  
+  /* Responsive */
+  @media (max-width: 768px) {
+    .card-grid-2, .card-grid-3, .card-grid-4, .card-grid-5 { grid-template-columns: 1fr; }
+    .flow { flex-direction: column; }
+    .flow-arrow { transform: rotate(90deg); }
+    h1 { font-size: 1.8rem; }
+    h2 { font-size: 1.3rem; }
+    .slide-title h1 { font-size: 2rem; }
+    .gantt-label { width: 70px; font-size: 0.65rem; }
+    .nav-bar { gap: 0.5rem; padding: 0.4rem 0.8rem; }
+    .slide { padding: 4% 5%; }
+  }
+  
+  @media print {
+    body { overflow: visible; height: auto; }
+    .presentation { height: auto; overflow: visible; }
+    .slide { position: relative; opacity: 1 !important; transform: none !important; height: 100vh; page-break-after: always; }
+    .nav-bar { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="presentation" id="presentation">
+
+<!-- ═══ SLIDE 1: TITLE ═══ -->
+<section class="slide slide-title active" data-index="0">
+  <div class="primary-tag">PROJECT BLUEPRINT &bull; 2026</div>
+  <h1>Automated Job Application<br>Workflow</h1>
+  <p class="subtitle">From Passive Aggregation to Active Application Automation</p>
+  <div class="byline">
+    Building on existing job board infrastructure &bull; Personal use &bull; ~5&ndash;20 apps/week
+  </div>
+</section>
+
+<!-- ═══ SLIDE 2: AGENDA ═══ -->
+<section class="slide slide-content" data-index="1">
+  <div class="small" style="margin-bottom:0.8em;">Slide 2 of 16</div>
+  <h2>Agenda</h2>
+  <div class="card-grid card-grid-4" style="margin-top:1.5em;">
+    <div class="card"><span class="icon">🗺️</span><h4>Current Landscape</h4><p>What exists today, the gap we fill</p></div>
+    <div class="card"><span class="icon">🎯</span><h4>Project Goals</h4><p>Primary &amp; secondary objectives</p></div>
+    <div class="card"><span class="icon">🏗️</span><h4>Architecture</h4><p>System design &amp; data flow</p></div>
+    <div class="card"><span class="icon">📅</span><h4>Phases &amp; Timeline</h4><p>15-week roadmap</p></div>
+    <div class="card"><span class="icon">⚙️</span><h4>Tech Stack</h4><p>Languages, tools, services</p></div>
+    <div class="card"><span class="icon">⚠️</span><h4>Risk Assessment</h4><p>Top 5 risks &amp; mitigations</p></div>
+    <div class="card"><span class="icon">📊</span><h4>Success Metrics</h4><p>Quantitative &amp; qualitative KPIs</p></div>
+    <div class="card"><span class="icon">🚀</span><h4>Next Steps</h4><p>Immediate actions</p></div>
+  </div>
+</section>
+
+<!-- ═══ SLIDE 3: CURRENT FOUNDATION ═══ -->
+<section class="slide slide-content" data-index="2">
+  <div class="small" style="margin-bottom:0.8em;">Slide 3 of 16</div>
+  <h2>Current Foundation</h2>
+  <p class="subtitle">What we already have &mdash; and where we are going</p>
+  <div class="card-grid card-grid-2" style="margin-top:1.2em;">
+    <div class="card">
+      <span class="icon">✅</span>
+      <h4>Existing Infrastructure</h4>
+      <ul>
+        <li>Working job board with scrapers for LinkedIn, Google, Amazon, Microsoft</li>
+        <li>Outputs to <code style="color:var(--primary);">jobs.json</code></li>
+        <li>Functional dashboard (HTML/CSS/JS frontend)</li>
+      </ul>
+    </div>
+    <div class="card">
+      <span class="icon">🚀</span>
+      <h4>Scope of This Project</h4>
+      <ul>
+        <li>Extend from <strong>passive aggregation</strong> to <strong>active application automation</strong></li>
+        <li>Personal use only (~5&ndash;20 applications/week)</li>
+        <li>Semi-automated approach: auto-fill + manual verify</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ SLIDE 4: PRIMARY GOAL ═══ -->
+<section class="slide slide-content" data-index="3">
+  <div class="small" style="margin-bottom:0.8em;">Slide 4 of 16</div>
+  <h2>Primary Goal</h2>
+  <p class="subtitle">Automate the end-to-end pipeline</p>
+  <div class="flow" style="margin:1.5em 0;">
+    <div class="flow-box highlight">Job Discovery<span class="label">Scrapers + APIs</span></div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box highlight">Matching<span class="label">Rules + Scoring</span></div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box highlight">Customized App<span class="label">Resume + Cover Letter</span></div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box highlight">Submission<span class="label">Auto-fill ATS forms</span></div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box highlight">Status Tracking<span class="label">Pipeline dashboard</span></div>
+  </div>
+  <div class="card" style="text-align:center;margin-top:0.5em;border-color:var(--accent);">
+    <p style="font-size:1.1rem;margin:0;"><strong>Target:</strong> Reduce manual effort per application from <strong style="color:var(--red);">~30 min</strong> to <strong style="color:var(--green);">~5 min</strong></p>
+  </div>
+</section>
+
+<!-- ═══ SLIDE 5: KEY RESEARCH FINDINGS (1) ═══ -->
+<section class="slide slide-content" data-index="4">
+  <div class="small" style="margin-bottom:0.8em;">Slide 5 of 16</div>
+  <h2>Key Research Findings (1)</h2>
+  <p class="subtitle">The job automation landscape in 2025&ndash;2026</p>
+  <div class="card-grid card-grid-2" style="margin-top:1em;">
+    <div class="card">
+      <span class="icon">🔒</span>
+      <h4>Platform Hardening</h4>
+      <ul>
+        <li>LinkedIn caps Easy Apply at <strong>~50/day</strong></li>
+        <li>Workday uses <strong>Cloudflare Turnstile</strong> CAPTCHA</li>
+        <li>Indeed has <strong>DataDome</strong> bot protection</li>
+        <li>Greenhouse &amp; Lever added rate-limiting</li>
+      </ul>
+    </div>
+    <div class="card">
+      <span class="icon">📚</span>
+      <h4>Dominant Open-Source Tool</h4>
+      <ul>
+        <li><strong>AIHawk</strong> (<code>feder-cr/Jobs_Applier_AI_Agent_AIHawk</code>)</li>
+        <li>15K+ stars, actively maintained</li>
+        <li>Uses LLM + Playwright for auto-apply</li>
+        <li>Key anti-detection: <strong>rebrowser-playwright</strong> patched browsers</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ SLIDE 6: KEY RESEARCH FINDINGS (2) ═══ -->
+<section class="slide slide-content" data-index="5">
+  <div class="small" style="margin-bottom:0.8em;">Slide 6 of 16</div>
+  <h2>Key Research Findings (2)</h2>
+  <p class="subtitle">Risk levels &amp; architectural patterns</p>
+  <div class="card-grid card-grid-2" style="margin-top:1em;">
+    <div class="card">
+      <span class="icon">🔐</span>
+      <h4>Safer Architectural Pattern</h4>
+      <p>Job discovery + <strong>semi-automated</strong> form filling<br>(not full auto-submit without review)</p>
+      <ul style="margin-top:0.5em;">
+        <li>Human-in-the-loop for submission</li>
+        <li>Auto-fill forms, manual final click</li>
+        <li>Respect rate limits &amp; robots.txt</li>
+      </ul>
+    </div>
+    <div class="card">
+      <span class="icon">⚠️</span>
+      <h4>Risk Level Spectrum</h4>
+      <table style="margin:0.3em 0;font-size:0.8rem;">
+        <tr><td>Job discovery only</td><td><span class="tag tag-green">Low-Medium</span></td></tr>
+        <tr><td>Semi-automated filling</td><td><span class="tag tag-orange">Medium</span></td></tr>
+        <tr><td>Full auto-apply (personal)</td><td><span class="tag tag-red">High</span></td></tr>
+        <tr><td>Full auto-apply (scaled)</td><td><span class="tag tag-red">Very High</span></td></tr>
+      </table>
+      <p class="small" style="margin-top:0.3em;">LinkedIn ToS explicitly bans automated access</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ SLIDE 7: PROJECT SCOPE ═══ -->
+<section class="slide slide-content" data-index="6">
+  <div class="small" style="margin-bottom:0.8em;">Slide 7 of 16</div>
+  <h2>Project Scope</h2>
+  <div class="card-grid card-grid-2" style="margin-top:1em;">
+    <div class="card" style="border-color:rgba(52,211,153,0.3);">
+      <span class="icon">✅</span>
+      <h4 style="color:var(--green);">In Scope</h4>
+      <ul>
+        <li>Scrape jobs from LinkedIn, Google, Amazon, Microsoft + company pages</li>
+        <li>Rule-based filtering &amp; weighted scoring</li>
+        <li>Auto-customize resume/cover letter via templates</li>
+        <li>Auto-fill simple ATS forms</li>
+        <li>Status tracking dashboard</li>
+        <li>Daily scheduled runs (cron)</li>
+      </ul>
+    </div>
+    <div class="card" style="border-color:rgba(248,113,113,0.3);">
+      <span class="icon">❌</span>
+      <h4 style="color:var(--orange);">Out of Scope (Phase 1)</h4>
+      <ul>
+        <li>ML-based resume scoring</li>
+        <li>GenAI full resume rewrite</li>
+        <li>Complex multi-stage applications</li>
+        <li>Interview scheduling</li>
+        <li>LinkedIn InMail automation</li>
+        <li>Network scraping (2nd-degree connections)</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ SLIDE 8: ARCHITECTURE OVERVIEW ═══ -->
+<section class="slide slide-content" data-index="7">
+  <div class="small" style="margin-bottom:0.8em;">Slide 8 of 16</div>
+  <h2>Architecture Overview</h2>
+  <div class="flow" style="margin:0.8em 0;gap:0.3rem;">
+    <div class="flow-box"><span style="font-size:1.2rem;">🗂️</span>Job Source Aggregator<span class="label">LinkedIn, Google, Company Pages, APIs</span></div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box"><span style="font-size:1.2rem;">🔍</span>Filter &amp; Matcher<span class="label">Rules Engine, Scoring, Job Queue</span></div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box"><span style="font-size:1.2rem;">📝</span>Resume Customizer<span class="label">Template Engine, Keyword Injector, Cover Letter Gen</span></div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box"><span style="font-size:1.2rem;">🤖</span>Application Submitter<span class="label">Form Detector, Field Mapper, Browser Controller, CAPTCHA Handler, Rate Limiter</span></div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box"><span style="font-size:1.2rem;">📊</span>Tracker Dashboard<span class="label">Pipeline View, Status, Stats</span></div>
+  </div>
+  <div class="card" style="text-align:center;border-color:var(--primary);">
+    <p class="small" style="margin:0;">All orchestrated by a <strong>daily cron job</strong> &bull; Config via <strong>YAML</strong> &bull; Data in <strong>SQLite</strong></p>
+  </div>
+</section>
+
+<!-- ═══ SLIDE 9: TIMELINE ═══ -->
+<section class="slide slide-content" data-index="8">
+  <div class="small" style="margin-bottom:0.8em;">Slide 9 of 16</div>
+  <h2>Timeline &mdash; 6 Phases, ~15 Weeks</h2>
+  <div class="gantt">
+    <div class="gantt-row">
+      <div class="gantt-label">Phase 0</div>
+      <div class="gantt-bar-wrap">
+        <div class="gantt-bar phase0">Research</div>
+        <div class="gantt-week" style="left:14%;"></div>
+      </div>
+    </div>
+    <div class="gantt-row">
+      <div class="gantt-label">Phase 1</div>
+      <div class="gantt-bar-wrap">
+        <div class="gantt-bar phase1">Core Setup</div>
+        <div class="gantt-week" style="left:27%;"></div>
+      </div>
+    </div>
+    <div class="gantt-row">
+      <div class="gantt-label">Phase 2</div>
+      <div class="gantt-bar-wrap">
+        <div class="gantt-bar phase2">Filter Engine</div>
+        <div class="gantt-week" style="left:47%;"></div>
+      </div>
+    </div>
+    <div class="gantt-row">
+      <div class="gantt-label">Phase 3</div>
+      <div class="gantt-bar-wrap">
+        <div class="gantt-bar phase3">Resume Customizer</div>
+        <div class="gantt-week" style="left:60%;"></div>
+      </div>
+    </div>
+    <div class="gantt-row">
+      <div class="gantt-label">Phase 4</div>
+      <div class="gantt-bar-wrap">
+        <div class="gantt-bar phase4">Auto-Submit</div>
+        <div class="gantt-week" style="left:80%;"></div>
+      </div>
+    </div>
+    <div class="gantt-row">
+      <div class="gantt-label">Phase 5</div>
+      <div class="gantt-bar-wrap">
+        <div class="gantt-bar phase5">Dashboard &amp; Test</div>
+        <div class="gantt-week" style="left:93%;"></div>
+      </div>
+    </div>
+    <div class="gantt-row">
+      <div class="gantt-label">Phase 6</div>
+      <div class="gantt-bar-wrap">
+        <div class="gantt-bar phase6">Deploy &amp; Monitor</div>
+      </div>
+    </div>
+  </div>
+  <div style="display:flex;gap:1rem;justify-content:center;margin-top:0.5em;flex-wrap:wrap;">
+    <span style="font-size:0.75rem;color:var(--muted);">Weeks 1-2</span>
+    <span style="font-size:0.75rem;color:var(--muted);">Weeks 3-4</span>
+    <span style="font-size:0.75rem;color:var(--muted);">Weeks 5-7</span>
+    <span style="font-size:0.75rem;color:var(--muted);">Weeks 8-9</span>
+    <span style="font-size:0.75rem;color:var(--muted);">Weeks 10-12</span>
+    <span style="font-size:0.75rem;color:var(--muted);">Weeks 13-14</span>
+    <span style="font-size:0.75rem;color:var(--muted);">Week 15</span>
+  </div>
+</section>
+
+<!-- ═══ SLIDE 10: MODULE DEEP DIVE ═══ -->
+<section class="slide slide-content" data-index="9">
+  <div class="small" style="margin-bottom:0.8em;">Slide 10 of 16</div>
+  <h2>Module Deep Dive</h2>
+  <div class="card-grid card-grid-5" style="margin-top:0.5em;">
+    <div class="card">
+      <span class="icon">🗂️</span>
+      <h4>Job Source Aggregator</h4>
+      <p>Structured field extraction, API wrappers, deduplicator</p>
+    </div>
+    <div class="card">
+      <span class="icon">🔍</span>
+      <h4>Filter &amp; Matcher</h4>
+      <p>YAML-based rules engine, weighted scoring</p>
+      <div class="small" style="margin-top:0.3em;">
+        Skills 40% &bull; Experience 25%<br>
+        Location 20% &bull; Seniority 15%
+      </div>
+    </div>
+    <div class="card">
+      <span class="icon">📝</span>
+      <h4>Resume Customizer</h4>
+      <p>Jinja2 + LaTeX templates, keyword injection, cover letter generator</p>
+    </div>
+    <div class="card">
+      <span class="icon">🤖</span>
+      <h4>Application Submitter</h4>
+      <p>ATS type detection, Playwright browser control, CAPTCHA fallback, rate limiter</p>
+    </div>
+    <div class="card">
+      <span class="icon">📊</span>
+      <h4>Tracker Dashboard</h4>
+      <p>Pipeline view, status transitions, stats</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ SLIDE 11: TECH STACK ═══ -->
+<section class="slide slide-content" data-index="10">
+  <div class="small" style="margin-bottom:0.8em;">Slide 11 of 16</div>
+  <h2>Tech Stack</h2>
+  <div class="card-grid card-grid-4" style="margin-top:1em;">
+    <div class="card"><span class="icon">🐍</span><h4>Language</h4><p>Python 3.11+</p></div>
+    <div class="card"><span class="icon">🎭</span><h4>Browser Automation</h4><p>Playwright + rebrowser patches</p></div>
+    <div class="card"><span class="icon">🗄️</span><h4>Database</h4><p>SQLite</p></div>
+    <div class="card"><span class="icon">📜</span><h4>Templating</h4><p>Jinja2 + LaTeX</p></div>
+    <div class="card"><span class="icon">⚙️</span><h4>Config</h4><p>YAML</p></div>
+    <div class="card"><span class="icon">⏰</span><h4>Scheduling</h4><p>Cron</p></div>
+    <div class="card"><span class="icon">🔔</span><h4>Notifications</h4><p>Slack webhooks / SMTP Email</p></div>
+    <div class="card"><span class="icon">📊</span><h4>Dashboard</h4><p>Vanilla HTML/CSS/JS (extend existing)</p></div>
+    <div class="card"><span class="icon">🔧</span><h4>Version Control</h4><p>Git</p></div>
+  </div>
+</section>
+
+<!-- ═══ SLIDE 12: RISK REGISTER ═══ -->
+<section class="slide slide-content" data-index="11">
+  <div class="small" style="margin-bottom:0.8em;">Slide 12 of 16</div>
+  <h2>Risk Register &mdash; Top 5</h2>
+  <table>
+    <tr><th>Risk</th><th>Impact</th><th>Mitigation</th></tr>
+    <tr>
+      <td>1. CAPTCHA on forms</td>
+      <td><span class="tag tag-red">HIGH</span></td>
+      <td>Detect + notify for manual solve; route CAPTCHA-heavy sites to manual-only</td>
+    </tr>
+    <tr>
+      <td>2. ATS form variability</td>
+      <td><span class="tag tag-orange">MEDIUM</span></td>
+      <td>Build field-mapping for top 5 ATS types; fallback for unknown</td>
+    </tr>
+    <tr>
+      <td>3. IP blocking / rate limiting</td>
+      <td><span class="tag tag-orange">MEDIUM</span></td>
+      <td>Rotate user-agent, respect robots.txt, max 1 req/3s</td>
+    </tr>
+    <tr>
+      <td>4. LinkedIn guest API deprecation</td>
+      <td><span class="tag tag-blue">LOW</span></td>
+      <td>Have alternative sources ready</td>
+    </tr>
+    <tr>
+      <td>5. Legal / ToS violation</td>
+      <td><span class="tag tag-orange">MEDIUM</span></td>
+      <td>Personal use only, respect robots.txt, add disclaimer</td>
+    </tr>
+  </table>
+</section>
+
+<!-- ═══ SLIDE 13: MILESTONES ═══ -->
+<section class="slide slide-content" data-index="12">
+  <div class="small" style="margin-bottom:0.8em;">Slide 13 of 16</div>
+  <h2>Milestones</h2>
+  <div style="margin-top:0.8em;">
+    <div class="milestone">
+      <div class="m-num">M0</div>
+      <div class="m-content">
+        <div class="m-title">ATS Form Variability Map + Anti-Bot Assessment</div>
+        <div class="m-desc">Audit 5 target boards for form structure and protection mechanisms</div>
+        <div class="m-week">Week 2</div>
+      </div>
+    </div>
+    <div class="milestone">
+      <div class="m-num">M1</div>
+      <div class="m-content">
+        <div class="m-title">SQLite Schema + Job Queue Ready</div>
+        <div class="m-desc">Database schema designed, job queue operational</div>
+        <div class="m-week">Week 4</div>
+      </div>
+    </div>
+    <div class="milestone">
+      <div class="m-num">M2</div>
+      <div class="m-content">
+        <div class="m-title">Filters Working on 50 Test Jobs</div>
+        <div class="m-desc">Rule-based filtering + weighted scoring validated</div>
+        <div class="m-week">Week 7</div>
+      </div>
+    </div>
+    <div class="milestone">
+      <div class="m-num">M3</div>
+      <div class="m-content">
+        <div class="m-title">Resume Customization Generates PDFs</div>
+        <div class="m-desc">Jinja2 + LaTeX pipeline producing tailored resumes</div>
+        <div class="m-week">Week 9</div>
+      </div>
+    </div>
+    <div class="milestone">
+      <div class="m-num">M4</div>
+      <div class="m-content">
+        <div class="m-title">First Auto-Submission to LinkedIn Easy Apply</div>
+        <div class="m-desc">End-to-end pipeline demonstrated with real submission</div>
+        <div class="m-week">Week 12</div>
+      </div>
+    </div>
+    <div class="milestone">
+      <div class="m-num">M5</div>
+      <div class="m-content">
+        <div class="m-title">Dashboard Extended with Pipeline View</div>
+        <div class="m-desc">Visual pipeline with status transitions and stats</div>
+        <div class="m-week">Week 14</div>
+      </div>
+    </div>
+    <div class="milestone">
+      <div class="m-num">M6</div>
+      <div class="m-content">
+        <div class="m-title">Full Pipeline Live with Daily Cron</div>
+        <div class="m-desc">Production-ready, monitoring in place</div>
+        <div class="m-week">Week 15</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ SLIDE 14: SUCCESS METRICS ═══ -->
+<section class="slide slide-content" data-index="13">
+  <div class="small" style="margin-bottom:0.8em;">Slide 14 of 16</div>
+  <h2>Success Metrics</h2>
+  <div class="card-grid card-grid-2" style="margin-top:1em;">
+    <div class="card">
+      <span class="icon">📈</span>
+      <h4>Quantitative</h4>
+      <table>
+        <tr><td>Jobs discovered/day</td><td style="text-align:right;color:var(--green);font-weight:600;">&ge; 50</td></tr>
+        <tr><td>Match precision</td><td style="text-align:right;color:var(--green);font-weight:600;">&gt; 80%</td></tr>
+        <tr><td>Auto-submit success rate</td><td style="text-align:right;color:var(--green);font-weight:600;">&gt; 70%</td></tr>
+        <tr><td>Applications submitted/day</td><td style="text-align:right;color:var(--green);font-weight:600;">&ge; 5</td></tr>
+        <tr><td>Time saved per application</td><td style="text-align:right;color:var(--green);font-weight:600;">&ge; 20 min</td></tr>
+        <tr><td>Application &rarr; response rate</td><td style="text-align:right;color:var(--green);font-weight:600;">&ge; 10%</td></tr>
+        <tr><td>Error rate</td><td style="text-align:right;color:var(--green);font-weight:600;">&lt; 5%</td></tr>
+      </table>
+    </div>
+    <div class="card">
+      <span class="icon">⭐</span>
+      <h4>Qualitative (Weekly Review)</h4>
+      <ul>
+        <li>Resume PDF quality &mdash; formatting, keyword alignment</li>
+        <li>Cover letter quality &mdash; relevance, tone</li>
+        <li>Dashboard usability &mdash; clarity, responsiveness</li>
+        <li>False positive audit &mdash; are we matching the right jobs?</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ SLIDE 15: NEXT STEPS ═══ -->
+<section class="slide slide-content" data-index="14">
+  <div class="small" style="margin-bottom:0.8em;">Slide 15 of 16</div>
+  <h2>Next Steps</h2>
+  <ol style="font-size:1rem;margin-top:1em;">
+    <li><strong>Complete Phase 0 Research</strong> &mdash; Audit 5 target boards for form structure and anti-bot measures</li>
+    <li><strong>Set up SQLite schema</strong> alongside existing <code>jobs.json</code> for structured job queue</li>
+    <li><strong>Build YAML rules engine</strong> prototype for filter &amp; match</li>
+    <li><strong>Extend existing dashboard</strong> with pipeline view and status transitions</li>
+    <li><strong>Begin with semi-automated approach:</strong> auto-fill &rarr; manual submit (human-in-the-loop)</li>
+    <li><strong>Schedule weekly progress reviews</strong> to track milestones and adjust scope</li>
+  </ol>
+  <div class="card" style="margin-top:1.5em;border-color:var(--accent);text-align:center;">
+    <p style="margin:0;font-size:1rem;"><strong>Estimated savings:</strong> <span style="color:var(--green);font-size:1.3rem;">20+ hours/month</span> in the job search process</p>
+  </div>
+</section>
+
+<!-- ═══ SLIDE 16: THANK YOU ═══ -->
+<section class="slide slide-title" data-index="15">
+  <h1>Thank You</h1>
+  <p class="subtitle" style="font-size:1.3rem;">Questions?</p>
+  <div class="byline" style="margin-top:2em;">
+    <p>This plan builds on your <strong>existing job board infrastructure</strong> and aims to save <strong>20+ hours per month</strong> in the job search process.</p>
+    <p style="margin-top:1em;">Semi-automated &bull; Personal use &bull; Progressive rollout</p>
+  </div>
+</section>
+
+</div>
+<!-- ═══ NAVIGATION BAR ═══ -->
+<nav class="nav-bar" id="navBar">
+  <button class="nav-btn" id="prevBtn" onclick="prevSlide()" disabled>&larr;</button>
+  <div class="progress-dots" id="progressDots"></div>
+  <span class="slide-counter" id="slideCounter">1 / 16</span>
+  <button class="nav-btn" id="nextBtn" onclick="nextSlide()">&rarr;</button>
+</nav>
+
+<script>
+  let currentSlide = 0;
+  const slides = document.querySelectorAll(".slide");
+  const totalSlides = slides.length;
+
+  // Create progress dots
+  const dotsContainer = document.getElementById("progressDots");
+  for (let i = 0; i < totalSlides; i++) {
+    const dot = document.createElement("span");
+    dot.className = "progress-dot" + (i === 0 ? " active" : "");
+    dot.dataset.index = i;
+    dot.style.cursor = "pointer";
+    dot.onclick = function() { goToSlide(parseInt(this.dataset.index)); };
+    dotsContainer.appendChild(dot);
+  }
+
+  function updateSlide() {
+    slides.forEach((slide, i) => {
+      slide.classList.remove("active", "exit");
+      if (i === currentSlide) {
+        slide.classList.add("active");
+      } else if (i < currentSlide) {
+        slide.classList.add("exit");
+      }
+    });
+    document.getElementById("slideCounter").textContent = (currentSlide + 1) + " / " + totalSlides;
+    document.getElementById("prevBtn").disabled = currentSlide === 0;
+    document.getElementById("nextBtn").disabled = currentSlide === totalSlides - 1;
+    document.querySelectorAll(".progress-dot").forEach((dot, i) => {
+      dot.classList.toggle("active", i === currentSlide);
+    });
+  }
+
+  function nextSlide() {
+    if (currentSlide < totalSlides - 1) { currentSlide++; updateSlide(); }
+  }
+  function prevSlide() {
+    if (currentSlide > 0) { currentSlide--; updateSlide(); }
+  }
+  function goToSlide(n) {
+    if (n >= 0 && n < totalSlides) { currentSlide = n; updateSlide(); }
+  }
+
+  // Keyboard navigation
+  document.addEventListener("keydown", function(e) {
+    if (e.key === "ArrowRight" || e.key === "ArrowDown" || e.key === " ") {
+      e.preventDefault(); nextSlide();
+    } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+      e.preventDefault(); prevSlide();
+    } else if (e.key === "Home") {
+      e.preventDefault(); goToSlide(0);
+    } else if (e.key === "End") {
+      e.preventDefault(); goToSlide(totalSlides - 1);
+    }
+  });
+
+  // Touch/swipe support
+  let touchStartX = 0;
+  document.addEventListener("touchstart", function(e) {
+    touchStartX = e.changedTouches[0].screenX;
+  });
+  document.addEventListener("touchend", function(e) {
+    const diff = touchStartX - e.changedTouches[0].screenX;
+    if (Math.abs(diff) > 50) {
+      if (diff > 0) nextSlide(); else prevSlide();
+    }
+  });
+
+  // Initialize
+  updateSlide();
+</script>
+</body>
+</html>

@@ -1,0 +1,345 @@
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700;1,900&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Tiro+Devanagari+Sanskrit&display=swap');
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* ── Madhubani Design Tokens ─────────────────────────────────────────────────
+   Warm folk-art palette: cream paper, kajal ink, marigold accent.
+   Replaces the previous dark glassmorphism system.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+:root {
+  /* ── Raw Madhubani palette ── */
+  --paper:    #fcfaf2;
+  --speckle:  #f3efe1;
+  --kajal:    #2d2a26;
+  --marigold: #c2410c;
+  --kesari:   #9a3412;
+  --nila:     #2d2a26;
+  --gulab:    #c2410c;
+  --mor:      #065f46;
+  --haldi:    #fcd34d;
+  --tulsi:    #065f46;
+  --sindoor:  #c2410c;
+  --gagan:    #2D6CDF;
+  --loha:     #57534e;
+
+  /* ── Avatar canonical colours (website palette) ── */
+  --avatar-matsya:      #065f46;
+  --avatar-varaha:      #c2410c;
+  --avatar-narasimha:   #c2410c;
+  --avatar-rama:        #2d2a26;
+  --avatar-krishna:     #065f46;
+  --avatar-buddha:      #fcd34d;
+  --avatar-parashurama: #57534e;
+  --avatar-vamana:      #78716c;
+  --avatar-narad:       #c2410c;
+
+  /* ── RGB triplets for rgba() usage ── */
+  --rgb-nila:      45,42,38;
+  --rgb-kesari:    154,52,18;
+  --rgb-sindoor:   194,65,12;
+  --rgb-tulsi:     6,95,70;
+  --rgb-mor:       6,95,70;
+  --rgb-haldi:     252,211,77;
+  --rgb-loha:      87,83,78;
+  --rgb-marigold:  194,65,12;
+  --rgb-kajal:     45,42,38;
+  --rgb-paper:     252,250,242;
+
+  /* ── Typography ── */
+  --font-hero: 'Playfair Display', serif;
+  --font-body: 'Inter', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+  --font-deva: 'Tiro Devanagari Sanskrit', serif;
+
+  /* ── Folk art layer system (replaces glass) ── */
+  --folk-border: 1px solid color-mix(in srgb, var(--kajal) 10%, transparent);
+  --folk-radius: 4px;
+  --folk-shadow: 0 16px 40px -10px color-mix(in srgb, var(--kajal) 8%, transparent);
+
+  /* ── shadcn semantic tokens — warm paper base ── */
+  --background:             #fcfaf2;
+  --foreground:             #2d2a26;
+
+  --card:                   #fcfaf2;
+  --card-foreground:        #2d2a26;
+
+  --popover:                #fcfaf2;
+  --popover-foreground:     #2d2a26;
+
+  --primary:                #2d2a26;
+  --primary-foreground:     #fcfaf2;
+
+  --secondary:              #f3efe1;
+  --secondary-foreground:   #2d2a26;
+
+  --muted:                  #f3efe1;
+  --muted-foreground:       #6b6560;
+
+  --accent:                 #c2410c;
+  --accent-foreground:      #fcfaf2;
+
+  --destructive:            #c2410c;
+  --destructive-foreground: #fcfaf2;
+
+  --border:                 color-mix(in srgb, #2d2a26 10%, transparent);
+  --input:                  #f3efe1;
+  --ring:                   #c2410c;
+
+  --radius: 0.5rem;
+
+  /* ── Avatar chart colours ── */
+  --chart-1: #065f46;
+  --chart-2: #c2410c;
+  --chart-3: #2d2a26;
+  --chart-4: #fcd34d;
+  --chart-5: #78716c;
+
+  /* ── Sidebar ── */
+  --sidebar:                    #f3efe1;
+  --sidebar-foreground:         #2d2a26;
+  --sidebar-primary:            #2d2a26;
+  --sidebar-primary-foreground: #fcfaf2;
+  --sidebar-accent:             #c2410c;
+  --sidebar-accent-foreground:  #fcfaf2;
+  --sidebar-border:             color-mix(in srgb, #2d2a26 10%, transparent);
+  --sidebar-ring:               #c2410c;
+}
+
+/* ── @theme: expose CSS vars as Tailwind utilities ── */
+@theme inline {
+  --font-sans:    var(--font-body);
+  --font-heading: var(--font-hero);
+  --font-mono:    var(--font-mono);
+
+  --color-background:              var(--background);
+  --color-foreground:              var(--foreground);
+  --color-card:                    var(--card);
+  --color-card-foreground:         var(--card-foreground);
+  --color-popover:                 var(--popover);
+  --color-popover-foreground:      var(--popover-foreground);
+  --color-primary:                 var(--primary);
+  --color-primary-foreground:      var(--primary-foreground);
+  --color-secondary:               var(--secondary);
+  --color-secondary-foreground:    var(--secondary-foreground);
+  --color-muted:                   var(--muted);
+  --color-muted-foreground:        var(--muted-foreground);
+  --color-accent:                  var(--accent);
+  --color-accent-foreground:       var(--accent-foreground);
+  --color-destructive:             var(--destructive);
+  --color-destructive-foreground:  var(--destructive-foreground);
+  --color-border:                  var(--border);
+  --color-input:                   var(--input);
+  --color-ring:                    var(--ring);
+  --color-chart-1:                 var(--chart-1);
+  --color-chart-2:                 var(--chart-2);
+  --color-chart-3:                 var(--chart-3);
+  --color-chart-4:                 var(--chart-4);
+  --color-chart-5:                 var(--chart-5);
+
+  --color-avatar-matsya:      var(--avatar-matsya);
+  --color-avatar-varaha:      var(--avatar-varaha);
+  --color-avatar-narasimha:   var(--avatar-narasimha);
+  --color-avatar-rama:        var(--avatar-rama);
+  --color-avatar-krishna:     var(--avatar-krishna);
+  --color-avatar-buddha:      var(--avatar-buddha);
+  --color-avatar-parashurama: var(--avatar-parashurama);
+  --color-avatar-vamana:      var(--avatar-vamana);
+  --color-avatar-narad:       var(--avatar-narad);
+
+  --color-paper:    var(--paper);
+  --color-speckle:  var(--speckle);
+  --color-kajal:    var(--kajal);
+  --color-marigold: var(--marigold);
+  --color-kesari:   var(--kesari);
+  --color-nila:     var(--nila);
+  --color-gulab:    var(--gulab);
+  --color-mor:      var(--mor);
+  --color-haldi:    var(--haldi);
+  --color-tulsi:    var(--tulsi);
+  --color-sindoor:  var(--sindoor);
+  --color-gagan:    var(--gagan);
+  --color-loha:     var(--loha);
+
+  --radius-sm:  calc(var(--radius) * 0.6);
+  --radius-md:  calc(var(--radius) * 0.8);
+  --radius-lg:  var(--radius);
+  --radius-xl:  calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+}
+
+/* ── Base resets ── */
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  html, body, #root {
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+  }
+
+  html {
+    @apply font-sans;
+  }
+
+  body {
+    background-color: var(--paper);
+    font-family: var(--font-body);
+    -webkit-font-smoothing: antialiased;
+    color: var(--kajal);
+  }
+
+  #root {
+    position: relative;
+    z-index: 1;
+  }
+
+  @keyframes bounce {
+    0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+    40%           { transform: translateY(-5px); opacity: 1; }
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.4; }
+  }
+
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0; }
+  }
+
+  @keyframes progress-sweep {
+    0%   { transform: translateX(-280%); }
+    100% { transform: translateX(380%); }
+  }
+
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+  }
+}
+
+/* ── Madhubani utilities ── */
+@layer utilities {
+  /* Noise texture overlay */
+  .noise-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    pointer-events: none;
+    z-index: 0;
+    opacity: 0.05;
+    background-image:
+      url("data:image/svg+xml,%3Csvg width='40' height='40' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M 40 0 L 0 0 0 40' fill='none' stroke='%232d2a26' stroke-width='1'/%3E%3C/svg%3E"),
+      url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+  }
+
+  /* Organic hand-drawn border */
+  .organic-border {
+    border: 1px solid color-mix(in srgb, var(--kajal) 10%, transparent);
+    border-radius: 4px;
+  }
+
+  /* Warm folk art drop shadow */
+  .folk-shadow {
+    box-shadow: 0 16px 40px -10px color-mix(in srgb, var(--kajal) 8%, transparent);
+  }
+
+  /* Tight italic heading style */
+  .heading-tight {
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+    font-style: italic;
+  }
+
+  /* Warm card: paper bg + organic border + folk shadow */
+  .folk-card {
+    background: var(--paper);
+    border: 1px solid color-mix(in srgb, var(--kajal) 10%, transparent);
+    border-radius: 4px;
+    box-shadow: 0 16px 40px -10px color-mix(in srgb, var(--kajal) 8%, transparent);
+  }
+
+  /* Speckle card: slightly warmer bg */
+  .speckle-card {
+    background: var(--speckle);
+    border: 1px solid color-mix(in srgb, var(--kajal) 10%, transparent);
+    border-radius: 4px;
+  }
+
+  /* Dark kajal section header */
+  .kajal-header {
+    background: var(--kajal);
+    color: var(--paper);
+  }
+
+  /* Legacy glass aliases — keep existing classes working with new warm look */
+  .glass-panel {
+    background: var(--paper);
+    border: 1px solid color-mix(in srgb, var(--kajal) 10%, transparent);
+    box-shadow: 0 16px 40px -10px color-mix(in srgb, var(--kajal) 8%, transparent);
+  }
+
+  .glass-card {
+    background: var(--paper);
+    border: 1px solid color-mix(in srgb, var(--kajal) 10%, transparent);
+    box-shadow: 0 8px 24px -6px color-mix(in srgb, var(--kajal) 6%, transparent);
+  }
+
+  .glass-dark {
+    background: var(--kajal);
+    color: var(--paper);
+  }
+
+  /* Per-avatar warm tinting (paper bg + left accent border) */
+  .avatar-glass-matsya      { background: rgba(6,95,70,0.04) !important;    border-left: 3px solid rgba(6,95,70,0.35) !important; }
+  .avatar-glass-varaha      { background: rgba(194,65,12,0.04) !important;  border-left: 3px solid rgba(194,65,12,0.35) !important; }
+  .avatar-glass-narasimha   { background: rgba(194,65,12,0.04) !important;  border-left: 3px solid rgba(194,65,12,0.35) !important; }
+  .avatar-glass-rama        { background: rgba(45,42,38,0.04) !important;   border-left: 3px solid rgba(45,42,38,0.30) !important; }
+  .avatar-glass-krishna     { background: rgba(6,95,70,0.04) !important;    border-left: 3px solid rgba(6,95,70,0.35) !important; }
+  .avatar-glass-buddha      { background: rgba(252,211,77,0.08) !important; border-left: 3px solid rgba(252,211,77,0.50) !important; }
+  .avatar-glass-parashurama { background: rgba(87,83,78,0.04) !important;   border-left: 3px solid rgba(87,83,78,0.30) !important; }
+  .avatar-glass-vamana      { background: rgba(120,113,108,0.04) !important;border-left: 3px solid rgba(120,113,108,0.30) !important; }
+  .avatar-glass-narad       { background: rgba(194,65,12,0.05) !important;  border-left: 3px solid rgba(194,65,12,0.35) !important; }
+
+  /* Scrollable panel with visible thin scrollbar */
+  .panel-scroll {
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--kajal) 22%, transparent) transparent;
+  }
+  .panel-scroll::-webkit-scrollbar { width: 4px; }
+  .panel-scroll::-webkit-scrollbar-track { background: transparent; }
+  .panel-scroll::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--kajal) 22%, transparent);
+    border-radius: 2px;
+  }
+  .panel-scroll::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--kajal) 38%, transparent);
+  }
+
+  /* Terminal stays dark */
+  .terminal-glow {
+    box-shadow: 0 0 0 1px rgba(45,42,38,0.25),
+                0 12px 40px rgba(14,12,10,0.35),
+                0 4px 12px rgba(14,12,10,0.20);
+  }
+
+  /* Typography helpers */
+  .label-section  { font-family: var(--font-mono);   font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; opacity: 0.45; }
+  .label-deva     { font-family: var(--font-deva);   color: var(--marigold); }
+  .label-hero     { font-family: var(--font-hero);   letter-spacing: -0.01em; font-style: italic; }
+  .text-body-sm   { font-family: var(--font-body);   font-size: 13px; line-height: 1.6; }
+  .text-chip      { font-family: var(--font-mono);   font-size: 9px;  letter-spacing: 0.06em; }
+}

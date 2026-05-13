@@ -1,75 +1,94 @@
+import { useState } from 'react'
 import { useAvatara } from './hooks/useAvatara'
-import { ChatPanel }   from './components/ChatPanel'
-import { DarshanPanel } from './components/DarshanPanel'
-import './tokens.css'
+import type { KanbanUpdatePayload } from './hooks/useAvatara'
+import { ChatPanel }            from './components/ChatPanel'
+import { ProjectsPanel }        from './components/ProjectsPanel'
+import { LearningArtifactPanel } from './components/LearningArtifactPanel'
+import { AwarenessBar }         from './components/AwarenessBar'
+import { DarshanDashboard }     from './components/DarshanDashboard'
+import { TooltipProvider }      from '@/components/ui/tooltip'
+import { Toaster }              from '@/components/ui/sonner'
+import './index.css'
+
+const USER_ID = 'default'
 
 export default function App() {
-  const { messages, avatars, naradActive, streaming, error, currentSession, send } = useAvatara()
+  const {
+    messages, avatars, naradActive, streaming, error,
+    currentSession, send, stop, stepEvents, sessionTotals,
+    pendingArtifact, clearArtifact,
+    kanbanUpdate, andonAlert,
+  } = useAvatara(USER_ID)
+
+  const [darshanOpen, setDarshanOpen] = useState(false)
+  const [leftPanelOpen, setLeftPanelOpen] = useState(true)
+
+  const activeSteps = Object.values(avatars).filter(a => a.state === 'active').length
 
   return (
-    <>
-      {/* Keyframe animations */}
-      <style>{`
-        @keyframes bounce {
-          0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
-          40%            { transform: translateY(-5px); opacity: 1; }
-        }
-        @keyframes pulse {
-          0%, 100% { opacity: 1; }
-          50%       { opacity: 0.4; }
-        }
-        /* Squiggle motifs (background decoration) */
-        .squiggle {
-          position: fixed;
-          font-size: 18px;
-          opacity: 0.12;
-          color: var(--nila);
-          pointer-events: none;
-          z-index: 0;
-          user-select: none;
-        }
-      `}</style>
+    <TooltipProvider>
+      {/* Noise texture overlay */}
+      <div className="noise-overlay" />
 
-      {/* Background squiggle marks — 5 scattered, per motif rules */}
-      <span className="squiggle" style={{ top: '12%',  left: '28%'  }}>〜</span>
-      <span className="squiggle" style={{ top: '38%',  left: '54%'  }}>〜</span>
-      <span className="squiggle" style={{ top: '67%',  left: '22%'  }}>∿</span>
-      <span className="squiggle" style={{ top: '82%',  left: '48%'  }}>〜</span>
-      <span className="squiggle" style={{ top: '22%',  left: '78%'  }}>∿</span>
+      <div
+        className="grid h-screen overflow-hidden"
+        style={{
+          gridTemplateColumns: leftPanelOpen ? '260px 1fr 72px' : '40px 1fr 72px',
+          transition: 'grid-template-columns 0.2s ease',
+          position: 'relative',
+          zIndex: 1,
+        }}
+      >
+        <ProjectsPanel open={leftPanelOpen} onToggle={() => setLeftPanelOpen(v => !v)} />
 
-      {/* Zigzag band — top edge accent */}
-      <div style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        height: 4,
-        background: 'repeating-linear-gradient(90deg, var(--marigold) 0, var(--marigold) 8px, var(--kesari) 8px, var(--kesari) 16px)',
-        zIndex: 100,
-      }} />
+        <div className="flex flex-col h-full overflow-hidden">
+          <ChatPanel
+            messages={messages}
+            avatars={avatars}
+            streaming={streaming}
+            error={error}
+            onSend={send}
+            stop={stop}
+          />
 
-      {/* Two-panel layout */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: '1fr 360px',
-        height: '100vh',
-        paddingTop: 4,
-        position: 'relative',
-        zIndex: 1,
-      }}>
-        <ChatPanel
-          messages={messages}
-          streaming={streaming}
-          error={error}
-          onSend={send}
-        />
-        <DarshanPanel
+          {/* Learning Artifact panel — inline in chat column */}
+          {pendingArtifact && (
+            <div style={{ flex: '0 0 320px', minHeight: 0, overflow: 'hidden', borderTop: '1px solid color-mix(in srgb, var(--kajal) 10%, transparent)' }}>
+              <LearningArtifactPanel
+                topic={pendingArtifact.topic}
+                artifactType={pendingArtifact.artifactType}
+                onClose={clearArtifact}
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Right column — AwarenessBar (72px) */}
+        <AwarenessBar
           avatars={avatars}
-          naradActive={naradActive}
-          streaming={streaming}
-          currentSession={currentSession}
+          totalTokens={sessionTotals.totalTokens}
+          activeSteps={activeSteps}
+          onOpenDarshan={() => setDarshanOpen(true)}
         />
       </div>
-    </>
+
+      {/* Darshan Dashboard drawer — mounted at root level */}
+      <DarshanDashboard
+        open={darshanOpen}
+        onClose={() => setDarshanOpen(false)}
+        avatars={avatars}
+        naradActive={naradActive}
+        streaming={streaming}
+        messages={messages}
+        stepEvents={stepEvents}
+        sessionTotals={sessionTotals}
+        currentSession={currentSession}
+        userId={USER_ID}
+        kanbanUpdate={kanbanUpdate}
+        andonAlert={andonAlert}
+      />
+
+      <Toaster />
+    </TooltipProvider>
   )
 }

@@ -36,8 +36,16 @@ models/
 .idea/
 *.swp
 
-# Runtime data — never commit these
+# Runtime data — all live data now in ~/.narad/, never commit phase-dir copies
 phase-2/smriti_db/
 phase-2/yantra_traces/
 phase-3/sutras.jsonl
 phase-3/weak_sessions.jsonl
+phase-5/karma.jsonl
+phase-5/sutra_overrides.jsonl
+phase-6/sankalpas.jsonl
+phase-6/sankalpa_overrides.jsonl
+phase-6/session_log.jsonl
+
+# Test/generated artifacts
+output/
