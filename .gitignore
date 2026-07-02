@@ -54,3 +54,7 @@ phase-7/outputs/
 
 # Git recovery artifacts
 *.lock.stale
+*.stale
+
+# Quarantined junk pending physical deletion (see scripts/cleanup_trash.sh)
+.trash-to-delete/

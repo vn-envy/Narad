@@ -45,17 +45,29 @@ def _load_trace(session_id: str) -> list[dict[str, Any]]:
 
 
 def _git_commit_wiki(wiki_dir: Path, user_id: str) -> None:
-    """Commit wiki changes to Git if the wiki dir is inside a Git repo."""
+    """Commit wiki changes to the wiki's OWN Git repo — never a parent repo.
+
+    Historical bug: when WIKI_DIR lived inside the source repo, scribe made
+    684 commits into Narad's own history. Guard: the git toplevel must BE
+    wiki_dir. If wiki_dir has no repo of its own, init one.
+    """
     try:
         result = subprocess.run(
-            ["git", "rev-parse", "--is-inside-work-tree"],
+            ["git", "rev-parse", "--show-toplevel"],
             cwd=wiki_dir,
             capture_output=True,
             text=True,
             timeout=5,
         )
-        if result.returncode != 0:
-            return
+        toplevel = Path(result.stdout.strip()).resolve() if result.returncode == 0 else None
+        if toplevel != wiki_dir.resolve():
+            if toplevel is not None:
+                return  # inside a FOREIGN repo (e.g. source tree) — never commit
+            init = subprocess.run(
+                ["git", "init"], cwd=wiki_dir, capture_output=True, timeout=5
+            )
+            if init.returncode != 0:
+                return
         subprocess.run(
             ["git", "add", str(wiki_dir / user_id)],
             cwd=wiki_dir,
@@ -63,7 +75,12 @@ def _git_commit_wiki(wiki_dir: Path, user_id: str) -> None:
             timeout=5,
         )
         subprocess.run(
-            ["git", "commit", "-m", f"scribe: update {user_id} project wiki"],
+            [
+                "git",
+                "-c", "user.name=Narad Scribe",
+                "-c", "user.email=scribe@narad.local",
+                "commit", "-m", f"scribe: update {user_id} project wiki",
+            ],
             cwd=wiki_dir,
             capture_output=True,
             timeout=5,
