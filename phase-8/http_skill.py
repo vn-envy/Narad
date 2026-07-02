@@ -20,15 +20,10 @@ import json
 import os
 import re
 import socket
-import sys
 import time
 from collections import Counter
 from pathlib import Path
 from urllib.parse import urlparse
-
-_ROOT = Path(__file__).parent.parent
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
 
 from tool_result import citation, envelope, ui_panel
 

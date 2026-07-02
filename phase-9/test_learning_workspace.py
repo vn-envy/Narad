@@ -7,9 +7,9 @@ from unittest.mock import patch
 
 import sys
 
-_ROOT = Path(__file__).parent.parent
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
+_r = next(p for p in Path(__file__).resolve().parents if (p / "narad_paths.py").exists())
+sys.path[:0] = [str(_r)]  # narad root hop
+import narad_paths  # noqa: F401
 
 import learning_workspace
 

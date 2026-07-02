@@ -45,14 +45,12 @@ Usage:
 from __future__ import annotations
 
 import json
-import sys as _sys_nc
 import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Generator
 
-_sys_nc.path.insert(0, str(Path(__file__).parent.parent))
 from narad_config import TRACE_DIR as _TRACE_DIR
 
 if TYPE_CHECKING:

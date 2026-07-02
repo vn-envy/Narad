@@ -4,12 +4,7 @@ Narad workspace configuration — canonical paths for all data storage.
 All data lives under NARAD_HOME (default: ~/.narad/).
 Override with the NARAD_HOME environment variable.
 
-Import from any module:
-    import sys
-    from pathlib import Path
-    _ROOT = Path(__file__).parent.parent  # adjust depth as needed
-    if str(_ROOT) not in sys.path:
-        sys.path.insert(0, str(_ROOT))
+Import from any module (entry points bootstrap paths via `import narad_paths`):
     from narad_config import TRACE_DIR, WIKI_DIR  # etc.
 """
 

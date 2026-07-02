@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 import uuid
 from collections import Counter
 from dataclasses import asdict, dataclass
@@ -24,10 +23,6 @@ from pathlib import Path
 from typing import Any
 
 _ROOT = Path(__file__).parent
-for _phase in ("phase-1", "phase-2", "phase-3", "phase-5", "phase-6", "phase-9"):
-    _path = _ROOT / _phase
-    if str(_path) not in sys.path:
-        sys.path.insert(0, str(_path))
 
 from dharma import (
     DharmaVerdict,

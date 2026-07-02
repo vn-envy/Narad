@@ -233,14 +233,6 @@ def _make_avatar_tool(agent: LlmAgent, user_id: str = "default") -> FunctionTool
       - Before running: relevant past memories are prepended to the task
       - After running: the result is stored for future recall
     """
-    import sys as _sys
-    _sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent / "phase-2"))
-    _sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent / "phase-5"))
-    _sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent / "phase-6"))
-    _sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent / "phase-8"))
-    _sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent / "phase-9"))
-    _sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
-
     app_name = f"avatar_{agent.name.lower()}"
     description = agent.description
     from tool_result import is_tool_envelope as _is_tool_envelope
@@ -496,8 +488,6 @@ def _make_avatar_tool(agent: LlmAgent, user_id: str = "default") -> FunctionTool
         )
 
         # Trajectory building — collect all tool calls for the avatar_done trace event.
-        import sys as _sys_traj
-        _sys_traj.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent / "phase-2"))
         from yantra_models import ToolCall as _ToolCall, TurnRecord as _TurnRecord, Trajectory as _Trajectory
         _traj = _Trajectory(avatar=agent.name, model=_model_id, task_preview=task[:80])
         _turn = _TurnRecord(turn=1)
@@ -740,8 +730,6 @@ def _make_avatar_tool(agent: LlmAgent, user_id: str = "default") -> FunctionTool
                 if _pm_plan:
                     _plan_raw = _parse_json(_pm_plan.group(1))
                     if _plan_raw:
-                        import sys as _sys_pm
-                        _sys_pm.path.insert(0, str(__import__("pathlib").Path(__file__).parent))
                         from plan_models import parse_plan as _parse_plan_fn
                         _plan_obj = _parse_plan_fn(_plan_raw, session_id=_trace_session_id)
                         _plan_dir = __import__("pathlib").Path.home() / ".narad" / "plans"
@@ -954,10 +942,6 @@ def _make_avatar_tool(agent: LlmAgent, user_id: str = "default") -> FunctionTool
 
         # Audit trail — log every avatar invocation + soft scope check
         try:
-            import sys as _sys_at
-            _p8_at = __import__("pathlib").Path(__file__).parent.parent / "phase-8"
-            if str(_p8_at) not in _sys_at.path:
-                _sys_at.path.insert(0, str(_p8_at))
             from audit_trail import log_invocation, check_scope, log_scope_warning
             log_invocation(agent.name, task[:200], user_id)
             _scope_hits = check_scope(agent.name, task)
@@ -1053,10 +1037,6 @@ def _narad_shuddhi(dry_run: bool = True) -> dict:
     Returns a health report with 5S score, reclaimable space, and action log.
     """
     try:
-        import sys as _sys
-        _p1 = __import__("pathlib").Path(__file__).parent
-        if str(_p1) not in _sys.path:
-            _sys.path.insert(0, str(_p1))
         from narad_5s import NaradShuddhi
         ns = NaradShuddhi()
         if dry_run:
@@ -1068,9 +1048,6 @@ def _narad_shuddhi(dry_run: bool = True) -> dict:
 
 # ── Matsya ────────────────────────────────────────────────────────────────────
 
-import sys as _sys
-_sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent / "phase-2"))
-_sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent / "phase-8"))
 from matsya_search import web_search as _web_search              # noqa: E402
 from browser_skill import browse_url_sync as _browse_url         # noqa: E402
 from browser_act_skill import (                                  # noqa: E402
@@ -1085,10 +1062,6 @@ from ml_intern_skill import run_ml_experiment as _run_ml_experiment  # noqa: E40
 
 # ── Research tools (phase-2) — graceful fallback if unavailable ───────────────
 try:
-    import sys as _sys_rt
-    _p2_rt = __import__("pathlib").Path(__file__).parent.parent / "phase-2"
-    if str(_p2_rt) not in _sys_rt.path:
-        _sys_rt.path.insert(0, str(_p2_rt))
     from research_tools import (                                   # noqa: E402
         search_arxiv      as _search_arxiv,
         search_papers     as _search_papers,
@@ -1179,10 +1152,8 @@ def _escape_for_adk(text: str) -> str:
 
 # ── Phase-9 Skill System (global loader — used by all agents) ─────────────────
 try:
-    import sys as _sys_p9_global, pathlib as _pathlib_p9_global
+    import pathlib as _pathlib_p9_global
     _p9_root = _pathlib_p9_global.Path(__file__).parent.parent / "phase-9"
-    if str(_p9_root) not in _sys_p9_global.path:
-        _sys_p9_global.path.insert(0, str(_p9_root))
 
     def _load_agent_skill(name: str) -> str:
         p = _p9_root / "skills" / f"{name}_skill.md"
@@ -2250,10 +2221,6 @@ def _rank_ui_templates(
         avoid: Aesthetic/style to avoid (heavily penalised in ranking)
     """
     try:
-        import sys as _sys
-        _p9 = __import__("pathlib").Path(__file__).parent.parent / "phase-9"
-        if str(_p9) not in _sys.path:
-            _sys.path.insert(0, str(_p9))
         from template_selector import rank, format_candidates  # noqa: E402
         matches = rank(mood=mood, tone=tone, formality=formality, scheme=scheme, avoid=avoid)
         return format_candidates(matches)
@@ -2264,14 +2231,7 @@ def _rank_ui_templates(
         )
 
 
-# ── Phase-7 / Phase-8 skill imports ──────────────────────────────────────────
-
-import sys as _sys2
-_p7  = __import__("pathlib").Path(__file__).parent.parent / "phase-7" / "skills"
-_p8  = __import__("pathlib").Path(__file__).parent.parent / "phase-8"
-for _p in (_p7, _p8):
-    if str(_p) not in _sys2.path:
-        _sys2.path.insert(0, str(_p))
+# ── Phase-7 / Phase-8 skill imports (paths registered by narad_paths) ────────
 
 from webpage_skill  import create_webpage        as _create_webpage         # noqa: E402
 from video_skill    import create_video          as _create_video           # noqa: E402

@@ -16,8 +16,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
-import sys as _sys_nc
-_sys_nc.path.insert(0, str(Path(__file__).parent.parent))
 from narad_config import WIKI_DIR as _WIKI_DIR
 _MODEL = os.environ.get("NARAD_CLASSIFY_MODEL", "deepseek/deepseek-chat")
 _DEFAULT_WORKSPACE_ROOT = str((Path(__file__).parent.parent).resolve())

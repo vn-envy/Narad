@@ -19,15 +19,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-import sys as _sys_nc
-
 _ROOT = Path(__file__).parent.parent
-if str(_ROOT) not in _sys_nc.path:
-    _sys_nc.path.insert(0, str(_ROOT))
-for _phase in ("phase-1", "phase-7", "phase-8"):
-    _phase_path = _ROOT / _phase
-    if str(_phase_path) not in _sys_nc.path:
-        _sys_nc.path.insert(0, str(_phase_path))
 
 from narad_config import ARTIFACTS_DIR, CONFIG_DIR, NARAD_HOME, TRACE_DIR, WIKI_DIR
 from turbovec_policy import memory_tier_policy_payload

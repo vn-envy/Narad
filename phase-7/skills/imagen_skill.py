@@ -9,11 +9,9 @@ Requires GEMINI_API_KEY env var.
 from __future__ import annotations
 
 import os
-import sys
 import uuid
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from narad_config import ARTIFACTS_DIR
 
 _SERVER_MEDIA_BASE = os.environ.get("MEDIA_URL_BASE", "http://localhost:8000/media")

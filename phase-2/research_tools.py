@@ -15,17 +15,12 @@ Tools:
 from __future__ import annotations
 
 import os
-import sys
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-# ── Reuse http_request from phase-8 ──────────────────────────────────────────
-_p8 = Path(__file__).parent.parent / "phase-8"
-if str(_p8) not in sys.path:
-    sys.path.insert(0, str(_p8))
-
+# ── Reuse http_request from phase-8 (path registered by narad_paths) ─────────
 try:
     from http_skill import http_request as _http_request
 except Exception:

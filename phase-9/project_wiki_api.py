@@ -24,14 +24,6 @@ Sessions endpoints:
 from __future__ import annotations
 
 import json
-import sys
-from pathlib import Path
-
-_PHASE9 = Path(__file__).parent
-_PHASE2 = _PHASE9.parent / "phase-2"
-for _p in [str(_PHASE9), str(_PHASE2)]:
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import PlainTextResponse

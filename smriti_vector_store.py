@@ -4,17 +4,9 @@ import hashlib
 import json
 import math
 import re
-import sys
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
-
-_ROOT = Path(__file__).parent
-_PHASE1 = _ROOT / "phase-1"
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
-if str(_PHASE1) not in sys.path:
-    sys.path.insert(0, str(_PHASE1))
 
 from narad_config import SMRITI_MANIFEST_DIR, SMRITI_VECTOR_DIR
 from turbovec_policy import memory_tier_policy_payload

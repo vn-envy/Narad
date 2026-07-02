@@ -17,12 +17,10 @@ Key functions:
 from __future__ import annotations
 
 import json
-import sys
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Literal
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
 from narad_config import SUTRAS_PATH as _SUTRAS_PATH, SUTRA_OVERRIDES_PATH as _OVERRIDES_PATH
 
 COOLDOWN_HOURS = int(__import__("os").environ.get("SUTRA_COOLDOWN_HOURS", "24"))
@@ -183,7 +181,6 @@ def accept_sutra(sutra_id: str) -> bool:
         return False
     _write_override(sutra_id, "accepted")
     # Emit karma event
-    sys.path.insert(0, str(_PHASE5))
     try:
         from karma_log import log_karma
         sutra = next(s for s in all_s if s["id"] == sutra_id)

@@ -2,16 +2,9 @@ from __future__ import annotations
 
 import json
 import re
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-
-_ROOT = Path(__file__).parent
-_PHASE1 = _ROOT / "phase-1"
-for _path in [str(_ROOT), str(_PHASE1)]:
-    if _path not in sys.path:
-        sys.path.insert(0, _path)
 
 from context_governor import compact_text_block, count_text_tokens
 from smriti_indexer import ensure_project_wiki_indexed, ensure_user_episode_index

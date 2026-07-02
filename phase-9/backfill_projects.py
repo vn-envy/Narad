@@ -16,14 +16,12 @@ import json
 import sys
 from pathlib import Path
 
-_HERE = Path(__file__).parent
-_ROOT = _HERE.parent
-sys.path.insert(0, str(_HERE))
-sys.path.insert(0, str(_ROOT / "phase-2"))
+_r = next(p for p in Path(__file__).resolve().parents if (p / "narad_paths.py").exists())
+sys.path[:0] = [str(_r)]  # narad root hop
+import narad_paths  # noqa: F401
 
 from project_manager import detect_project, load_projects
 
-sys.path.insert(0, str(_ROOT))
 from narad_config import TRACE_DIR as _TRACE_DIR
 
 

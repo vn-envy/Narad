@@ -1,0 +1,29 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args: [--fix]
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: check-added-large-files
+        args: [--maxkb=1024]
+      - id: check-merge-conflict
+      - id: detect-private-key
+      - id: end-of-file-fixer
+        exclude: 'phase-9/templates/'
+
+  - repo: local
+    hooks:
+      - id: no-scattered-syspath
+        name: sys.path.insert only in narad_paths.py
+        language: system
+        entry: bash -c 'hits=$(grep -rlnE "\.path\.(insert|append)\(" --include="*.py" . | grep -v -e narad_paths.py -e .venv -e node_modules -e .trash-to-delete -e phase-0 || true); if [ -n "$hits" ]; then echo "$hits"; exit 1; fi'
+        pass_filenames: false
+      - id: no-env-in-commits
+        name: .env never staged
+        language: system
+        entry: bash -c 'git diff --cached --name-only | grep -E "^\.env" && exit 1 || exit 0'
+        pass_filenames: false

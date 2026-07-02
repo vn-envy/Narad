@@ -15,14 +15,10 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-_ROOT = Path(__file__).parent.parent
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
 from narad_config import CONFIG_DIR
 
 ANDON_LOG_PATH: Path = CONFIG_DIR / "andon_log.jsonl"

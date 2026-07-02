@@ -6,8 +6,9 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+_r = next(p for p in Path(__file__).resolve().parents if (p / "narad_paths.py").exists())
+sys.path[:0] = [str(_r)]  # narad root hop
+import narad_paths  # noqa: F401
 
 from smriti_core import architecture_scorecard
 

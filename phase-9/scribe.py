@@ -23,8 +23,6 @@ log = logging.getLogger("narad.scribe")
 # Import paths resolved at call time to avoid circular deps
 _PHASE2 = Path(__file__).parent.parent / "phase-2"
 
-import sys as _sys_nc
-_sys_nc.path.insert(0, str(Path(__file__).parent.parent))
 from narad_config import TRACE_DIR as _TRACE_DIR
 
 
@@ -35,8 +33,6 @@ def _load_trace(session_id: str) -> list[dict[str, Any]]:
         return [json.loads(line) for line in path.read_text().splitlines() if line]
     # Fallback: ask Tracer directly (handles any future path changes)
     try:
-        import sys
-        sys.path.insert(0, str(_PHASE2))
         from yantra import Tracer
         return Tracer.load(session_id)
     except Exception:
@@ -95,9 +91,6 @@ async def compile_session(session_id: str, user_id: str) -> None:
     Fire-and-forget: never raises, never blocks the response.
     """
     try:
-        import sys
-        _phase9 = Path(__file__).parent
-        sys.path.insert(0, str(_phase9))
         from smriti_v2 import add_episode, WIKI_DIR
         from project_manager import detect_project
 

@@ -46,8 +46,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-import sys as _sys_nc
-_sys_nc.path.insert(0, str(Path(__file__).parent.parent))
 from narad_config import SUTRAS_PATH as _SUTRAS_PATH, WEAK_SESSIONS_PATH as _WEAK_PATH
 
 PROMOTE_THRESHOLD = float(os.environ.get("TAPAS_PROMOTE_THRESHOLD", "0.80"))  # raised from 0.75
@@ -391,8 +389,6 @@ def process_session(
 
     if reason.startswith("scoring unavailable:"):
         try:
-            import sys as _sys
-            _sys.path.insert(0, str(Path(__file__).parent.parent / "phase-5"))
             from karma_log import log_karma
             log_karma("tapas_skipped", "n/a", avatar, reason[:200],
                       triggered_by=session_id, tapas_score=None)
@@ -403,8 +399,6 @@ def process_session(
     # Hallucination hard gate — blocks regardless of other scores (P3-1)
     if not hallucination_free:
         try:
-            import sys as _sys
-            _sys.path.insert(0, str(Path(__file__).parent.parent / "phase-5"))
             from karma_log import log_karma
             log_karma("blocked_hallucination", "n/a", avatar,
                       f"Hallucination detected: {reason[:120]}",
@@ -422,8 +416,6 @@ def process_session(
         critique_passed, concerns = _cai_critique(avatar, query, result)
         if not critique_passed:
             try:
-                import sys as _sys
-                _sys.path.insert(0, str(Path(__file__).parent.parent / "phase-5"))
                 from karma_log import log_karma
                 log_karma("blocked_critique", "n/a", avatar, f"CAI blocked: {concerns[:120]}",
                           triggered_by=session_id, tapas_score=score, critique_passed=False)
@@ -445,8 +437,6 @@ def process_session(
         }
         _append(_SUTRAS_PATH, sutra)
         try:
-            import sys as _sys
-            _sys.path.insert(0, str(Path(__file__).parent.parent / "phase-5"))
             from karma_log import log_karma
             log_karma("promoted", sutra["id"], avatar, query[:120],
                       triggered_by=session_id, tapas_score=score, critique_passed=True)

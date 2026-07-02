@@ -15,8 +15,8 @@ class SkillRegistryTests(unittest.TestCase):
             "finance_import": ["import", "review", "reconcile", "baseline", "goals"],
             "health_log": ["capture", "confirm", "store", "summary"],
             "financial_decision": ["data", "steelman", "scenarios", "verdict"],
-            "presentation_create": ["brief", "outline", "structure", "build"],
-            "video_create": ["brief", "script", "build"],
+            "presentation_create": ["brief", "outline", "structure", "design_audit", "build"],
+            "video_create": ["brief", "script", "design_redesign", "build"],
             "symptom_check": ["collect", "red_flag_check", "assessment", "triage", "disclaimer"],
             "mental_health_check": ["screen", "support", "resources", "professional_gate"],
         }

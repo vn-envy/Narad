@@ -96,11 +96,9 @@ _log = logging.getLogger("narad.json_patch")
 from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent.parent / ".env")
 
-_ROOT = Path(__file__).parent.parent
-sys.path.insert(0, str(_ROOT / "phase-2"))
-sys.path.insert(0, str(_ROOT / "phase-3"))
-sys.path.insert(0, str(_ROOT / "phase-5"))
-sys.path.insert(0, str(_ROOT / "phase-6"))
+_r = next(p for p in Path(__file__).resolve().parents if (p / "narad_paths.py").exists())
+sys.path[:0] = [str(_r)]  # narad root hop
+import narad_paths  # noqa: F401
 
 # ── JSON robustness patch ────────────────────────────────────────────────────
 # DeepSeek V3 emits literal unescaped control characters (not just \n/\r/\t
@@ -285,7 +283,6 @@ app = FastAPI(title="Narad API", version="0.15.0-pre15")
 
 # ── Phase 11: Project Wiki + Projects + Sessions API ──────────────────────────
 try:
-    sys.path.insert(0, str(_ROOT / "phase-9"))
     from project_wiki_api import wiki_router, projects_router, sessions_router
     from project_execution_api import project_execution_router, tasks_router
     from learning_workspace_api import learning_router
@@ -313,7 +310,6 @@ app.add_middleware(
 )
 
 # Serve generated media files (video + audio from Parashurama)
-sys.path.insert(0, str(_ROOT))
 from narad_config import ARTIFACTS_DIR as _MEDIA_DIR
 app.mount("/media", StaticFiles(directory=_MEDIA_DIR), name="media")
 
@@ -1545,14 +1541,12 @@ async def revert_sankalpa_endpoint(sankalpa_id: str, user_id: str = "default"):
 # Karyakrama Kanban
 @app.get("/kanban/{session_id}")
 async def get_kanban_board(session_id: str):
-    sys.path.insert(0, str(_ROOT / "phase-1"))
     from kanban import KanbanBoard
     return KanbanBoard().get_board(session_id)
 
 
 @app.get("/kanban")
 async def get_all_kanban():
-    sys.path.insert(0, str(_ROOT / "phase-1"))
     from kanban import KanbanBoard
     return {"boards": KanbanBoard().get_all_active()}
 
@@ -1560,14 +1554,12 @@ async def get_all_kanban():
 # Jaagruti Andon
 @app.get("/andon/log")
 async def get_andon_log(limit: int = 50):
-    sys.path.insert(0, str(_ROOT / "phase-1"))
     from andon import load_andon_log
     return {"events": load_andon_log(limit=limit)}
 
 
 @app.get("/andon/stats")
 async def get_andon_stats(days: int = 7):
-    sys.path.insert(0, str(_ROOT / "phase-1"))
     from andon import andon_stats
     return andon_stats(days=days)
 
@@ -1575,14 +1567,12 @@ async def get_andon_stats(days: int = 7):
 # Shuddhi 5S
 @app.get("/5s/report")
 async def get_5s_report():
-    sys.path.insert(0, str(_ROOT / "phase-1"))
     from narad_5s import NaradShuddhi
     return NaradShuddhi().report()
 
 
 @app.post("/5s/shine")
 async def run_5s_shine(dry_run: bool = True):
-    sys.path.insert(0, str(_ROOT / "phase-1"))
     from narad_5s import NaradShuddhi
     return NaradShuddhi().shine(dry_run=dry_run)
 
@@ -1594,9 +1584,6 @@ _last_quality_report: dict | None = None
 @app.post("/quality/report")
 async def generate_quality_report(user_id: str = "default"):
     global _last_quality_report
-    sys.path.insert(0, str(_ROOT / "phase-1"))
-    sys.path.insert(0, str(_ROOT / "phase-2"))
-    sys.path.insert(0, str(_ROOT / "phase-3"))
 
     from andon import andon_stats, load_andon_log
 
@@ -1680,21 +1667,18 @@ async def get_quality_report():
 
 @app.get("/notion/status")
 async def notion_status():
-    sys.path.insert(0, str(_ROOT / "phase-1"))
     from notion_sync import NotionSync
     return NotionSync().get_status()
 
 
 @app.post("/notion/setup")
 async def notion_setup(parent_page_id: str):
-    sys.path.insert(0, str(_ROOT / "phase-1"))
     from notion_sync import NotionSync
     return NotionSync().setup_workspace(parent_page_id)
 
 
 @app.post("/notion/sync")
 async def notion_sync_endpoint(user_id: str = "default"):
-    sys.path.insert(0, str(_ROOT / "phase-1"))
     from notion_sync import NotionSync
     return await NotionSync().sync_all(user_id)
 
@@ -1754,7 +1738,6 @@ async def query_memory(
 ):
     """Query Smriti memories with optional filters."""
     from datetime import timedelta
-    sys.path.insert(0, str(_ROOT / "phase-2"))
     try:
         from smriti import _get_table  # type: ignore
         table = _get_table()
@@ -1827,7 +1810,6 @@ async def unified_search(
 
     # Memories (FTS5)
     try:
-        sys.path.insert(0, str(_ROOT / "phase-2"))
         from smriti import recall_exact  # type: ignore
         mem_text = recall_exact(q, user_id=user_id, limit=5)
         for line in mem_text.strip().split("\n"):
@@ -1848,7 +1830,6 @@ async def unified_search(
 
     # Sutras
     try:
-        sys.path.insert(0, str(_ROOT / "phase-5"))
         from sutra_engine import get_all_sutras  # type: ignore
         sutra_count = 0
         for s in get_all_sutras():
@@ -1869,7 +1850,6 @@ async def unified_search(
 
     # Kanban steps (active sessions)
     try:
-        sys.path.insert(0, str(_ROOT / "phase-1"))
         from kanban import KanbanBoard  # type: ignore
         for board in KanbanBoard().get_all_active():
             for col_steps in board.get("columns", {}).values():
@@ -1888,7 +1868,6 @@ async def unified_search(
 
     # Andon log
     try:
-        sys.path.insert(0, str(_ROOT / "phase-1"))
         from andon import load_andon_log  # type: ignore
         andon_count = 0
         for e in load_andon_log(limit=50):
@@ -1977,7 +1956,6 @@ async def get_audit_log(
 async def expand_sandbox(doc_id: str):
     """Retrieve full (uncompressed) output from context_sandbox by UUID."""
     try:
-        sys.path.insert(0, str(_ROOT / "phase-8"))
         from context_sandbox import expand_context  # type: ignore
         text = expand_context(doc_id)
         if text.startswith("[context_sandbox"):
@@ -1996,7 +1974,6 @@ async def _daily_shuddhi_loop():
     while True:
         await asyncio.sleep(86_400)
         try:
-            sys.path.insert(0, str(_ROOT / "phase-1"))
             from narad_5s import NaradShuddhi
             NaradShuddhi().sustain()
             logging.getLogger("narad.server").info("Daily Shuddhi cycle complete.")

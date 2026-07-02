@@ -15,7 +15,10 @@ import sys
 from pathlib import Path
 
 _HERE = Path(__file__).parent
-sys.path.insert(0, str(_HERE))
+_r = next(p for p in Path(__file__).resolve().parents if (p / "narad_paths.py").exists())
+sys.path[:0] = [str(_r)]  # narad root hop
+import narad_paths  # noqa: F401
+
 from narad_config import (
     NARAD_HOME, TRACE_DIR, SMRITI_DB, WIKI_DIR, ARTIFACTS_DIR, CONFIG_DIR,
     SUTRAS_PATH, WEAK_SESSIONS_PATH, KARMA_PATH,

@@ -287,7 +287,9 @@ def build_recent_thread_context(
 
     cutoff = datetime.now(timezone.utc) - timedelta(hours=max_age_hours)
     candidate_paths: list[Path] = []
-    for path in sorted(user_dir.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True):
+    # ns-resolution mtime with stem tiebreak — coarse-mtime filesystems would
+    # otherwise make the ordering of near-simultaneous threads nondeterministic
+    for path in sorted(user_dir.glob("*.jsonl"), key=lambda p: (p.stat().st_mtime_ns, p.stem), reverse=True):
         if exclude_session_id and path.stem == exclude_session_id:
             continue
         updated = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)

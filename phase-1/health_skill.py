@@ -160,9 +160,6 @@ def get_health_log(days: int = 7, anomaly_detection: bool = False, symptom_filte
     if anomaly_detection and entries:
         # Run anomaly detection per distinct symptom type in the result set
         try:
-            import sys as _sys_ha
-            import pathlib as _pl_ha
-            _sys_ha.path.insert(0, str(_pl_ha.Path(__file__).parent))
             from health_anomaly import detect_health_anomalies
             seen: set[str] = set()
             anomaly_results: dict[str, dict] = {}

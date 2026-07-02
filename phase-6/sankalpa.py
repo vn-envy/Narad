@@ -46,8 +46,6 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Literal
 
-import sys as _sys_nc
-_sys_nc.path.insert(0, str(Path(__file__).parent.parent))
 from narad_config import (
     SANKALPAS_PATH as _SANKALPAS_PATH,
     SANKALPA_OVERRIDES_PATH as _OVERRIDES_PATH,
@@ -313,8 +311,6 @@ def accept_sankalpa(sankalpa_id: str, user_id: str) -> bool:
         return False
     _write_override(sankalpa_id, "accepted")
     try:
-        import sys as _sys
-        _sys.path.insert(0, str(Path(__file__).parent.parent / "phase-5"))
         from karma_log import log_karma
         s = next(x for x in all_s if x["id"] == sankalpa_id)
         log_karma("sankalpa_accepted", sankalpa_id, s.get("avatar", ""), s.get("content", "")[:120])
@@ -330,8 +326,6 @@ def revert_sankalpa(sankalpa_id: str, user_id: str) -> bool:
         return False
     _write_override(sankalpa_id, "reverted")
     try:
-        import sys as _sys
-        _sys.path.insert(0, str(Path(__file__).parent.parent / "phase-5"))
         from karma_log import log_karma
         s = next(x for x in all_s if x["id"] == sankalpa_id)
         log_karma("sankalpa_reverted", sankalpa_id, s.get("avatar", ""), s.get("content", "")[:120])
@@ -383,8 +377,6 @@ def observe_session(user_id: str, avatar: str, task: str, result: str) -> None:
             existing_contents.append(content.lower())
 
             try:
-                import sys as _sys
-                _sys.path.insert(0, str(Path(__file__).parent.parent / "phase-5"))
                 from karma_log import log_karma
                 log_karma("sankalpa_proposed", sankalpa["id"], avatar, content[:120])
             except Exception:

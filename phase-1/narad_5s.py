@@ -17,14 +17,10 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-_ROOT = Path(__file__).parent.parent
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
 from narad_config import (
     NARAD_HOME,
     TRACE_DIR,
@@ -242,11 +238,7 @@ class NaradShuddhi:
         std_result   = self.standardize()
 
         try:
-            import sys as _sys
-            _root = Path(__file__).parent.parent
-            if str(_root) not in _sys.path:
-                _sys.path.insert(0, str(_root))
-            from phase_2_yantra import tracer
+            from phase_2_yantra import tracer  # TODO: dead path — module name never existed; wire to yantra tracer properly
             tracer.log_event("shuddhi_run", freed_mb=shine_result["freed_mb"])
         except Exception:
             pass

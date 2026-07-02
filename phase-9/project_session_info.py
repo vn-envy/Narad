@@ -1,16 +1,8 @@
 from __future__ import annotations
 
 import json
-import sys
 from functools import lru_cache
-from pathlib import Path
 from typing import Any
-
-_PHASE9 = Path(__file__).parent
-_ROOT = _PHASE9.parent
-for _p in [str(_PHASE9), str(_ROOT)]:
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
 
 from narad_config import TRACE_DIR
 

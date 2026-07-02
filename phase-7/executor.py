@@ -21,7 +21,6 @@ import time
 import uuid
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
 from narad_config import ARTIFACTS_DIR as _OUTPUTS_DIR
 
 TIMEOUT_S = int(os.environ.get("EXECUTOR_TIMEOUT", "90"))

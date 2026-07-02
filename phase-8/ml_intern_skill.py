@@ -8,13 +8,8 @@ import os
 import shlex
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 from typing import Any
-
-_ROOT = Path(__file__).parent.parent
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
 
 from tool_result import artifact, ensure_artifact_dir, envelope, ui_panel, write_html_surface, write_json
 

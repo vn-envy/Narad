@@ -14,14 +14,9 @@ from __future__ import annotations
 import json
 import logging
 import os
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-
-_ROOT = Path(__file__).parent.parent
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
 
 try:
     from narad_config import NARAD_HOME
@@ -378,7 +373,6 @@ class NotionSync:
 
         # Sync sutras
         try:
-            sys.path.insert(0, str(_ROOT / "phase-5"))
             from sutra_engine import get_all_sutras  # type: ignore
             sutras = get_all_sutras()
             count = 0
@@ -399,7 +393,6 @@ class NotionSync:
 
         # Sync andon log
         try:
-            sys.path.insert(0, str(_ROOT / "phase-1"))
             from andon import load_andon_log  # type: ignore
             events = load_andon_log(limit=200)
             count = 0

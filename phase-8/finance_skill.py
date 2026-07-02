@@ -1039,9 +1039,6 @@ def get_spend_patterns(months: int = 3) -> dict:
                 "message": f"Only {len(transactions)} transactions in the last {months} months. Need 5+ to build patterns.",
             }
 
-        import sys as _sys_fp
-        import pathlib as _pl_fp
-        _sys_fp.path.insert(0, str(_pl_fp.Path(__file__).parent.parent / "phase-1"))
         from finance_patterns import get_pattern_insights
         result = get_pattern_insights(transactions)
 

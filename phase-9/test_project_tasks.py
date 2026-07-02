@@ -6,12 +6,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-_PHASE9 = Path(__file__).parent
-_ROOT = _PHASE9.parent
-_PHASE1 = _ROOT / "phase-1"
-for _path in [str(_PHASE9), str(_ROOT), str(_PHASE1)]:
-    if _path not in sys.path:
-        sys.path.insert(0, _path)
+_r = next(p for p in Path(__file__).resolve().parents if (p / "narad_paths.py").exists())
+sys.path[:0] = [str(_r)]  # narad root hop
+import narad_paths  # noqa: F401
 
 import project_tasks as pt
 

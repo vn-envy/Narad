@@ -25,8 +25,6 @@ from typing import Any
 
 # ── Storage ────────────────────────────────────────────────────────────────────
 
-import sys as _sys_nc
-_sys_nc.path.insert(0, str(Path(__file__).parent.parent))
 from narad_config import WIKI_DIR
 from smriti_indexer import ensure_project_wiki_indexed
 from smriti_recall_ranker import build_project_memory_context
@@ -470,10 +468,6 @@ async def rrf_recall(
     # ── Signal 3: Vector recall from smriti v1 (graceful fallback) ────────────
     cosine_ids: list[str] = []
     try:
-        import sys as _sys_sm
-        p1 = __import__("pathlib").Path(__file__).parent.parent / "phase-2"
-        if str(p1) not in _sys_sm.path:
-            _sys_sm.path.insert(0, str(p1))
         from smriti import recall as _smriti_recall
         _raw = _smriti_recall(query, user_id=user_id)
         if _raw:

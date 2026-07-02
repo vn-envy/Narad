@@ -4,11 +4,9 @@ import sys
 import unittest
 from pathlib import Path
 
-_ROOT = Path(__file__).parent.parent
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
-if str(_ROOT / "phase-1") not in sys.path:
-    sys.path.insert(0, str(_ROOT / "phase-1"))
+_r = next(p for p in Path(__file__).resolve().parents if (p / "narad_paths.py").exists())
+sys.path[:0] = [str(_r)]  # narad root hop
+import narad_paths  # noqa: F401
 
 from runtime_contract import canonical_agent_names, collect_runtime_contract, health_payload
 

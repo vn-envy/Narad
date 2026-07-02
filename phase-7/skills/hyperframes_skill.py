@@ -15,11 +15,9 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
-import sys
 import uuid
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from narad_config import ARTIFACTS_DIR
 from tool_result import artifact, envelope, ui_panel, write_html_surface, write_json
 

@@ -1,17 +1,9 @@
 from __future__ import annotations
 
 import json
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-
-_ROOT = Path(__file__).parent
-_PHASE1 = _ROOT / "phase-1"
-_PHASE9 = _ROOT / "phase-9"
-for _path in [str(_ROOT), str(_PHASE1), str(_PHASE9)]:
-    if _path not in sys.path:
-        sys.path.insert(0, _path)
 
 from narad_config import EPISODE_DIR, WIKI_DIR
 from smriti_vector_store import VectorMemoryRecord, embed_text, sync_records, upsert_record

@@ -1,14 +1,6 @@
 from __future__ import annotations
 
-import sys
-from pathlib import Path
 from typing import Any, Dict, List, Optional
-
-_PHASE9 = Path(__file__).parent
-_ROOT = _PHASE9.parent
-for _p in [str(_PHASE9), str(_ROOT)]:
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel

@@ -35,8 +35,6 @@ from typing import Any
 import lancedb
 import pyarrow as pa
 
-import sys as _sys_nc
-_sys_nc.path.insert(0, str(Path(__file__).parent.parent))
 from narad_config import SMRITI_DB as _DB_PATH
 _TABLE = "memories"
 def _select_embed_provider() -> str:
@@ -338,8 +336,6 @@ def remember(task: str, result: str, avatar: str, user_id: str) -> None:
         try:
             if os.environ.get("NOTION_API_TOKEN"):
                 import asyncio as _ao
-                import sys as _sys2
-                _sys2.path.insert(0, str(Path(__file__).parent.parent / "phase-1"))
                 from notion_sync import NotionSync as _NSynth  # type: ignore
                 _ns_inst = _NSynth()
                 _ao.get_event_loop().call_soon(lambda _r=row_id, _u=user_id, _a=avatar, _m=memory_text, _c=created_at:

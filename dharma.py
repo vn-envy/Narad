@@ -14,17 +14,11 @@ The point is not decorative naming: Dharma is the boundary between "can" and
 from __future__ import annotations
 
 import json
-import sys
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 from narad_config import DHARMA_POLICY_PATH
 
-_ROOT = Path(__file__).parent
-_PHASE1 = _ROOT / "phase-1"
-if str(_PHASE1) not in sys.path:
-    sys.path.insert(0, str(_PHASE1))
 from runtime_contract import agent_contract_map
 
 

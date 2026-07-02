@@ -17,12 +17,9 @@ Limitations (Parashurama communicates these to the user):
 from __future__ import annotations
 
 import os
-import sys
 import uuid
 from pathlib import Path
 
-_PHASE7 = Path(__file__).parent.parent
-sys.path.insert(0, str(_PHASE7))
 from executor import execute_code
 
 _SERVER_MEDIA_BASE = os.environ.get("MEDIA_URL_BASE", "http://localhost:8000/media")

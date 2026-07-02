@@ -12,14 +12,10 @@ Live kanban_update SSE events are emitted on every transition.
 from __future__ import annotations
 
 import sqlite3
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-_ROOT = Path(__file__).parent.parent
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
 from narad_config import NARAD_HOME
 from plan_models import PlanStep, StepStatus
 

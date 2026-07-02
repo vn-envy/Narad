@@ -16,11 +16,8 @@ CDN libraries usable with zero install (embed as <script src="..."> tags):
 from __future__ import annotations
 
 import os
-import sys
 from pathlib import Path
 
-_PHASE7 = Path(__file__).parent.parent / "phase-7"
-sys.path.insert(0, str(_PHASE7))
 from executor import execute_code
 
 _SERVER_MEDIA_BASE = os.environ.get("MEDIA_URL_BASE", "http://localhost:8000/media")
