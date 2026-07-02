@@ -28,13 +28,9 @@
 
   /* ── Avatar canonical colours (website palette) ── */
   --avatar-matsya:      #065f46;
-  --avatar-varaha:      #c2410c;
-  --avatar-narasimha:   #c2410c;
   --avatar-rama:        #2d2a26;
   --avatar-krishna:     #065f46;
-  --avatar-buddha:      #fcd34d;
   --avatar-parashurama: #57534e;
-  --avatar-vamana:      #78716c;
   --avatar-narad:       #c2410c;
 
   /* ── RGB triplets for rgba() usage ── */
@@ -141,13 +137,9 @@
   --color-chart-5:                 var(--chart-5);
 
   --color-avatar-matsya:      var(--avatar-matsya);
-  --color-avatar-varaha:      var(--avatar-varaha);
-  --color-avatar-narasimha:   var(--avatar-narasimha);
   --color-avatar-rama:        var(--avatar-rama);
   --color-avatar-krishna:     var(--avatar-krishna);
-  --color-avatar-buddha:      var(--avatar-buddha);
   --color-avatar-parashurama: var(--avatar-parashurama);
-  --color-avatar-vamana:      var(--avatar-vamana);
   --color-avatar-narad:       var(--avatar-narad);
 
   --color-paper:    var(--paper);
@@ -304,13 +296,9 @@
 
   /* Per-avatar warm tinting (paper bg + left accent border) */
   .avatar-glass-matsya      { background: rgba(6,95,70,0.04) !important;    border-left: 3px solid rgba(6,95,70,0.35) !important; }
-  .avatar-glass-varaha      { background: rgba(194,65,12,0.04) !important;  border-left: 3px solid rgba(194,65,12,0.35) !important; }
-  .avatar-glass-narasimha   { background: rgba(194,65,12,0.04) !important;  border-left: 3px solid rgba(194,65,12,0.35) !important; }
   .avatar-glass-rama        { background: rgba(45,42,38,0.04) !important;   border-left: 3px solid rgba(45,42,38,0.30) !important; }
   .avatar-glass-krishna     { background: rgba(6,95,70,0.04) !important;    border-left: 3px solid rgba(6,95,70,0.35) !important; }
-  .avatar-glass-buddha      { background: rgba(252,211,77,0.08) !important; border-left: 3px solid rgba(252,211,77,0.50) !important; }
   .avatar-glass-parashurama { background: rgba(87,83,78,0.04) !important;   border-left: 3px solid rgba(87,83,78,0.30) !important; }
-  .avatar-glass-vamana      { background: rgba(120,113,108,0.04) !important;border-left: 3px solid rgba(120,113,108,0.30) !important; }
   .avatar-glass-narad       { background: rgba(194,65,12,0.05) !important;  border-left: 3px solid rgba(194,65,12,0.35) !important; }
 
   /* Scrollable panel with visible thin scrollbar */

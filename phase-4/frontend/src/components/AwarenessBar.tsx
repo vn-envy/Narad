@@ -1,45 +1,20 @@
 import { useState } from 'react'
 import type { AvatarName, AvatarStatus } from '../hooks/useAvatara'
 
-const AVATAR_NAMES: AvatarName[] = [
-  'Matsya', 'Varaha', 'Narasimha', 'Rama', 'Krishna', 'Buddha', 'Parashurama', 'Vamana'
-]
-
-const AVATAR_COLOURS: Record<AvatarName, string> = {
-  Matsya:      '#065f46',
-  Varaha:      '#c2410c',
-  Narasimha:   '#c2410c',
-  Rama:        '#2d2a26',
-  Krishna:     '#065f46',
-  Buddha:      '#92610a',
-  Parashurama: '#57534e',
-  Vamana:      '#78716c',
-}
-
-const AVATAR_ABBREV: Record<AvatarName, string> = {
-  Matsya:      'Ma',
-  Varaha:      'Va',
-  Narasimha:   'Na',
-  Rama:        'Ra',
-  Krishna:     'Kr',
-  Buddha:      'Bu',
-  Parashurama: 'Pa',
-  Vamana:      'Vm',
-}
+import { AVATAR_NAMES, AVATAR_COLOURS, AVATAR_ABBREV } from '@/lib/avatara-constants'
 
 interface Props {
   avatars: Record<AvatarName, AvatarStatus>
-  totalTokens: number
   activeSteps: number
   onOpenDarshan: () => void
 }
 
-export function AwarenessBar({ avatars, totalTokens, activeSteps, onOpenDarshan }: Props) {
+export function AwarenessBar({
+  avatars,
+  activeSteps,
+  onOpenDarshan,
+}: Props) {
   const [hoveredAvatar, setHoveredAvatar] = useState<AvatarName | null>(null)
-
-  const tokStr = totalTokens >= 1000
-    ? `${(totalTokens / 1000).toFixed(1)}k`
-    : String(totalTokens)
 
   return (
     <div
@@ -103,6 +78,11 @@ export function AwarenessBar({ avatars, totalTokens, activeSteps, onOpenDarshan 
                   }}
                 >
                   <span className="font-semibold">{name}</span>
+                  {st?.discipline && (
+                    <span className="block text-[9px] opacity-60">
+                      {st.discipline}
+                    </span>
+                  )}
                   {st?.task && (
                     <span className="block text-[9px] opacity-60 max-w-[140px] truncate">
                       {st.task}
@@ -126,21 +106,12 @@ export function AwarenessBar({ avatars, totalTokens, activeSteps, onOpenDarshan 
         </div>
       )}
 
-      {/* Token count */}
-      <div
-        className="text-center font-mono"
-        style={{ color: 'rgba(252,250,242,0.35)', fontSize: 9, lineHeight: '1.2' }}
-      >
-        <div style={{ fontSize: 10, color: 'rgba(252,250,242,0.55)' }}>{tokStr}</div>
-        <div>tok</div>
-      </div>
-
-      {/* Darshan open button */}
+      {/* Dashboard open button */}
       <button
         onClick={onOpenDarshan}
-        title="Open Darshan Dashboard"
+        title="Open Narad Dashboard (Traces, Memory, Tasks, Karma)"
         className="flex flex-col items-center gap-0.5 group transition-opacity"
-        style={{ opacity: 0.55 }}
+        style={{ opacity: 0.6 }}
       >
         <span
           className="flex items-center justify-center rounded"
@@ -159,7 +130,7 @@ export function AwarenessBar({ avatars, totalTokens, activeSteps, onOpenDarshan 
           className="font-mono uppercase tracking-widest"
           style={{ fontSize: 7, color: 'rgba(252,250,242,0.4)', letterSpacing: '0.12em' }}
         >
-          Darshan
+          Dashboard
         </span>
       </button>
     </div>

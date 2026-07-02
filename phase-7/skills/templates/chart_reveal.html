@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{CHART_TITLE|Data Visualization}}</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --bg:     {{BG_COLOR|#f8f9fa}};
+    --card:   {{CARD_COLOR|#ffffff}};
+    --text:   {{TEXT_COLOR|#1a1a2e}};
+    --accent: {{ACCENT_COLOR|#4f46e5}};
+    --muted:  {{MUTED_COLOR|#9ca3af}};
+  }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', 'Helvetica Neue', sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem 2rem;
+  }
+  .card {
+    background: var(--card);
+    border-radius: 16px;
+    box-shadow: 0 4px 40px rgba(0,0,0,0.06);
+    padding: 2.5rem 2.5rem 2rem;
+    width: 100%;
+    max-width: 860px;
+  }
+  header {
+    margin-bottom: 0.4rem;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  h1 {
+    font-size: clamp(1.3rem, 3vw, 2rem);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+  .legend {
+    display: flex;
+    gap: 1.2rem;
+    flex-wrap: wrap;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+  .legend-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+  }
+  .subtitle { font-size: 0.9rem; color: var(--muted); margin-bottom: 2rem; }
+
+  /* Bar chart */
+  .chart-wrap {
+    position: relative;
+    height: 280px;
+    display: flex;
+    align-items: flex-end;
+    gap: clamp(4px, 1.2vw, 16px);
+    padding-bottom: 2rem;
+    border-bottom: 1.5px solid #e5e7eb;
+  }
+  .bar-group {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    height: 100%;
+    position: relative;
+  }
+  .bar {
+    width: 100%;
+    max-width: 48px;
+    border-radius: 6px 6px 0 0;
+    background: var(--accent);
+    height: 0;       /* animated to data-pct% */
+    transition: height 1s cubic-bezier(0.34,1.56,0.64,1);
+    position: relative;
+    cursor: pointer;
+  }
+  .bar:hover::after {
+    content: attr(data-val);
+    position: absolute;
+    top: -2rem;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--text);
+    color: #fff;
+    padding: 0.2em 0.6em;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+  .bar.secondary { background: #a5b4fc; }
+  .bar-label {
+    position: absolute;
+    bottom: -1.6rem;
+    font-size: 0.75rem;
+    color: var(--muted);
+    text-align: center;
+    width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Y-axis grid */
+  .grid-lines {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 2rem;
+    pointer-events: none;
+  }
+  .grid-line {
+    position: absolute;
+    left: 0; right: 0;
+    border-top: 1px dashed #e5e7eb;
+  }
+  .grid-tick {
+    position: absolute;
+    left: -2.5rem;
+    font-size: 0.7rem;
+    color: var(--muted);
+    transform: translateY(-50%);
+  }
+  .chart-outer { position: relative; padding-left: 2.5rem; }
+
+  /* Line chart overlay (SVG) */
+  .line-svg {
+    position: absolute;
+    top: 0; left: 2.5rem; right: 0;
+    bottom: 2rem;
+    pointer-events: none;
+  }
+  .trend-path {
+    fill: none;
+    stroke: #ec4899;
+    stroke-width: 2.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-dasharray: 1000;
+    stroke-dashoffset: 1000;
+    transition: stroke-dashoffset 1.4s ease 0.4s;
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <header>
+    <div>
+      <h1>{{CHART_TITLE|Monthly Performance}}</h1>
+      <p class="subtitle">{{CHART_SUBTITLE|Jan – {{CURRENT_YEAR|2026}} · All figures in {{UNIT|₹K}}}}</p>
+    </div>
+    <div class="legend">
+      <span class="legend-item">
+        <span class="legend-dot" style="background:{{ACCENT_COLOR|#4f46e5}}"></span>
+        {{SERIES_1_LABEL|Primary}}
+      </span>
+      <span class="legend-item">
+        <span class="legend-dot" style="background:#a5b4fc"></span>
+        {{SERIES_2_LABEL|Secondary}}
+      </span>
+      <span class="legend-item">
+        <span class="legend-dot" style="background:#ec4899"></span>
+        {{TREND_LABEL|Trend}}
+      </span>
+    </div>
+  </header>
+
+  <div class="chart-outer">
+    <div class="chart-wrap" id="chart">
+      <div class="grid-lines" id="grid"></div>
+      <!-- bars injected by JS -->
+    </div>
+    <svg class="line-svg" id="lineSvg" viewBox="0 0 100 100" preserveAspectRatio="none">
+      <path class="trend-path" id="trendPath" d=""/>
+    </svg>
+  </div>
+</div>
+
+<script>
+(function() {
+  // ── DATA ── Replace these with real values ──────────────────────────────
+  const labels = {{LABELS|["Jan","Feb","Mar","Apr","May","Jun","Jul"]}};
+  const series1 = {{SERIES_1|[42,58,71,65,83,91,78]}};
+  const series2 = {{SERIES_2|[28,34,45,51,60,55,70]}};
+  // ── END DATA ────────────────────────────────────────────────────────────
+
+  const maxVal = Math.max(...series1, ...series2) * 1.15;
+
+  // Draw grid
+  const grid = document.getElementById('grid');
+  const ticks = 4;
+  for (let i = 0; i <= ticks; i++) {
+    const pct = (i / ticks) * 100;
+    const val = Math.round((maxVal * i) / ticks);
+    const line = document.createElement('div');
+    line.className = 'grid-line';
+    line.style.bottom = pct + '%';
+    const tick = document.createElement('span');
+    tick.className = 'grid-tick';
+    tick.style.bottom = pct + '%';
+    tick.textContent = val;
+    grid.appendChild(line);
+    grid.appendChild(tick);
+  }
+
+  // Draw bars
+  const chart = document.getElementById('chart');
+  labels.forEach((label, i) => {
+    const group = document.createElement('div');
+    group.className = 'bar-group';
+
+    const b1 = document.createElement('div');
+    b1.className = 'bar';
+    b1.setAttribute('data-pct', (series1[i] / maxVal * 100).toFixed(1));
+    b1.setAttribute('data-val', series1[i]);
+    group.appendChild(b1);
+
+    const b2 = document.createElement('div');
+    b2.className = 'bar secondary';
+    b2.setAttribute('data-pct', (series2[i] / maxVal * 100).toFixed(1));
+    b2.setAttribute('data-val', series2[i]);
+    group.appendChild(b2);
+
+    const lbl = document.createElement('div');
+    lbl.className = 'bar-label';
+    lbl.textContent = label;
+    group.appendChild(lbl);
+
+    chart.appendChild(group);
+  });
+
+  // Animate bars after paint
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    document.querySelectorAll('.bar').forEach(b => {
+      b.style.height = b.getAttribute('data-pct') + '%';
+    });
+
+    // Draw trend line (series1 midpoints)
+    const svg = document.getElementById('lineSvg');
+    const W = svg.clientWidth || 800;
+    const H = svg.clientHeight || 260;
+    const barGroups = chart.querySelectorAll('.bar-group');
+    const pts = Array.from(barGroups).map((g, i) => {
+      const rect = g.querySelector('.bar').getBoundingClientRect();
+      const chartRect = chart.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2 - chartRect.left - 40; // subtract padding
+      const cy = H - (series1[i] / maxVal) * H;
+      return [cx / (W) * 100, cy / H * 100];
+    });
+
+    if (pts.length > 1) {
+      const d = pts.map((p, i) => (i === 0 ? `M${p[0]},${p[1]}` : `L${p[0]},${p[1]}`)).join(' ');
+      const path = document.getElementById('trendPath');
+      path.setAttribute('d', d);
+      path.style.strokeDashoffset = '0';
+    }
+  }));
+})();
+</script>
+</body>
+</html>

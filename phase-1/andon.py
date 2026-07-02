@@ -5,8 +5,8 @@ Fires when an avatar produces a result that is empty, too slow, connection-exhau
 or contains tool errors. On fire:
   1. Appends an event to ~/.narad/config/andon_log.jsonl
   2. Emits andon_alert SSE event immediately
-  3. Invokes Narasimha in ANDON_DIAGNOSTIC mode (fire-and-forget coroutine)
-  4. Emits andon_diagnosis SSE event with Narasimha's structured JSON
+  3. Invokes Parashurama in ANDON_DIAGNOSTIC mode (fire-and-forget coroutine)
+  4. Emits andon_diagnosis SSE event with Parashurama's structured JSON
 
 AndonGate is a pure function — no side effects, safe to call anywhere.
 All I/O lives in log_andon() and _run_andon_diagnostic().
@@ -80,6 +80,21 @@ def log_andon(
     with open(ANDON_LOG_PATH, "a", encoding="utf-8") as f:
         f.write(json.dumps(event) + "\n")
 
+    # Notion sync hook (fire-and-forget)
+    try:
+        import os as _os
+        if _os.environ.get("NOTION_API_TOKEN"):
+            import asyncio as _ao
+            from notion_sync import NotionSync as _NS  # type: ignore
+            _ns = _NS()
+            _ao.get_event_loop().call_soon(lambda _e=event:
+                _ao.ensure_future(_ns.push_andon(
+                    _e["id"], _e["avatar"], _e["trigger"], _e["session_id"],
+                    _e["task_preview"], _e.get("result_preview", ""), _e["ts"]
+                )))
+    except Exception:
+        pass
+
 
 def load_andon_log(limit: int = 50) -> list[dict]:
     """Return the last `limit` andon events, newest first."""
@@ -127,8 +142,8 @@ async def _run_andon_diagnostic(
     user_id: str,
 ) -> None:
     """
-    Fire-and-forget coroutine — invokes Narasimha in ANDON_DIAGNOSTIC mode.
-    Emits andon_diagnosis SSE event with Narasimha's structured JSON output.
+    Fire-and-forget coroutine — invokes Parashurama in ANDON_DIAGNOSTIC mode.
+    Emits andon_diagnosis SSE event with Parashurama's structured output.
     """
     import asyncio
     import logging
@@ -143,8 +158,8 @@ async def _run_andon_diagnostic(
     )
 
     try:
-        # Import Narasimha agent and run it
-        from avatar_agents import narasimha  # noqa: PLC0415
+        # Import Parashurama agent and run it
+        from avatar_agents import parashurama  # noqa: PLC0415
         from google.adk.runners import Runner
         from google.adk.sessions import InMemorySessionService
         from google.genai import types as genai_types
@@ -153,7 +168,7 @@ async def _run_andon_diagnostic(
         diag_sid = str(__import__("uuid").uuid4())
         app_name = "andon_diagnostic"
         await svc.create_session(app_name=app_name, user_id="narad", session_id=diag_sid)
-        runner = Runner(agent=narasimha, app_name=app_name, session_service=svc)
+        runner = Runner(agent=parashurama, app_name=app_name, session_service=svc)
         msg = genai_types.Content(
             role="user", parts=[genai_types.Part(text=diagnostic_task)]
         )

@@ -1,55 +1,125 @@
-import React from 'react';
-import { motion } from 'motion/react';
+import { motion } from 'motion/react'
 
-export const MadhubaniBorder: React.FC<{ className?: string, position?: 'top' | 'bottom' }> = ({ className = "", position = 'top' }) => {
+interface MadhubaniBorderProps {
+  className?: string
+  position?: 'top' | 'bottom'
+  height?: number
+}
+
+function Fish({ x, y, scale = 1 }: { x: number; y: number; scale?: number }) {
   return (
-    <div className={`w-full overflow-hidden bg-paper border-kajal ${position === 'top' ? 'border-b-[3px]' : 'border-t-[3px]'} ${className}`}>
-      <svg width="100%" height="40" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-          <pattern id="madhubani-band" x="0" y="0" width="160" height="40" patternUnits="userSpaceOnUse">
-             {/* Border lines */}
-             <line x1="0" y1="2" x2="160" y2="2" stroke="#2d2a26" strokeWidth="1.5" />
-             <line x1="0" y1="6" x2="160" y2="6" stroke="#2d2a26" strokeWidth="0.5" />
-             <line x1="0" y1="34" x2="160" y2="34" stroke="#2d2a26" strokeWidth="0.5" />
-             <line x1="0" y1="38" x2="160" y2="38" stroke="#2d2a26" strokeWidth="1.5" />
+    <g transform={`translate(${x}, ${y}) scale(${scale})`}>
+      <path
+        d="M 0 0 C 4 -3, 12 -3, 16 0 C 12 3, 4 3, 0 0 Z"
+        fill="#065f46"
+        stroke="#2d2a26"
+        strokeWidth="0.65"
+        strokeLinejoin="round"
+      />
+      <path d="M -2 -2 L 1 0 L -2 2 Z" fill="#c2410c" stroke="#2d2a26" strokeWidth="0.45" />
+      <circle cx="11.5" cy="-0.6" r="0.8" fill="#fcd34d" />
+    </g>
+  )
+}
 
-             {/* Peacocks and Fishes alternating */}
-             <g transform="translate(10, 8)">
-               {/* Simplified Fish */}
-               <path d="M 0 12 C 10 0, 20 0, 30 12 C 20 24, 10 24, 0 12 Z" fill="#065f46" stroke="#2d2a26" strokeWidth="1" />
-               <circle cx="22" cy="10" r="1.5" fill="#fcd34d" />
-               <path d="M -5 6 L 0 12 L -5 18 Z" fill="#c2410c" stroke="#2d2a26" strokeWidth="0.5"/>
-             </g>
+function LotusDiamond({ x, y }: { x: number; y: number }) {
+  return (
+    <g transform={`translate(${x}, ${y})`}>
+      <rect x="-6.5" y="-4.5" width="13" height="9" rx="1.2" fill="none" stroke="#c2410c" strokeWidth="0.7" />
+      <path d="M 0 -3.2 L 3.1 0 L 0 3.2 L -3.1 0 Z" fill="#fcd34d" stroke="#2d2a26" strokeWidth="0.6" />
+      <path d="M -5.4 0 H 5.4" stroke="#2d2a26" strokeWidth="0.45" opacity="0.5" />
+    </g>
+  )
+}
 
-             {/* Floral Lotus Box */}
-             <rect x="50" y="8" width="24" height="24" fill="none" stroke="#c2410c" strokeWidth="1" />
-             <path d="M 62 10 L 68 20 L 56 20 Z" fill="#fcd34d" stroke="#2d2a26" strokeWidth="1"/>
-             <path d="M 62 30 L 68 20 L 56 20 Z" fill="#c2410c" stroke="#2d2a26" strokeWidth="1"/>
-             
-             <g transform="translate(90, 8)">
-               {/* Simplified Peacock / Bird */}
-               <path d="M 10 16 C 5 16, 2 10, 5 4 C 15 4, 15 16, 25 16 C 30 16, 30 20, 25 20 C 10 20, 10 24, 5 24 Z" fill="#065f46" stroke="#2d2a26" strokeWidth="1" />
-               <circle cx="8" cy="8" r="1.5" fill="#fcd34d" />
-               <path d="M 15 10 C 20 6, 25 6, 35 12" stroke="#c2410c" strokeWidth="1.5" fill="none" strokeDasharray="2 2" />
-               <path d="M 15 14 C 20 10, 25 10, 35 16" stroke="#c2410c" strokeWidth="1.5" fill="none" strokeDasharray="2 2" />
-             </g>
+function PeacockGlyph({ x, y }: { x: number; y: number }) {
+  return (
+    <g transform={`translate(${x}, ${y})`}>
+      <path
+        d="M -5.2 2.2 C -6.4 -1.5, -2.2 -4.2, 2.6 -3.6 C 4.8 -1.8, 4.8 1.7, 2.6 3.2 C -1.4 3.7, -3.3 2.8, -5.2 2.2 Z"
+        fill="#065f46"
+        stroke="#2d2a26"
+        strokeWidth="0.65"
+      />
+      <circle cx="-1.5" cy="-1.1" r="0.8" fill="#fcd34d" />
+      <path d="M 2.4 -0.5 C 5.5 -2.3, 7.7 -2.0, 10.2 -0.3" fill="none" stroke="#c2410c" strokeWidth="0.7" strokeDasharray="1.1 1.1" />
+      <path d="M 2.4 1.3 C 5.5 -0.5, 7.7 -0.3, 10.2 1.3" fill="none" stroke="#c2410c" strokeWidth="0.7" strokeDasharray="1.1 1.1" />
+    </g>
+  )
+}
 
-             {/* Geometric Triangles */}
-             <path d="M 134 8 L 140 20 L 128 20 Z M 134 32 L 140 20 L 128 20 Z" fill="#2d2a26" />
-             
-             <g transform="translate(144, 16)">
-               <circle cx="8" cy="4" r="3" fill="#c2410c" stroke="#2d2a26" strokeWidth="1" />
-             </g>
-          </pattern>
-        </defs>
-        
-        <motion.rect 
-          x="-160" y="0" width="200%" height="40" 
-          fill="url(#madhubani-band)" 
-          animate={{ x: [0, -160] }}
-          transition={{ duration: 10, ease: "linear", repeat: Infinity }}
-        />
+function SunTriangle({ x, y }: { x: number; y: number }) {
+  return (
+    <g transform={`translate(${x}, ${y})`}>
+      <path d="M -5.2 0 L 0 -3.7 L 5.2 0 L 0 3.7 Z" fill="#2d2a26" opacity="0.92" />
+      <circle cx="0" cy="0" r="1.25" fill="#c2410c" />
+    </g>
+  )
+}
+
+function Tile({ x, h }: { x: number; h: number }) {
+  const mid = h / 2
+  const top = 1.2
+  const innerTop = 3.4
+  const bottom = h - 1.2
+  const innerBottom = h - 3.4
+
+  return (
+    <g transform={`translate(${x}, 0)`}>
+      <line x1="0" y1={top} x2="220" y2={top} stroke="#2d2a26" strokeWidth="0.95" />
+      <line x1="0" y1={innerTop} x2="220" y2={innerTop} stroke="#2d2a26" strokeWidth="0.35" opacity="0.75" />
+      <line x1="0" y1={innerBottom} x2="220" y2={innerBottom} stroke="#2d2a26" strokeWidth="0.35" opacity="0.75" />
+      <line x1="0" y1={bottom} x2="220" y2={bottom} stroke="#2d2a26" strokeWidth="0.95" />
+
+      <Fish x={20} y={mid} scale={0.92} />
+      <LotusDiamond x={69} y={mid} />
+      <PeacockGlyph x={116} y={mid} />
+      <SunTriangle x={170} y={mid} />
+      <Fish x={197} y={mid} scale={0.72} />
+
+      <circle cx="47" cy={mid - 2.8} r="0.8" fill="#c2410c" opacity="0.55" />
+      <circle cx="47" cy={mid + 2.8} r="0.8" fill="#fcd34d" opacity="0.75" />
+      <circle cx="144" cy={mid - 2.8} r="0.8" fill="#fcd34d" opacity="0.75" />
+      <circle cx="144" cy={mid + 2.8} r="0.8" fill="#c2410c" opacity="0.55" />
+    </g>
+  )
+}
+
+export function MadhubaniBorder({
+  className = '',
+  position = 'top',
+  height = 14,
+}: MadhubaniBorderProps) {
+  const baseHeight = 14
+  const h = Math.max(24, Math.round(height))
+  const tileWidth = 220
+  const scale = h / baseHeight
+  const scaledTileWidth = tileWidth * scale
+  const viewportWidth = scaledTileWidth * 2
+
+  return (
+    <div
+      className={`w-full overflow-hidden bg-paper border-kajal ${position === 'top' ? 'border-b-[2px]' : 'border-t-[2px]'} ${className}`}
+      style={{ height: h }}
+    >
+      <svg
+        width="100%"
+        height={h}
+        viewBox={`0 0 ${viewportWidth} ${h}`}
+        preserveAspectRatio="none"
+        xmlns="http://www.w3.org/2000/svg"
+        style={{ display: 'block' }}
+      >
+        <motion.g
+          animate={{ x: [0, -scaledTileWidth] }}
+          transition={{ duration: 18, ease: 'linear', repeat: Infinity }}
+          transform={`scale(${scale})`}
+        >
+          <Tile x={0} h={baseHeight} />
+          <Tile x={tileWidth} h={baseHeight} />
+          <Tile x={tileWidth * 2} h={baseHeight} />
+        </motion.g>
       </svg>
     </div>
-  );
-};
+  )
+}

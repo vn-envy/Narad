@@ -1,15 +1,15 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { toast } from 'sonner'
+import { apiPath, apiUrl, apiFetch } from '@/lib/api'
 
-export type AvatarName =
-  | 'Matsya' | 'Varaha' | 'Narasimha' | 'Rama'
-  | 'Krishna' | 'Buddha' | 'Parashurama' | 'Vamana'
+export type AvatarName = 'Matsya' | 'Rama' | 'Krishna' | 'Parashurama'
 
 export type AvatarState = 'idle' | 'active' | 'done'
 
 export interface AvatarStatus {
   name: AvatarName
   state: AvatarState
+  discipline?: string
   task?: string
   latencyMs?: number
   startedAt?: number
@@ -51,14 +51,81 @@ export interface StepEvent {
   id: string
   avatar: string
   kind: 'tool_call' | 'tool_result' | 'text'
+  discipline?: string
   tool?: string
   preview: string
   ts: number
 }
 
-export interface PendingArtifact {
+export interface ArtifactFlashcard {
+  id: string
+  front: string
+  back: string
+  tags?: string[]
+}
+
+export interface ArtifactConceptNode {
+  id: string
+  label: string
+  note: string
+}
+
+export interface ArtifactConceptEdge {
+  source: string
+  target: string
+  label?: string
+}
+
+export interface ActiveArtifactSession {
+  artifactId: string
   topic: string
-  artifactType: 'flashcards' | 'diagram'
+  artifactType: 'flashcards' | 'concept_map'
+  workspaceId: string
+  version: number
+  status: string
+  updatedAt?: string
+  recordIds: string[]
+  doc: {
+    cards?: ArtifactFlashcard[]
+    nodes?: ArtifactConceptNode[]
+    edges?: ArtifactConceptEdge[]
+  }
+}
+
+export interface ToolArtifact {
+  type: string
+  label: string
+  url?: string
+  path?: string
+  description?: string
+  mime_type?: string
+  metadata?: Record<string, unknown>
+}
+
+export interface ToolCitation {
+  title: string
+  url: string
+  source?: string
+  snippet?: string
+  metadata?: Record<string, unknown>
+}
+
+export interface PendingToolUi {
+  avatar: string
+  tool: string
+  status: string
+  summary: string
+  requiresConfirmation?: boolean
+  artifacts: ToolArtifact[]
+  citations: ToolCitation[]
+  ui?: {
+    kind?: string
+    title?: string
+    summary?: string
+    tone?: string
+    primary_artifact_label?: string
+    sections?: Array<{ title: string; body: string }>
+  } | null
 }
 
 export interface KanbanUpdatePayload {
@@ -84,14 +151,13 @@ interface AvatararState {
   error: string | null
   stepEvents: StepEvent[]
   sessionTotals: { promptTokens: number; completionTokens: number; totalTokens: number }
-  pendingArtifact: PendingArtifact | null
+  activeArtifactSession: ActiveArtifactSession | null
+  pendingToolUi: PendingToolUi | null
   kanbanUpdate: KanbanUpdatePayload | null
   andonAlert: AndonAlertPayload | null
 }
 
-const AVATAR_NAMES: AvatarName[] = [
-  'Matsya', 'Varaha', 'Narasimha', 'Rama', 'Krishna', 'Buddha', 'Parashurama', 'Vamana'
-]
+const AVATAR_NAMES: AvatarName[] = ['Matsya', 'Rama', 'Krishna', 'Parashurama']
 
 function initialAvatars(): Record<AvatarName, AvatarStatus> {
   return Object.fromEntries(
@@ -102,12 +168,80 @@ function initialAvatars(): Record<AvatarName, AvatarStatus> {
 const SESSION_KEY = 'avatara_messages'
 const CONVO_SESSION_KEY = 'avatara_convo_session_id'
 
+function readStorage(key: string): string | null {
+  try {
+    return localStorage.getItem(key)
+  } catch {
+    try {
+      return sessionStorage.getItem(key)
+    } catch {
+      return null
+    }
+  }
+}
+
+function writeStorage(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value)
+  } catch {
+    try {
+      sessionStorage.setItem(key, value)
+    } catch {
+      // ignore storage failures
+    }
+  }
+}
+
+function removeStorage(key: string): void {
+  try { localStorage.removeItem(key) } catch { /* ignore */ }
+  try { sessionStorage.removeItem(key) } catch { /* ignore */ }
+}
+
+function emitKarmaRuntimeEvent(type: string, data: Record<string, unknown>): void {
+  if (typeof window === 'undefined') return
+  window.dispatchEvent(new CustomEvent('narad:karma-event', {
+    detail: { type, data, ts: Date.now() },
+  }))
+}
+
 function loadMessages(): Message[] {
   try {
-    const raw = sessionStorage.getItem(SESSION_KEY)
+    const raw = readStorage(SESSION_KEY)
     return raw ? (JSON.parse(raw) as Message[]) : []
   } catch {
     return []
+  }
+}
+
+function lastKnownSessionId(messages: Message[]): string | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const sessionId = messages[index]?.sessionId
+    if (sessionId) return sessionId
+  }
+  return null
+}
+
+function toActiveArtifactSession(raw: Record<string, unknown> | null | undefined): ActiveArtifactSession | null {
+  if (!raw) return null
+  const source = (!('artifact_id' in raw) && raw.active_artifact && typeof raw.active_artifact === 'object')
+    ? raw.active_artifact as Record<string, unknown>
+    : raw
+  const artifactId = String(source.artifact_id ?? source.artifactId ?? '').trim()
+  const topic = String(source.topic ?? '').trim()
+  const resolvedWorkspaceId = String(source.workspace_id ?? source.workspaceId ?? '').trim()
+  const artifactTypeRaw = String(source.artifact_type ?? source.artifactType ?? 'flashcards').trim().toLowerCase()
+  const status = String(source.status ?? 'active')
+  if (!artifactId || !resolvedWorkspaceId || !topic) return null
+  return {
+    artifactId,
+    workspaceId: resolvedWorkspaceId,
+    topic,
+    artifactType: artifactTypeRaw === 'concept_map' || artifactTypeRaw === 'diagram' ? 'concept_map' : 'flashcards',
+    version: Number(source.version ?? 1) || 1,
+    status,
+    updatedAt: source.updated_at ? String(source.updated_at) : undefined,
+    recordIds: Array.isArray(source.record_ids) ? source.record_ids.map(item => String(item)) : [],
+    doc: (source.doc && typeof source.doc === 'object') ? source.doc as ActiveArtifactSession['doc'] : {},
   }
 }
 
@@ -115,10 +249,10 @@ function loadMessages(): Message[] {
 // so the backend's InMemorySessionService accumulates conversation history.
 function getOrCreateConvoSessionId(): string {
   try {
-    const existing = sessionStorage.getItem(CONVO_SESSION_KEY)
+    const existing = readStorage(CONVO_SESSION_KEY)
     if (existing) return existing
     const id = crypto.randomUUID()
-    sessionStorage.setItem(CONVO_SESSION_KEY, id)
+    writeStorage(CONVO_SESSION_KEY, id)
     return id
   } catch {
     return crypto.randomUUID()
@@ -129,13 +263,16 @@ function getOrCreateConvoSessionId(): string {
 // hitting a server-side session that was deleted due to corruption.
 function rotateConvoSessionId(): string {
   const id = crypto.randomUUID()
-  try { sessionStorage.setItem(CONVO_SESSION_KEY, id) } catch { /* ignore */ }
+  writeStorage(CONVO_SESSION_KEY, id)
   return id
 }
 
 export function useAvatara(userId = 'default') {
+  const initialMessages = loadMessages()
+  const initialSessionId = getOrCreateConvoSessionId()
+  const fallbackSessionId = lastKnownSessionId(initialMessages)
   const [state, setState] = useState<AvatararState>({
-    messages: loadMessages(),
+    messages: initialMessages,
     avatars: initialAvatars(),
     naradActive: false,
     currentSession: null,
@@ -143,7 +280,8 @@ export function useAvatara(userId = 'default') {
     error: null,
     stepEvents: [],
     sessionTotals: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
-    pendingArtifact: null,
+    activeArtifactSession: null,
+    pendingToolUi: null,
     kanbanUpdate: null,
     andonAlert: null,
   })
@@ -153,21 +291,101 @@ export function useAvatara(userId = 'default') {
   const synthStartRef = useRef<number | null>(null)
   // Per-message token usage captured from the `usage` SSE event (fires before `done`)
   const msgUsageRef = useRef<TokenUsage | null>(null)
+  const sessionAvatarsRef = useRef<AvatarName[]>([])
+  const synthRef = useRef('')
+  const msgIdRef = useRef('')
+  const convoSessionId = useRef(fallbackSessionId ?? initialSessionId)
+  const abortRef = useRef<AbortController | null>(null)
+
+  useEffect(() => {
+    writeStorage(CONVO_SESSION_KEY, convoSessionId.current)
+  }, [])
 
   // Persist messages to sessionStorage whenever they change
   useEffect(() => {
     try {
-      sessionStorage.setItem(SESSION_KEY, JSON.stringify(state.messages))
+      writeStorage(SESSION_KEY, JSON.stringify(state.messages))
     } catch {
-      // sessionStorage full or unavailable — silent fail
+      // storage unavailable — silent fail
     }
   }, [state.messages])
 
-  const sessionAvatarsRef = useRef<AvatarName[]>([])
-  const synthRef = useRef('')
-  const msgIdRef = useRef('')
-  const convoSessionId = useRef(getOrCreateConvoSessionId())
-  const abortRef = useRef<AbortController | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    const hydrateThread = (
+      sessionId: string,
+      turns: Array<{ role: 'user' | 'assistant'; text: string }>,
+      workingState?: Record<string, unknown> | null,
+    ) => {
+      if (cancelled || turns.length === 0) return
+      convoSessionId.current = sessionId
+      writeStorage(CONVO_SESSION_KEY, sessionId)
+      const activeArtifact = toActiveArtifactSession(workingState)
+      setState(current => {
+        if (current.messages.length >= turns.length && current.currentSession?.sessionId === sessionId) {
+          return {
+            ...current,
+            activeArtifactSession: activeArtifact ?? current.activeArtifactSession,
+          }
+        }
+        const restoredMessages: Message[] = turns.map((turn, index) => ({
+          id: `${sessionId}-${index}`,
+          role: turn.role,
+          text: turn.text,
+          sessionId,
+        }))
+        return {
+          ...current,
+          currentSession: current.currentSession?.sessionId === sessionId
+            ? current.currentSession
+            : {
+                sessionId,
+                avatarsFired: current.currentSession?.avatarsFired ?? [],
+              },
+          messages: restoredMessages,
+          activeArtifactSession: activeArtifact ?? current.activeArtifactSession,
+        }
+      })
+    }
+
+    const fetchLatestThread = () =>
+      apiFetch(apiUrl('/threads/latest', { user_id: userId }))
+        .then(response => (response.ok ? response.json() : null))
+        .then((payload: {
+          thread?: { session_id?: string } | null
+          has_thread?: boolean
+        } | null) => {
+          const latestSessionId = payload?.thread?.session_id
+          if (cancelled || !payload?.has_thread || !latestSessionId) return
+          return apiFetch(apiUrl(`/thread/${latestSessionId}`, { user_id: userId }))
+            .then(response => (response.ok ? response.json() : null))
+            .then((data: { turns?: Array<{ role: 'user' | 'assistant'; text: string }>; working_state?: Record<string, unknown> | null } | null) => {
+              if (!Array.isArray(data?.turns) || data.turns.length === 0) return
+              hydrateThread(latestSessionId, data.turns, data.working_state)
+            })
+        })
+        .catch(() => {})
+
+    const sessionId = convoSessionId.current
+    if (!sessionId) {
+      fetchLatestThread()
+    } else {
+      apiFetch(apiUrl(`/thread/${sessionId}`, { user_id: userId }))
+        .then(response => (response.ok ? response.json() : null))
+        .then((data: { turns?: Array<{ role: 'user' | 'assistant'; text: string }>; working_state?: Record<string, unknown> | null } | null) => {
+          if (Array.isArray(data?.turns) && data.turns.length > 0) {
+            hydrateThread(sessionId, data.turns, data.working_state)
+            return
+          }
+          return fetchLatestThread()
+        })
+        .catch(() => fetchLatestThread())
+    }
+
+    return () => {
+      cancelled = true
+    }
+  }, [userId])
 
   const stop = useCallback(() => {
     abortRef.current?.abort()
@@ -193,14 +411,24 @@ export function useAvatara(userId = 'default') {
       error: null,
       currentSession: null,
       stepEvents: [],
+      kanbanUpdate: null,
+      andonAlert: null,
     }))
 
     try {
       abortRef.current = new AbortController()
-      const res = await fetch('/chat', {
+      const res = await fetch(apiPath('/chat'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query, user_id: userId, session_id: convoSessionId.current, images }),
+        body: JSON.stringify({
+          query,
+          user_id: userId,
+          session_id: convoSessionId.current,
+          images,
+          active_artifact_id: state.activeArtifactSession?.artifactId ?? null,
+          active_artifact_workspace_id: state.activeArtifactSession?.workspaceId ?? null,
+          active_artifact_type: state.activeArtifactSession?.artifactType ?? null,
+        }),
         signal: abortRef.current.signal,
       })
 
@@ -230,27 +458,30 @@ export function useAvatara(userId = 'default') {
 
           switch (evt.type) {
             case 'step_event': {
-              const d = evt.data as { avatar: string; kind: string; tool?: string; preview: string }
+              const d = evt.data as { avatar: string; discipline?: string; kind: string; tool?: string; preview: string }
               const step: StepEvent = {
                 id: crypto.randomUUID(),
                 avatar: d.avatar,
+                discipline: d.discipline,
                 kind: d.kind as StepEvent['kind'],
                 tool: d.tool,
                 preview: d.preview,
                 ts: Date.now(),
               }
-              setState(s => ({ ...s, stepEvents: [...s.stepEvents, step] }))
+              setState(s => ({ ...s, stepEvents: [...s.stepEvents, step].slice(-200) }))
               break
             }
 
             case 'avatar_start': {
               const avatar = evt.data.avatar as AvatarName
               const task = evt.data.task as string
+              const discipline = evt.data.discipline as string | undefined
               const routeStep: StepEvent = {
                 id: crypto.randomUUID(),
                 avatar: 'narad',
                 kind: 'text',
-                preview: `→ routing to ${avatar}: ${task.slice(0, 120)}${task.length > 120 ? '…' : ''}`,
+                discipline,
+                preview: `→ routing to ${avatar}${discipline ? ` (${discipline})` : ''}: ${task.slice(0, 120)}${task.length > 120 ? '…' : ''}`,
                 ts: Date.now(),
               }
               setState(s => ({
@@ -258,15 +489,128 @@ export function useAvatara(userId = 'default') {
                 naradActive: false,
                 avatars: {
                   ...s.avatars,
-                  [avatar]: { name: avatar, state: 'active', task, startedAt: Date.now() },
+                  [avatar]: { name: avatar, state: 'active', discipline, task, startedAt: Date.now() },
                 },
-                stepEvents: [...s.stepEvents, routeStep],
+                stepEvents: [...s.stepEvents, routeStep].slice(-200),
+              }))
+              break
+            }
+
+            case 'thread_restored': {
+              emitKarmaRuntimeEvent(evt.type, evt.data)
+              const turnCount = Number(evt.data.turn_count ?? 0)
+              const lastTraceSessionId = evt.data.last_trace_session_id as string | undefined
+              const threadSummary = evt.data.thread_summary as string | undefined
+              const crossThread = Boolean(evt.data.cross_thread)
+              const sourceSessions = Array.isArray(evt.data.source_sessions)
+                ? evt.data.source_sessions as string[]
+                : []
+              const preview = crossThread
+                ? `recovered continuity from ${sourceSessions.length || 1} recent session${sourceSessions.length === 1 ? '' : 's'}`
+                : turnCount > 0
+                ? `restored ${turnCount} prior turn${turnCount === 1 ? '' : 's'}${lastTraceSessionId ? ` · trace ${lastTraceSessionId}` : ''}`
+                : 'restored prior session state'
+              toast('Session restored', {
+                description: preview,
+                duration: 3500,
+              })
+              setState(s => ({
+                ...s,
+                stepEvents: [
+                  ...s.stepEvents,
+                  {
+                    id: crypto.randomUUID(),
+                    avatar: 'smriti',
+                    kind: 'text' as const,
+                    preview: threadSummary
+                      ? `${preview} · ${threadSummary.slice(0, 120)}${threadSummary.length > 120 ? '…' : ''}`
+                      : preview,
+                    ts: Date.now(),
+                  } satisfies StepEvent,
+                ].slice(-200),
+              }))
+              break
+            }
+
+            case 'context_budget': {
+              const model = String(evt.data.model ?? evt.data.selected_model ?? '')
+              const predicted = Number(evt.data.predicted_input_tokens ?? 0)
+              const hard = Number(evt.data.hard_input_budget_tokens ?? 0)
+              const preview = model
+                ? `context budget · ${model} · ${predicted.toLocaleString()} / ${hard.toLocaleString()} tok`
+                : `context budget · ${predicted.toLocaleString()} / ${hard.toLocaleString()} tok`
+              setState(s => ({
+                ...s,
+                stepEvents: [
+                  ...s.stepEvents,
+                  {
+                    id: crypto.randomUUID(),
+                    avatar: 'smriti',
+                    kind: 'text' as const,
+                    preview,
+                    ts: Date.now(),
+                  } satisfies StepEvent,
+                ].slice(-200),
+              }))
+              break
+            }
+
+            case 'context_compacted': {
+              const reasons = Array.isArray(evt.data.reasons) ? evt.data.reasons as string[] : []
+              const compactedFrom = Number(evt.data.compacted_from_tokens ?? 0)
+              const preview = reasons.length > 0
+                ? `context compacted · ${reasons.join(', ')}${compactedFrom ? ` · from ${compactedFrom.toLocaleString()} tok` : ''}`
+                : 'context compacted to fit model budget'
+              toast('Context compacted', {
+                description: preview,
+                duration: 3200,
+              })
+              setState(s => ({
+                ...s,
+                stepEvents: [
+                  ...s.stepEvents,
+                  {
+                    id: crypto.randomUUID(),
+                    avatar: 'smriti',
+                    kind: 'text' as const,
+                    preview,
+                    ts: Date.now(),
+                  } satisfies StepEvent,
+                ].slice(-200),
+              }))
+              break
+            }
+
+            case 'context_escalated': {
+              const fromModel = String(evt.data.from_model ?? '')
+              const toModel = String(evt.data.to_model ?? '')
+              const preview = fromModel && toModel
+                ? `context escalated · ${fromModel} → ${toModel}`
+                : 'context escalated to a larger window model'
+              toast('Model escalated', {
+                description: preview,
+                duration: 3500,
+              })
+              setState(s => ({
+                ...s,
+                stepEvents: [
+                  ...s.stepEvents,
+                  {
+                    id: crypto.randomUUID(),
+                    avatar: 'narad',
+                    kind: 'text' as const,
+                    preview,
+                    ts: Date.now(),
+                  } satisfies StepEvent,
+                ].slice(-200),
               }))
               break
             }
 
             case 'avatar_done': {
+              emitKarmaRuntimeEvent(evt.type, evt.data)
               const avatar = evt.data.avatar as AvatarName
+              const discipline = evt.data.discipline as string | undefined
               sessionAvatarsRef.current = [...sessionAvatarsRef.current, avatar]
               setState(s => {
                 const prev = s.avatars[avatar]
@@ -281,16 +625,17 @@ export function useAvatara(userId = 'default') {
                   id: crypto.randomUUID(),
                   avatar,
                   kind: 'text',
+                  discipline,
                   preview: `✓ completed${latencyMs != null ? ` in ${(latencyMs / 1000).toFixed(1)}s` : ''}`,
                   ts: Date.now(),
                 }
                 return {
                   ...s,
                   avatars: {
-                    ...s.avatars,
-                    [avatar]: { name: avatar, state: 'done', task: prev?.task, latencyMs },
+                  ...s.avatars,
+                    [avatar]: { name: avatar, state: 'done', discipline: discipline ?? prev?.discipline, task: prev?.task, latencyMs },
                   },
-                  stepEvents: [...s.stepEvents, doneStep],
+                  stepEvents: [...s.stepEvents, doneStep].slice(-200),
                 }
               })
               break
@@ -348,6 +693,7 @@ export function useAvatara(userId = 'default') {
             }
 
             case 'done': {
+              emitKarmaRuntimeEvent(evt.type, evt.data)
               const sessionId = evt.data.session_id as string
               const tokenEstimate = Math.ceil(synthRef.current.length / 4)
               // Synthesis duration: first chunk → done. This is the correct window
@@ -406,16 +752,55 @@ export function useAvatara(userId = 'default') {
                   ),
                 }
               })
+              convoSessionId.current = sessionId
+              writeStorage(CONVO_SESSION_KEY, sessionId)
               break
             }
 
-            case 'learning_artifact': {
-              const d = evt.data as { topic: string; artifact_type: string }
+            case 'artifact_opened':
+            case 'artifact_updated': {
+              const artifactSession = toActiveArtifactSession(evt.data)
+              if (!artifactSession) break
               setState(s => ({
                 ...s,
-                pendingArtifact: {
-                  topic: d.topic,
-                  artifactType: d.artifact_type as 'flashcards' | 'diagram',
+                activeArtifactSession: artifactSession,
+                pendingToolUi: null,
+              }))
+              break
+            }
+
+            case 'artifact_closed': {
+              setState(s => ({
+                ...s,
+                activeArtifactSession: null,
+              }))
+              break
+            }
+
+            case 'tool_ui': {
+              const d = evt.data as {
+                avatar: string
+                tool: string
+                payload?: {
+                  status?: string
+                  summary?: string
+                  requires_confirmation?: boolean
+                  artifacts?: ToolArtifact[]
+                  citations?: ToolCitation[]
+                  ui?: PendingToolUi['ui']
+                }
+              }
+              setState(s => ({
+                ...s,
+                pendingToolUi: {
+                  avatar: d.avatar,
+                  tool: d.tool,
+                  status: d.payload?.status ?? 'ok',
+                  summary: d.payload?.summary ?? '',
+                  requiresConfirmation: d.payload?.requires_confirmation ?? false,
+                  artifacts: Array.isArray(d.payload?.artifacts) ? d.payload.artifacts : [],
+                  citations: Array.isArray(d.payload?.citations) ? d.payload.citations : [],
+                  ui: d.payload?.ui ?? null,
                 },
               }))
               break
@@ -423,7 +808,15 @@ export function useAvatara(userId = 'default') {
 
             case 'kanban_update': {
               const d = evt.data as unknown as KanbanUpdatePayload
+              emitKarmaRuntimeEvent(evt.type, evt.data)
               setState(s => ({ ...s, kanbanUpdate: d }))
+              break
+            }
+
+            case 'project_state_changed':
+            case 'task_state_changed':
+            case 'execution_state_changed': {
+              emitKarmaRuntimeEvent(evt.type, evt.data)
               break
             }
 
@@ -454,6 +847,7 @@ export function useAvatara(userId = 'default') {
                 streaming: false,
                 naradActive: false,
                 error: errMsg,
+                avatars: initialAvatars(),
               }))
               break
             }
@@ -462,25 +856,103 @@ export function useAvatara(userId = 'default') {
       }
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') {
-        setState(s => ({ ...s, streaming: false, naradActive: false }))
+        setState(s => ({ ...s, streaming: false, naradActive: false, avatars: initialAvatars() }))
         return
       }
       setState(s => ({
         ...s,
         streaming: false,
         naradActive: false,
+        avatars: initialAvatars(),
         error: err instanceof Error ? err.message : 'Unknown error',
       }))
     }
-  }, [state.streaming, userId])
+  }, [state.streaming, state.activeArtifactSession, userId])
 
   const clearArtifact = useCallback(() => {
-    setState(s => ({ ...s, pendingArtifact: null }))
+    setState(s => ({ ...s, activeArtifactSession: null }))
+  }, [])
+
+  const clearToolUi = useCallback(() => {
+    setState(s => ({ ...s, pendingToolUi: null }))
   }, [])
 
   const clearAndon = useCallback(() => {
     setState(s => ({ ...s, andonAlert: null }))
   }, [])
 
-  return { ...state, send, stop, clearArtifact, clearAndon }
+  const resumeSession = useCallback(async (sessionId: string) => {
+    try {
+      const response = await apiFetch(apiUrl(`/thread/${sessionId}`, { user_id: userId }))
+      if (!response.ok) return false
+      const data = await response.json() as {
+        turns?: Array<{ role: 'user' | 'assistant'; text: string }>
+        thread_summary?: string
+        working_state?: Record<string, unknown> | null
+      }
+      const turns = Array.isArray(data.turns) ? data.turns : []
+      const restoredMessages: Message[] = turns.map((turn, index) => ({
+        id: `${sessionId}-${index}`,
+        role: turn.role,
+        text: turn.text,
+        sessionId,
+      }))
+      convoSessionId.current = sessionId
+      writeStorage(CONVO_SESSION_KEY, sessionId)
+      writeStorage(SESSION_KEY, JSON.stringify(restoredMessages))
+      setState(s => ({
+        ...s,
+        messages: restoredMessages,
+        avatars: initialAvatars(),
+        naradActive: false,
+        streaming: false,
+        currentSession: {
+          sessionId,
+          avatarsFired: s.currentSession?.avatarsFired ?? [],
+        },
+        error: null,
+        activeArtifactSession: toActiveArtifactSession(data.working_state),
+        pendingToolUi: null,
+        stepEvents: data.thread_summary
+          ? [{
+              id: crypto.randomUUID(),
+              avatar: 'smriti',
+              kind: 'text',
+              preview: `resumed session · ${data.thread_summary.slice(0, 120)}${data.thread_summary.length > 120 ? '…' : ''}`,
+              ts: Date.now(),
+            }]
+          : [],
+      }))
+      toast('Session resumed', {
+        description: turns.length > 0 ? `${turns.length} turns restored` : 'Working-state branch restored',
+        duration: 3500,
+      })
+      return true
+    } catch {
+      return false
+    }
+  }, [userId])
+
+  const clearSession = useCallback(() => {
+    const previousSessionId = convoSessionId.current
+    removeStorage(SESSION_KEY)
+    removeStorage(CONVO_SESSION_KEY)
+    if (previousSessionId) {
+      apiFetch(apiUrl(`/thread/${previousSessionId}`, { user_id: userId }), { method: 'DELETE' }).catch(() => {})
+    }
+    convoSessionId.current = crypto.randomUUID()
+    writeStorage(CONVO_SESSION_KEY, convoSessionId.current)
+    setState(s => ({
+      ...s,
+      messages:       [],
+      stepEvents:     [],
+      currentSession: null,
+      error:          null,
+      avatars:        initialAvatars(),
+      pendingToolUi:  null,
+      activeArtifactSession: null,
+    }))
+  }, [userId])
+
+  return { ...state, send, stop, clearArtifact, clearToolUi, clearAndon, clearSession, resumeSession }
 }

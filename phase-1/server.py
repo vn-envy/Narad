@@ -6,11 +6,13 @@ SSE event taxonomy (locked):
 
 New endpoints:
   GET /trace/{session_id}  — structured trace for a completed session
+  GET /capabilities       — runtime architecture and capability contract
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import json
 import logging
 import os
@@ -18,8 +20,75 @@ import subprocess
 import sys
 import traceback
 import uuid
+
+# ── SSL: combined CA bundle for corporate networks with SSL inspection ─────────
+# Cisco Umbrella (and similar proxies) re-sign HTTPS traffic with their own CA.
+# That CA is in the macOS system keychain but NOT in certifi, so Python fails.
+# Fix: build a combined bundle (certifi + proxy CAs extracted from keychain),
+# then patch all three SSL layers so every HTTP library picks it up.
+def _build_ca_bundle() -> str:
+    """Return path to combined CA bundle, building it once if needed."""
+    import subprocess as _sp
+    import certifi as _certifi
+    import pathlib as _pl
+
+    certifi_dir = _pl.Path(_certifi.where()).parent
+    combined    = certifi_dir / "narad_cacert.pem"
+
+    # Rebuild only when certifi's bundle is newer than our combined file
+    certifi_path = _pl.Path(_certifi.where())
+    if combined.exists() and combined.stat().st_mtime >= certifi_path.stat().st_mtime:
+        return str(combined)
+
+    # Start with certifi's bundle
+    content = certifi_path.read_bytes()
+
+    # Append every CA containing "Umbrella" or "Cisco" from the macOS keychain
+    for keyword in ("Umbrella", "Cisco Umbrella"):
+        try:
+            result = _sp.run(
+                ["security", "find-certificate", "-c", keyword, "-a", "-p"],
+                capture_output=True, timeout=5,
+            )
+            if result.stdout:
+                content += b"\n" + result.stdout
+        except Exception:
+            pass
+
+    combined.write_bytes(content)
+    return str(combined)
+
+try:
+    import ssl as _ssl
+    _ca = _build_ca_bundle()
+
+    # Env vars — for requests / urllib3 / curl
+    os.environ["SSL_CERT_FILE"]      = _ca
+    os.environ["REQUESTS_CA_BUNDLE"] = _ca
+    os.environ["CURL_CA_BUNDLE"]     = _ca
+
+    # Patch ssl.create_default_context — for httpx / stdlib urllib
+    _orig_create_ctx = _ssl.create_default_context
+    def _narad_ssl_ctx(*args, **kwargs):                            # noqa: E301
+        if not (kwargs.get("cafile") or kwargs.get("capath") or kwargs.get("cadata")):
+            kwargs["cafile"] = _ca
+        return _orig_create_ctx(*args, **kwargs)
+    _ssl.create_default_context = _narad_ssl_ctx
+
+    # Patch SSLContext.load_default_certs — for aiohttp (litellm's async path)
+    _orig_load_default = _ssl.SSLContext.load_default_certs
+    def _narad_load_default(self, purpose=_ssl.Purpose.SERVER_AUTH):  # noqa: E301
+        try:
+            _orig_load_default(self, purpose)
+        except Exception:
+            pass
+        self.load_verify_locations(cafile=_ca)
+    _ssl.SSLContext.load_default_certs = _narad_load_default
+
+except Exception:
+    pass
 from pathlib import Path
-from typing import AsyncGenerator
+from typing import Any, AsyncGenerator, Optional
 
 _log = logging.getLogger("narad.json_patch")
 
@@ -120,17 +189,80 @@ json.loads = _json_loads_tolerant
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
-from google.adk.runners import Runner
-from google.adk.sessions import InMemorySessionService
-from google.adk.events import Event
+_ADK_IMPORT_ERROR: str | None = None
+try:
+    from google.adk.runners import Runner
+    from google.adk.sessions import InMemorySessionService
+    from google.adk.events import Event
+except Exception as _adk_exc:
+    Runner = Any  # type: ignore[assignment]
+    InMemorySessionService = None  # type: ignore[assignment]
+    Event = Any  # type: ignore[assignment]
+    _ADK_IMPORT_ERROR = f"google.adk unavailable: {_adk_exc}"
 
-from narad_agent import build_narad_agent
-from avatar_agents import AGENT_TOOL_NAMES, _images_ctx
+_AGENT_RUNTIME_IMPORT_ERROR: str | None = None
+try:
+    from narad_agent import build_narad_agent
+    from avatar_agents import AGENT_TOOL_NAMES, _images_ctx
+except Exception as _agent_exc:
+    build_narad_agent = None  # type: ignore[assignment]
+    AGENT_TOOL_NAMES: dict[str, str] = {}
+    _images_ctx = contextvars.ContextVar("_images_ctx", default=[])
+    _AGENT_RUNTIME_IMPORT_ERROR = f"agent runtime unavailable: {_agent_exc}"
+from runtime_contract import (
+    agent_contract_map as _agent_contract_map,
+    canonical_tool_name_map as _canonical_tool_name_map,
+    collect_runtime_contract,
+    health_payload,
+    primary_discipline as _primary_discipline,
+)
+from model_config import AVATAR_MODELS
+from model_registry import get_model_profile
+from context_governor import RuntimeEpoch, choose_model_and_plan, should_rollover_epoch
 from yantra import Tracer
+from conversation_memory import (
+    append_turn as _append_thread_turn,
+    build_recent_thread_context as _build_recent_thread_context,
+    build_rehydration_query as _build_rehydration_query,
+    clear_thread as _clear_thread,
+    load_thread as _load_thread,
+    load_working_state as _load_working_state,
+    recent_threads as _recent_threads,
+    save_working_state as _save_working_state,
+    summarize_thread as _summarize_thread,
+)
+from harness_contract import (
+    archive_session as _archive_harness_session,
+    build_context_bundle as _build_harness_context_bundle,
+    compact_session as _compact_harness_session,
+    delete_session_record as _delete_harness_session_record,
+    fork_session as _fork_harness_session,
+    get_session_record as _get_harness_session_record,
+    harness_overview as _harness_overview,
+    list_session_records as _list_harness_sessions,
+    record_session_state as _record_harness_session_state,
+    recover_session as _recover_harness_session,
+)
+from learning_workspace import (
+    append_learning_record as _append_learning_record,
+    build_workspace_packet as _build_learning_workspace_packet,
+    create_learning_artifact as _create_learning_artifact,
+    ensure_workspace as _ensure_learning_workspace,
+    extract_learning_topic as _extract_learning_topic,
+    is_learning_query as _is_learning_query,
+    load_artifact as _load_learning_artifact,
+    load_workspace as _load_learning_workspace,
+    list_artifacts as _list_learning_artifacts,
+    merge_resources as _merge_learning_resources,
+    suggest_glossary_entries as _suggest_learning_glossary_entries,
+    update_learning_artifact as _update_learning_artifact,
+    update_glossary_terms as _update_learning_glossary_terms,
+)
 
 # ── Structured JSON logging ───────────────────────────────────────────────────
 class _JsonFormatter(logging.Formatter):
@@ -149,15 +281,20 @@ logging.root.handlers = [_log_handler]
 logging.root.setLevel(logging.INFO)
 # ─────────────────────────────────────────────────────────────────────────────
 
-app = FastAPI(title="Avatara — Narad API", version="0.1.0-phase1")
+app = FastAPI(title="Narad API", version="0.15.0-pre15")
 
 # ── Phase 11: Project Wiki + Projects + Sessions API ──────────────────────────
 try:
     sys.path.insert(0, str(_ROOT / "phase-9"))
     from project_wiki_api import wiki_router, projects_router, sessions_router
+    from project_execution_api import project_execution_router, tasks_router
+    from learning_workspace_api import learning_router
     app.include_router(wiki_router)
     app.include_router(projects_router)
     app.include_router(sessions_router)
+    app.include_router(project_execution_router)
+    app.include_router(tasks_router)
+    app.include_router(learning_router)
 except Exception as _wiki_err:
     logging.getLogger("narad.server").warning("Project routers unavailable: %s", _wiki_err)
 
@@ -179,6 +316,11 @@ app.add_middleware(
 sys.path.insert(0, str(_ROOT))
 from narad_config import ARTIFACTS_DIR as _MEDIA_DIR
 app.mount("/media", StaticFiles(directory=_MEDIA_DIR), name="media")
+
+
+@app.on_event("startup")
+async def _startup_runtime_contract() -> None:
+    app.state.runtime_contract = collect_runtime_contract()
 
 # ── Dharma Gate — input-level topic blocking ──────────────────────────────────
 import re as _re_gate
@@ -202,6 +344,10 @@ _rate_buckets: dict[str, tuple[float, float]] = {}  # user_id → (last_check_ts
 _RATE_LIMIT  = float(os.environ.get("NARAD_RATE_LIMIT", "10"))  # requests per minute
 _RATE_WINDOW = 60.0
 
+
+def _agent_runtime_unavailable_reason() -> str | None:
+    return _AGENT_RUNTIME_IMPORT_ERROR or _ADK_IMPORT_ERROR
+
 def _check_rate_limit(user_id: str) -> bool:
     now = _time_rl.monotonic()
     last_ts, tokens = _rate_buckets.get(user_id, (now, _RATE_LIMIT))
@@ -216,15 +362,20 @@ def _check_rate_limit(user_id: str) -> bool:
 
 # One persistent runner per user_id — session service survives across requests
 # so Narad sees prior turns in the same session (full conversation history).
-_user_runners: dict[str, Runner] = {}
+_user_runners: dict[tuple[str, str], Any] = {}
 
-def _get_runner_for_user(user_id: str) -> Runner:
-    if user_id not in _user_runners:
+def _get_runner_for_user(user_id: str, model: str | None = None) -> Any:
+    runtime_error = _agent_runtime_unavailable_reason()
+    if runtime_error:
+        raise RuntimeError(runtime_error)
+    resolved_model = model or AVATAR_MODELS["narad"]
+    cache_key = (user_id, resolved_model)
+    if cache_key not in _user_runners:
         from narad_agent import build_narad_agent as _build
-        narad = _build(user_id=user_id)
+        narad = _build(model=resolved_model, user_id=user_id)
         svc = InMemorySessionService()
-        _user_runners[user_id] = Runner(agent=narad, app_name="avatara", session_service=svc)
-    return _user_runners[user_id]
+        _user_runners[cache_key] = Runner(agent=narad, app_name="avatara", session_service=svc)
+    return _user_runners[cache_key]
 
 
 # Background task registry: session_id → (task, event_queue)
@@ -232,30 +383,173 @@ def _get_runner_for_user(user_id: str) -> Runner:
 # disconnects (screen lock, browser throttle) and reconnects, the task
 # keeps running and the client re-attaches to the same queue.
 _active_tasks: dict[str, tuple[asyncio.Task, asyncio.Queue]] = {}
+_CONTINUATION_CUES = (
+    "continue",
+    "carry it on",
+    "carry on",
+    "go ahead",
+    "previous conversation",
+    "previous chat",
+    "pick up",
+    "resume",
+    "same thread",
+    "step 1",
+    "step one",
+    "that plan",
+)
+_LEARNING_SUMMARY_LIMIT = 1_600
+
+
+def _compact_karya_state(session_id: str) -> dict[str, Any] | None:
+    try:
+        from kanban import KanbanBoard
+    except Exception:
+        return None
+
+    try:
+        board = KanbanBoard().get_board(session_id)
+    except Exception:
+        return None
+
+    total = int(board.get("total", 0) or 0)
+    if total <= 0:
+        return None
+
+    columns = board.get("columns", {})
+    active_titles: list[str] = []
+    for column_name in ("in_progress", "review", "backlog"):
+        for step in columns.get(column_name, [])[:3]:
+            title = str(step.get("title", "")).strip()
+            if title and title not in active_titles:
+                active_titles.append(title)
+            if len(active_titles) >= 5:
+                break
+        if len(active_titles) >= 5:
+            break
+
+    return {
+        "total": total,
+        "done_count": int(board.get("done_count", 0) or 0),
+        "blocked_count": int(board.get("blocked_count", 0) or 0),
+        "active_titles": active_titles,
+    }
+
+
+def _looks_like_continuation(query: str) -> bool:
+    q = query.lower()
+    return any(cue in q for cue in _CONTINUATION_CUES)
+
+
+def _distill_learning_summary(topic: str, query: str, response: str) -> str:
+    response = (response or "").strip()
+    first_paragraph = response.split("\n\n", 1)[0].strip() if response else ""
+    summary = "\n".join([
+        f"Topic: {topic}",
+        f"Learner goal: {query.strip()[:320]}",
+        f"Latest teaching summary: {first_paragraph[:900]}",
+    ])
+    return summary[:_LEARNING_SUMMARY_LIMIT]
+
+
+_STATIC_SYSTEM_OVERHEAD_TOKENS = 12_000
+
+
+def _clean_optional_text(value: Any) -> str:
+    if value is None:
+        return ""
+    text = str(value).strip()
+    if text.lower() in {"", "none", "null", "undefined"}:
+        return ""
+    return text
+
+
+def _working_state_context(state: dict[str, Any] | None) -> str:
+    if not state:
+        return ""
+
+    lines: list[str] = []
+    if state.get("thread_summary"):
+        lines.append("Earlier state summary:")
+        lines.append(str(state["thread_summary"]))
+    if state.get("last_user_query"):
+        lines.append(f"Last user query: {state['last_user_query']}")
+    if state.get("last_assistant_preview"):
+        lines.append(f"Last useful result: {state['last_assistant_preview']}")
+    if state.get("avatars"):
+        lines.append("Active avatars: " + ", ".join(state.get("avatars", [])))
+    if state.get("phase_transitions"):
+        recent_phases = state.get("phase_transitions", [])[-4:]
+        if recent_phases:
+            lines.append("Recent phase transitions:")
+            lines.extend(f"- {item}" for item in recent_phases)
+    karya = state.get("karya")
+    if isinstance(karya, dict) and karya.get("total"):
+        parts = [f"{karya.get('total', 0)} tasks"]
+        if karya.get("done_count"):
+            parts.append(f"{karya['done_count']} done")
+        if karya.get("blocked_count"):
+            parts.append(f"{karya['blocked_count']} blocked")
+        lines.append("Karya: " + " · ".join(parts))
+        for title in (karya.get("active_titles") or [])[:5]:
+            lines.append(f"- {title}")
+    return "\n".join(lines)
+
+
+def _runtime_epoch_from_state(state: dict[str, Any] | None, fallback_model: str) -> RuntimeEpoch | None:
+    if not state or not state.get("runtime_epoch_id"):
+        return None
+    return RuntimeEpoch(
+        epoch_id=str(state["runtime_epoch_id"]),
+        model=str(state.get("runtime_epoch_model") or fallback_model),
+        turn_count=int(state.get("runtime_epoch_turn_count", 0) or 0),
+        last_prompt_tokens=int(state.get("runtime_epoch_last_prompt_tokens", 0) or 0),
+        peak_prompt_tokens=int(state.get("runtime_epoch_peak_prompt_tokens", 0) or 0),
+        compaction_count=int(state.get("runtime_epoch_compaction_count", 0) or 0),
+    )
 
 
 class ChatRequest(BaseModel):
     query: str
-    session_id: str | None = None
+    session_id: Optional[str] = None
     user_id: str = "default"
     images: list[str] = []
+    active_artifact_id: Optional[str] = None
+    active_artifact_workspace_id: Optional[str] = None
+    active_artifact_type: Optional[str] = None
 
 
 @app.get("/health")
 async def health():
-    from model_config import AVATAR_MODELS
-    return {
-        "status": "ok",
-        "agent": "Narad",
-        "phase": "1",
-        "model": AVATAR_MODELS.get("narad", "unknown"),
-    }
+    payload = health_payload()
+    app.state.runtime_contract = collect_runtime_contract()
+    return payload
+
+
+@app.get("/capabilities")
+async def capabilities():
+    app.state.runtime_contract = collect_runtime_contract()
+    return app.state.runtime_contract
 
 
 @app.post("/chat")
 async def chat(req: ChatRequest):
     if not req.query.strip():
         raise HTTPException(status_code=400, detail="query cannot be empty")
+
+    runtime_error = _agent_runtime_unavailable_reason()
+    if runtime_error:
+        async def _unavailable_stream():
+            yield json.dumps({
+                "type": "error",
+                "data": {
+                    "message": (
+                        "Narad is running in degraded mode and the chat runtime is unavailable. "
+                        f"{runtime_error}"
+                    )
+                },
+            })
+            yield json.dumps({"type": "done", "data": {"session_id": "unavailable"}})
+        return EventSourceResponse(_unavailable_stream())
 
     # Dharma Gate: block hard-forbidden inputs before any agent work starts
     block_reason = _dharma_gate(req.query)
@@ -267,7 +561,6 @@ async def chat(req: ChatRequest):
 
     # Rate limiting: 10 req/min per user_id by default
     if not _check_rate_limit(req.user_id):
-        from fastapi.responses import JSONResponse
         return JSONResponse(
             status_code=429,
             content={"detail": "Rate limit exceeded. Try again in a minute."},
@@ -303,6 +596,19 @@ async def _run_agent_task(
     Uses caffeinate -i on macOS to prevent idle sleep while running.
     """
     caffeinate: subprocess.Popen | None = None
+    restored_thread = False
+    restored_turn_count = 0
+    narad_response_text = ""
+    restored_working_state: dict[str, Any] | None = None
+    recent_source_sessions: list[str] = []
+    runtime_session_id = session_id
+    final_context_plan = None
+    selected_model = AVATAR_MODELS["narad"]
+    runtime_epoch: RuntimeEpoch | None = None
+    rollover_reasons: list[str] = []
+    rehydration_meta: dict[str, Any] = {}
+    learning_workspace: dict[str, Any] | None = None
+    learning_artifact_request: tuple[str, str] | None = None
     try:
         # Prevent macOS idle sleep for the duration of the task.
         try:
@@ -314,21 +620,433 @@ async def _run_agent_task(
         except FileNotFoundError:
             pass  # Not macOS — no-op
 
-        runner = _get_runner_for_user(req.user_id)
+        try:
+            from project_manager import detect_project as _detect_project
+            await _detect_project(req.user_id, session_id, [req.query])
+        except Exception:
+            pass
+
+        restored_working_state = _load_working_state(req.user_id, session_id)
+        prior_turns = _load_thread(req.user_id, session_id, limit=10)
+        restored_turn_count = len(prior_turns)
+        same_thread_restore_available = bool(
+            prior_turns or (
+                restored_working_state and (
+                    restored_working_state.get("thread_summary")
+                    or restored_working_state.get("continued_from_sessions")
+                    or restored_working_state.get("forked_from_session")
+                )
+            )
+        )
+        working_context = _working_state_context(restored_working_state)
+        learning_artifact_offer_pending = bool(
+            restored_working_state.get("learning_artifact_offer_pending")
+            if restored_working_state else False
+        )
+        active_artifact_session = (
+            dict(restored_working_state.get("active_artifact") or {})
+            if restored_working_state else {}
+        )
+        learning_workspace_id = (
+            _clean_optional_text(restored_working_state.get("learning_workspace_id"))
+            if restored_working_state else ""
+        )
+        if req.active_artifact_id:
+            loaded_active_artifact = _load_learning_artifact(
+                user_id=req.user_id,
+                artifact_id=req.active_artifact_id,
+                workspace_id=req.active_artifact_workspace_id,
+            )
+            if loaded_active_artifact:
+                active_artifact_session = _artifact_session_payload(loaded_active_artifact)
+                learning_workspace_id = _clean_optional_text(req.active_artifact_workspace_id) or learning_workspace_id
+        explicit_learning_artifact_request = _is_explicit_learning_artifact_request(
+            req.query,
+            offer_pending=learning_artifact_offer_pending,
+        )
+        if learning_workspace_id:
+            learning_workspace = _load_learning_workspace(
+                user_id=req.user_id,
+                workspace_id=learning_workspace_id,
+            )
+        elif _is_learning_query(req.query) or explicit_learning_artifact_request:
+            artifact_meta = _extract_learning_artifact_request(
+                req.query,
+                offer_pending=learning_artifact_offer_pending,
+            )
+            learning_topic = artifact_meta[0] if artifact_meta else _extract_learning_topic(req.query)
+            learning_workspace = _ensure_learning_workspace(
+                user_id=req.user_id,
+                topic=learning_topic,
+                mission=req.query,
+                session_id=session_id,
+            )
+            learning_workspace_id = _clean_optional_text(learning_workspace.get("workspace_id"))
+
+        if learning_workspace_id and learning_workspace is not None:
+            learning_packet = _build_learning_workspace_packet(
+                user_id=req.user_id,
+                workspace_id=learning_workspace_id,
+            )
+            if learning_packet:
+                working_context = "\n\n".join(
+                    block for block in [learning_packet, working_context] if block.strip()
+                )
+        learning_artifact_request = _extract_learning_artifact_request(
+            req.query,
+            offer_pending=learning_artifact_offer_pending,
+            fallback_topic=(learning_workspace or {}).get("topic", "this topic"),
+        )
+        explicit_learning_artifact_edit = bool(
+            active_artifact_session
+            and _is_explicit_learning_artifact_edit(
+                req.query,
+                artifact_type=str(active_artifact_session.get("artifact_type", "")),
+            )
+        )
+        if learning_artifact_request:
+            artifact_topic, artifact_type = learning_artifact_request
+            artifact_type = _normalize_learning_artifact_type(artifact_type)
+            if not learning_workspace_id:
+                learning_workspace = _ensure_learning_workspace(
+                    user_id=req.user_id,
+                    topic=artifact_topic,
+                    mission=req.query,
+                    session_id=session_id,
+                )
+                learning_workspace_id = _clean_optional_text(learning_workspace.get("workspace_id"))
+            elif learning_workspace is None:
+                learning_workspace = _load_learning_workspace(
+                    user_id=req.user_id,
+                    workspace_id=learning_workspace_id,
+                )
+
+            predicted_record_id = f"{int((learning_workspace or {}).get('record_count', 0) or 0) + 1:04d}"
+            artifact = _create_learning_artifact(
+                user_id=req.user_id,
+                workspace_id=learning_workspace_id,
+                topic=artifact_topic,
+                artifact_type=artifact_type,
+                teaching_context=artifact_topic,
+                record_ids=[predicted_record_id],
+            )
+            record = _append_learning_record(
+                user_id=req.user_id,
+                workspace_id=learning_workspace_id,
+                title=f"{_learning_artifact_label(artifact_type).title()} — {artifact_topic}",
+                summary=f"Created a native {_learning_artifact_label(artifact_type)} for {artifact_topic}.",
+                body=(
+                    f"Artifact ID: {artifact['artifact_id']}\n"
+                    f"Artifact type: {artifact_type}\n"
+                    f"Topic: {artifact_topic}\n"
+                    f"Created from learner request: {req.query.strip()}"
+                ),
+                record_type="artifact",
+                session_id=session_id,
+                tags=[artifact_type, "learning-artifact"],
+                source="krishna",
+            )
+            artifact_session = _artifact_session_payload(artifact, record_ids=[record["record_id"]])
+            artifact_label = _learning_artifact_label(artifact_type)
+            narad_response_text = (
+                f"I opened a {artifact_label} for {artifact_topic} in the side panel. "
+                "Use the main chat to make explicit edits like adding cards or nodes."
+            )
+            await queue.put(json.dumps({
+                "type": "artifact_opened",
+                "data": artifact_session,
+            }))
+            await queue.put(json.dumps({
+                "type": "narad_synthesis",
+                "data": {"text": narad_response_text},
+            }))
+            _append_thread_turn(
+                user_id=req.user_id,
+                session_id=session_id,
+                role="user",
+                text=req.query,
+                metadata={"images": len(req.images)},
+            )
+            _append_thread_turn(
+                user_id=req.user_id,
+                session_id=session_id,
+                role="assistant",
+                text=narad_response_text,
+                metadata={"artifact_id": artifact["artifact_id"], "artifact_type": artifact_type, "artifact_topic": artifact_topic},
+            )
+            thread_summary = _summarize_thread(user_id=req.user_id, session_id=session_id)
+            turn_count = len(_load_thread(req.user_id, session_id))
+            short_circuit_state = dict(restored_working_state or {})
+            short_circuit_state.update({
+                "last_user_query": req.query[:220],
+                "last_assistant_preview": narad_response_text[:220],
+                "turn_count": turn_count,
+                "thread_summary": thread_summary,
+                "learning_workspace_id": learning_workspace_id or None,
+                "learning_topic": artifact_topic,
+                "learning_record_ids": [record["record_id"]],
+                "learning_artifact_offer_pending": False,
+                "active_artifact": artifact_session,
+            })
+            _save_working_state(user_id=req.user_id, session_id=session_id, state=short_circuit_state)
+            _record_harness_session_state(
+                user_id=req.user_id,
+                session_id=session_id,
+                working_state=_load_working_state(req.user_id, session_id),
+            )
+            await queue.put(json.dumps({"type": "done", "data": {"session_id": session_id}}))
+            return
+
+        if explicit_learning_artifact_edit:
+            artifact_id = _clean_optional_text(active_artifact_session.get("artifact_id"))
+            workspace_id = _clean_optional_text(active_artifact_session.get("workspace_id")) or learning_workspace_id
+            artifact_type = _normalize_learning_artifact_type(str(active_artifact_session.get("artifact_type", "")))
+            artifact_topic = _clean_optional_text(active_artifact_session.get("topic")) or (learning_workspace or {}).get("topic", "this topic")
+            if not workspace_id:
+                raise RuntimeError("active artifact workspace missing")
+            if learning_workspace is None:
+                learning_workspace = _load_learning_workspace(user_id=req.user_id, workspace_id=workspace_id)
+            predicted_record_id = f"{int((learning_workspace or {}).get('record_count', 0) or 0) + 1:04d}"
+            artifact = _update_learning_artifact(
+                user_id=req.user_id,
+                artifact_id=artifact_id,
+                workspace_id=workspace_id,
+                instruction=req.query,
+                record_ids=[predicted_record_id],
+            )
+            record = _append_learning_record(
+                user_id=req.user_id,
+                workspace_id=workspace_id,
+                title=f"Artifact update — {artifact_topic}",
+                summary=f"Updated the {_learning_artifact_label(artifact_type)} for {artifact_topic}.",
+                body=(
+                    f"Artifact ID: {artifact_id}\n"
+                    f"Artifact type: {artifact_type}\n"
+                    f"Update instruction: {req.query.strip()}"
+                ),
+                record_type="artifact",
+                session_id=session_id,
+                tags=[artifact_type, "artifact-update"],
+                source="krishna",
+            )
+            artifact_session = _artifact_session_payload(artifact, record_ids=[record["record_id"]])
+            narad_response_text = (
+                f"I updated the {_learning_artifact_label(artifact_type)} for {artifact_topic}. "
+                "Keep using explicit edit prompts if you want to change the open artifact further."
+            )
+            await queue.put(json.dumps({
+                "type": "artifact_updated",
+                "data": artifact_session,
+            }))
+            await queue.put(json.dumps({
+                "type": "narad_synthesis",
+                "data": {"text": narad_response_text},
+            }))
+            _append_thread_turn(
+                user_id=req.user_id,
+                session_id=session_id,
+                role="user",
+                text=req.query,
+                metadata={"images": len(req.images), "artifact_id": artifact_id},
+            )
+            _append_thread_turn(
+                user_id=req.user_id,
+                session_id=session_id,
+                role="assistant",
+                text=narad_response_text,
+                metadata={"artifact_id": artifact_id, "artifact_type": artifact_type, "artifact_topic": artifact_topic},
+            )
+            thread_summary = _summarize_thread(user_id=req.user_id, session_id=session_id)
+            turn_count = len(_load_thread(req.user_id, session_id))
+            short_circuit_state = dict(restored_working_state or {})
+            short_circuit_state.update({
+                "last_user_query": req.query[:220],
+                "last_assistant_preview": narad_response_text[:220],
+                "turn_count": turn_count,
+                "thread_summary": thread_summary,
+                "learning_workspace_id": workspace_id,
+                "learning_topic": artifact_topic,
+                "learning_record_ids": [record["record_id"]],
+                "learning_artifact_offer_pending": False,
+                "active_artifact": artifact_session,
+            })
+            _save_working_state(user_id=req.user_id, session_id=session_id, state=short_circuit_state)
+            _record_harness_session_state(
+                user_id=req.user_id,
+                session_id=session_id,
+                working_state=_load_working_state(req.user_id, session_id),
+            )
+            await queue.put(json.dumps({"type": "done", "data": {"session_id": session_id}}))
+            return
+        runtime_epoch = _runtime_epoch_from_state(restored_working_state, AVATAR_MODELS["narad"])
+        base_requested_model = runtime_epoch.model if runtime_epoch else AVATAR_MODELS["narad"]
+        selected_model = base_requested_model
+
+        candidate_query = req.query
+        if not same_thread_restore_available and _looks_like_continuation(req.query):
+            recent_context, recent_source_sessions = _build_recent_thread_context(
+                user_id=req.user_id,
+                current_query=req.query,
+                exclude_session_id=session_id,
+            )
+            if recent_context:
+                candidate_query = recent_context
+
+        preflight_plan, preflight_profile = choose_model_and_plan(
+            model=selected_model,
+            plane_specs=[
+                {
+                    "key": "system_plane",
+                    "content": "",
+                    "priority": 1,
+                    "hard": True,
+                    "compaction_strategy": "fixed_overhead",
+                    "token_estimate": _STATIC_SYSTEM_OVERHEAD_TOKENS,
+                },
+                {
+                    "key": "working_plane",
+                    "content": working_context,
+                    "priority": 2,
+                    "hard": False,
+                    "compaction_strategy": "state_summary",
+                },
+                {
+                    "key": "current_turn_plane",
+                    "content": candidate_query,
+                    "priority": 0,
+                    "hard": True,
+                    "compaction_strategy": "none",
+                },
+            ],
+            long_running=True,
+        )
+        selected_model = preflight_profile.model
+        if runtime_epoch:
+            rollover_reasons = should_rollover_epoch(runtime_epoch, preflight_plan, max_turns=12)
+            if runtime_epoch.model != selected_model:
+                rollover_reasons.append("model_escalated")
+
+        runner = _get_runner_for_user(req.user_id, selected_model)
         tracer = Tracer(session_id=session_id, user_id=req.user_id)
 
+        runtime_session_id = runtime_epoch.epoch_id if runtime_epoch else str(uuid.uuid4())
         existing = await runner.session_service.get_session(
-            app_name="avatara", user_id=req.user_id, session_id=session_id
-        )
-        if existing is None:
-            await runner.session_service.create_session(
-                app_name="avatara", user_id=req.user_id, session_id=session_id
-            )
+            app_name="avatara", user_id=req.user_id, session_id=runtime_session_id
+        ) if runtime_epoch and runtime_epoch.model == selected_model else None
 
         from google.genai import types as genai_types
 
+        needs_restore = bool(rollover_reasons) or existing is None or candidate_query != req.query
+        effective_query = candidate_query
+        if needs_restore and same_thread_restore_available:
+            raw_restore_query, _ = _build_rehydration_query(
+                user_id=req.user_id,
+                session_id=session_id,
+                current_query=req.query,
+                char_budget=24_000,
+                return_metadata=True,
+            )
+            effective_query = raw_restore_query
+            restored_thread = True
+        elif candidate_query != req.query:
+            restored_thread = False
+
+        final_context_plan, final_profile = choose_model_and_plan(
+            model=selected_model,
+            plane_specs=[
+                {
+                    "key": "system_plane",
+                    "content": "",
+                    "priority": 1,
+                    "hard": True,
+                    "compaction_strategy": "fixed_overhead",
+                    "token_estimate": _STATIC_SYSTEM_OVERHEAD_TOKENS,
+                },
+                {
+                    "key": "working_plane",
+                    "content": working_context,
+                    "priority": 2,
+                    "hard": False,
+                    "compaction_strategy": "state_summary",
+                },
+                {
+                    "key": "current_turn_plane",
+                    "content": effective_query,
+                    "priority": 0,
+                    "hard": True,
+                    "compaction_strategy": "thread_restore" if restored_thread else "none",
+                },
+            ],
+            long_running=True,
+        )
+        selected_model = final_profile.model
+        if selected_model != base_requested_model:
+            final_context_plan.model_escalated_from = base_requested_model
+            final_context_plan.model_escalated_to = selected_model
+            if "model_escalated" not in rollover_reasons:
+                rollover_reasons.append("model_escalated")
+            needs_restore = True
+            runner = _get_runner_for_user(req.user_id, selected_model)
+
+        if needs_restore and same_thread_restore_available:
+            restore_budget = max(
+                2_048,
+                final_profile.hard_input_budget_tokens - _STATIC_SYSTEM_OVERHEAD_TOKENS - 1_024,
+            )
+            effective_query, rehydration_meta = _build_rehydration_query(
+                user_id=req.user_id,
+                session_id=session_id,
+                current_query=req.query,
+                model=selected_model,
+                token_budget=restore_budget,
+                return_metadata=True,
+            )
+            final_context_plan, _ = choose_model_and_plan(
+                model=selected_model,
+                plane_specs=[
+                    {
+                        "key": "system_plane",
+                        "content": "",
+                        "priority": 1,
+                        "hard": True,
+                        "compaction_strategy": "fixed_overhead",
+                        "token_estimate": _STATIC_SYSTEM_OVERHEAD_TOKENS,
+                    },
+                    {
+                        "key": "working_plane",
+                        "content": working_context,
+                        "priority": 2,
+                        "hard": False,
+                        "compaction_strategy": "state_summary",
+                    },
+                    {
+                        "key": "current_turn_plane",
+                        "content": effective_query,
+                        "priority": 0,
+                        "hard": True,
+                        "compaction_strategy": "thread_restore",
+                    },
+                ],
+                long_running=True,
+            )
+            final_context_plan.compaction_applied.extend(rehydration_meta.get("compaction_applied", []))
+            final_context_plan.compacted_from_tokens = int(rehydration_meta.get("compacted_from_tokens", 0) or 0)
+        elif candidate_query != req.query:
+            final_context_plan.compaction_applied.append("cross_thread_fallback")
+
+        if needs_restore or runtime_epoch is None or runtime_epoch.model != selected_model:
+            runtime_session_id = str(uuid.uuid4())
+            await runner.session_service.create_session(
+                app_name="avatara", user_id=req.user_id, session_id=runtime_session_id
+            )
+            runtime_epoch = RuntimeEpoch(epoch_id=runtime_session_id, model=selected_model)
+        elif existing is None:
+            await runner.session_service.create_session(
+                app_name="avatara", user_id=req.user_id, session_id=runtime_session_id
+            )
+
         user_message = genai_types.Content(
-            role="user", parts=[genai_types.Part(text=req.query)]
+            role="user", parts=[genai_types.Part(text=effective_query)]
         )
 
         # Share the SSE queue, images, and HTTP session_id with avatar tool execution
@@ -339,30 +1057,223 @@ async def _run_agent_task(
 
         tracer.session_start(req.query)
 
+        await queue.put(json.dumps({
+            "type": "context_budget",
+            "data": {
+                **final_context_plan.to_event_dict(),
+                "runtime_epoch_id": runtime_epoch.epoch_id,
+            },
+        }))
+        if final_context_plan.compaction_applied or rollover_reasons:
+            await queue.put(json.dumps({
+                "type": "context_compacted",
+                "data": {
+                    "runtime_epoch_id": runtime_epoch.epoch_id,
+                    "reasons": rollover_reasons,
+                    "compaction_applied": final_context_plan.compaction_applied,
+                    "compacted_from_tokens": final_context_plan.compacted_from_tokens,
+                    "predicted_input_tokens": final_context_plan.predicted_input_tokens,
+                },
+            }))
+        if final_context_plan.model_escalated_to:
+            await queue.put(json.dumps({
+                "type": "context_escalated",
+                "data": {
+                    "runtime_epoch_id": runtime_epoch.epoch_id,
+                    "from_model": final_context_plan.model_escalated_from,
+                    "to_model": final_context_plan.model_escalated_to,
+                },
+            }))
+
+        if restored_thread:
+            await queue.put(json.dumps({
+                "type": "thread_restored",
+                "data": {
+                    "session_id": session_id,
+                    "runtime_epoch_id": runtime_epoch.epoch_id,
+                    "turn_count": restored_turn_count,
+                    "last_trace_session_id": (
+                        restored_working_state.get("last_trace_session_id")
+                        if restored_working_state else None
+                    ),
+                    "thread_summary": (
+                        restored_working_state.get("thread_summary")
+                        if restored_working_state else ""
+                    ),
+                },
+            }))
+        elif recent_source_sessions:
+            await queue.put(json.dumps({
+                "type": "thread_restored",
+                "data": {
+                    "session_id": session_id,
+                    "runtime_epoch_id": runtime_epoch.epoch_id,
+                    "turn_count": 0,
+                    "cross_thread": True,
+                    "source_sessions": recent_source_sessions,
+                },
+            }))
+
+        think_filter = ThinkingFilter()
         async for event in runner.run_async(
-            user_id=req.user_id, session_id=session_id, new_message=user_message
+            user_id=req.user_id, session_id=runtime_session_id, new_message=user_message
         ):
-            sse_payload = _event_to_sse(event)
-            await queue.put(sse_payload)
+            sse_payloads = _event_to_sse(event, think_filter)
+            for sse_payload in sse_payloads:
+                await queue.put(sse_payload)
+                try:
+                    payload = json.loads(sse_payload)
+                    if payload.get("type") == "narad_synthesis":
+                        narad_response_text += str(payload.get("data", {}).get("text", ""))
+                    if (
+                        learning_workspace_id
+                        and payload.get("type") == "tool_ui"
+                        and payload.get("data", {}).get("avatar") == "Matsya"
+                    ):
+                        citations = payload.get("data", {}).get("payload", {}).get("citations", [])
+                        if isinstance(citations, list) and citations:
+                            _merge_learning_resources(
+                                user_id=req.user_id,
+                                workspace_id=learning_workspace_id,
+                                resources=citations,
+                            )
+                except Exception:
+                    pass
             usage_payload = _usage_to_sse(event)
             if usage_payload:
                 await queue.put(usage_payload)
-            # Detect Parashurama CopilotKit tasks → emit learning_artifact event
+
+        # Flush any text buffered mid-<think> block by the stateful filter
+        remaining = think_filter.flush().strip()
+        if remaining:
+            narad_response_text += remaining
+            await queue.put(json.dumps({"type": "narad_synthesis", "data": {"text": remaining}}))
+
+        learning_record_ids: list[str] = []
+        if learning_workspace_id and narad_response_text.strip():
             try:
-                evt_data = json.loads(sse_payload)
-                if (evt_data.get("type") == "avatar_start"
-                        and evt_data["data"].get("avatar") == "Parashurama"
-                        and "copilotkit" in evt_data["data"].get("task", "").lower()):
-                    topic, atype = _extract_artifact_meta(evt_data["data"]["task"])
-                    await queue.put(json.dumps({
-                        "type": "learning_artifact",
-                        "data": {"topic": topic, "artifact_type": atype},
-                    }))
+                topic = (
+                    str((learning_workspace or {}).get("topic", "")).strip()
+                    or _extract_learning_topic(req.query)
+                )
+                topic_tag = _extract_learning_topic(req.query)[:40] if _extract_learning_topic(req.query) else "learning"
+                record = _append_learning_record(
+                    user_id=req.user_id,
+                    workspace_id=learning_workspace_id,
+                    title=f"Teaching checkpoint — {topic}",
+                    summary=_distill_learning_summary(topic, req.query, narad_response_text)[:220],
+                    body=narad_response_text.strip(),
+                    record_type="teaching_checkpoint",
+                    session_id=session_id,
+                    tags=["krishna", "teach", topic_tag],
+                    source="krishna",
+                )
+                learning_record_ids.append(str(record.get("record_id", "")).strip())
+                glossary_entries = _suggest_learning_glossary_entries(topic, narad_response_text)
+                if glossary_entries:
+                    _update_learning_glossary_terms(
+                        user_id=req.user_id,
+                        workspace_id=learning_workspace_id,
+                        entries=glossary_entries,
+                    )
+                try:
+                    from smriti import remember as _remember
+                    _remember(
+                        f"Learning workspace checkpoint for {topic}",
+                        _distill_learning_summary(topic, req.query, narad_response_text),
+                        "Krishna",
+                        user_id=req.user_id,
+                    )
+                except Exception:
+                    pass
             except Exception:
                 pass
 
+        learning_artifact_offer_pending = _learning_artifact_offer_pending(narad_response_text)
+
         tracer.session_done()
-        await queue.put(json.dumps({"type": "done", "data": {"session_id": session_id}}))
+        _append_thread_turn(
+            user_id=req.user_id,
+            session_id=session_id,
+            role="user",
+            text=req.query,
+            metadata={"images": len(req.images)},
+        )
+        if narad_response_text.strip():
+            _append_thread_turn(
+                user_id=req.user_id,
+                session_id=session_id,
+                role="assistant",
+                text=narad_response_text.strip(),
+                metadata={
+                    "restored_after_reset": restored_thread,
+                    "restored_turn_count": restored_turn_count,
+                },
+            )
+        trace_summary = Tracer.summary(session_id)
+        thread_summary = _summarize_thread(
+            user_id=req.user_id,
+            session_id=session_id,
+        )
+        karya_state = _compact_karya_state(session_id)
+        turn_count = len(_load_thread(req.user_id, session_id))
+        runtime_epoch.turn_count += 1
+        runtime_epoch.last_prompt_tokens = final_context_plan.predicted_input_tokens
+        runtime_epoch.peak_prompt_tokens = max(
+            runtime_epoch.peak_prompt_tokens,
+            final_context_plan.predicted_input_tokens,
+        )
+        if final_context_plan.compaction_applied:
+            runtime_epoch.compaction_count += 1
+        _save_working_state(
+            user_id=req.user_id,
+            session_id=session_id,
+            state={
+                "last_user_query": req.query[:220],
+                "last_assistant_preview": narad_response_text.strip()[:220],
+                "last_trace_session_id": session_id,
+                "avatars": trace_summary.get("avatars", []),
+                "latencies_ms": trace_summary.get("latencies_ms", {}),
+                "phase_transitions": trace_summary.get("phase_transitions", []),
+                "restored_after_reset": restored_thread,
+                "restored_turn_count": restored_turn_count,
+                "turn_count": turn_count,
+                "thread_summary": thread_summary,
+                "karya": karya_state,
+                "continued_from_sessions": recent_source_sessions,
+                "learning_workspace_id": learning_workspace_id or None,
+                "learning_topic": (learning_workspace or {}).get("topic"),
+                "learning_record_ids": learning_record_ids,
+                "learning_artifact_offer_pending": learning_artifact_offer_pending,
+                "active_artifact": active_artifact_session or (restored_working_state or {}).get("active_artifact"),
+                "runtime_epoch_id": runtime_epoch.epoch_id,
+                "runtime_epoch_model": selected_model,
+                "runtime_epoch_turn_count": runtime_epoch.turn_count,
+                "runtime_epoch_last_prompt_tokens": runtime_epoch.last_prompt_tokens,
+                "runtime_epoch_peak_prompt_tokens": runtime_epoch.peak_prompt_tokens,
+                "runtime_epoch_compaction_count": runtime_epoch.compaction_count,
+                "predicted_input_tokens": final_context_plan.predicted_input_tokens,
+                "hard_input_budget_tokens": final_context_plan.hard_input_budget_tokens,
+                "soft_target_tokens": final_context_plan.soft_target_tokens,
+                "compaction_applied": final_context_plan.compaction_applied,
+                "compacted_from_tokens": final_context_plan.compacted_from_tokens,
+                "model_escalated_from": final_context_plan.model_escalated_from,
+                "model_escalated_to": final_context_plan.model_escalated_to,
+                "cache_hit_tokens": final_context_plan.cache_hit_tokens,
+            },
+        )
+        _record_harness_session_state(
+            user_id=req.user_id,
+            session_id=session_id,
+            working_state=_load_working_state(req.user_id, session_id),
+        )
+        await queue.put(json.dumps({
+            "type": "done",
+            "data": {
+                "session_id": session_id,
+                "runtime_epoch_id": runtime_epoch.epoch_id,
+            },
+        }))
 
         # Phase 10a: Compile session into project wiki (fire-and-forget)
         try:
@@ -375,9 +1286,9 @@ async def _run_agent_task(
         tb = traceback.format_exc()
         logging.getLogger("narad.server").error("Session %s crashed:\n%s", session_id, tb)
         try:
-            runner = _get_runner_for_user(req.user_id)
+            runner = _get_runner_for_user(req.user_id, selected_model)
             await runner.session_service.delete_session(
-                app_name="avatara", user_id=req.user_id, session_id=session_id
+                app_name="avatara", user_id=req.user_id, session_id=runtime_session_id
             )
         except Exception:
             pass
@@ -388,11 +1299,6 @@ async def _run_agent_task(
             caffeinate.terminate()
         await queue.put(None)  # sentinel — signals _drain_queue to stop
         _active_tasks.pop(session_id, None)
-        try:
-            from avatar_agents import evict_session_state
-            evict_session_state(req.user_id, session_id)
-        except Exception:
-            pass
 
 
 async def _drain_queue(
@@ -426,6 +1332,130 @@ async def get_trace(session_id: str):
     return {"session_id": session_id, "events": events, "summary": Tracer.summary(session_id)}
 
 
+@app.get("/thread/{session_id}")
+async def get_thread(session_id: str, user_id: str = "default"):
+    turns = _load_thread(user_id, session_id)
+    working_state = _load_working_state(user_id, session_id)
+    return {
+        "session_id": session_id,
+        "turns": turns,
+        "turn_count": len(turns),
+        "working_state": working_state,
+        "thread_summary": (working_state or {}).get("thread_summary", ""),
+        "restorable": bool(turns),
+    }
+
+
+@app.get("/threads/latest")
+async def get_latest_thread(user_id: str = "default"):
+    threads = _recent_threads(user_id, limit=1)
+    latest = threads[0] if threads else None
+    return {
+        "user_id": user_id,
+        "thread": latest,
+        "has_thread": latest is not None,
+    }
+
+
+@app.get("/threads")
+async def list_threads(user_id: str = "default", limit: int = 10):
+    return {
+        "user_id": user_id,
+        "threads": _recent_threads(user_id, limit=max(1, min(limit, 50))),
+    }
+
+
+@app.delete("/thread/{session_id}")
+async def clear_thread(session_id: str, user_id: str = "default"):
+    working_state = _load_working_state(user_id, session_id) or {}
+    runtime_epoch_id = working_state.get("runtime_epoch_id")
+    runtime_epoch_model = working_state.get("runtime_epoch_model") or AVATAR_MODELS["narad"]
+    result = _clear_thread(user_id, session_id)
+    _delete_harness_session_record(user_id, session_id)
+    if runtime_epoch_id:
+        runner = _user_runners.get((user_id, runtime_epoch_model))
+        if runner is not None:
+            try:
+                await runner.session_service.delete_session(
+                    app_name="avatara",
+                    user_id=user_id,
+                    session_id=str(runtime_epoch_id),
+                )
+            except Exception:
+                pass
+    try:
+        from avatar_agents import evict_session_state
+        evict_session_state(user_id, session_id)
+    except Exception:
+        pass
+    return result
+
+
+@app.get("/harness/overview")
+async def get_harness_overview(user_id: str = "default", session_id: Optional[str] = None):
+    return _harness_overview(user_id=user_id, selected_session_id=session_id)
+
+
+@app.get("/harness/sessions")
+async def list_harness_sessions(user_id: str = "default", limit: int = 24, include_archived: bool = True):
+    sessions = _list_harness_sessions(
+        user_id,
+        limit=max(1, min(limit, 200)),
+        include_archived=include_archived,
+    )
+    return {"user_id": user_id, "sessions": sessions, "count": len(sessions)}
+
+
+@app.get("/harness/sessions/{session_id}")
+async def get_harness_session(session_id: str, user_id: str = "default"):
+    session = _get_harness_session_record(user_id, session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="No harness session found")
+    context = _build_harness_context_bundle(user_id, session_id)
+    return {"session": session, "context": context}
+
+
+@app.get("/harness/context/{session_id}")
+async def get_harness_context(session_id: str, user_id: str = "default"):
+    context = _build_harness_context_bundle(user_id, session_id)
+    if not context:
+        raise HTTPException(status_code=404, detail="No harness context found")
+    return context
+
+
+@app.post("/harness/sessions/{session_id}/archive")
+async def archive_harness_session(session_id: str, user_id: str = "default"):
+    record = _archive_harness_session(user_id, session_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="No harness session found")
+    return {"status": "ok", "session": record}
+
+
+@app.post("/harness/sessions/{session_id}/recover")
+async def recover_harness_session(session_id: str, user_id: str = "default"):
+    record = _recover_harness_session(user_id, session_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="No harness session found")
+    return {"status": "ok", "session": record}
+
+
+@app.post("/harness/sessions/{session_id}/compact")
+async def compact_harness_session(session_id: str, user_id: str = "default"):
+    record = _compact_harness_session(user_id, session_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="No harness session found")
+    context = _build_harness_context_bundle(user_id, session_id)
+    return {"status": "ok", "session": record, "context": context}
+
+
+@app.post("/harness/sessions/{session_id}/fork")
+async def fork_harness_session(session_id: str, user_id: str = "default", title: Optional[str] = None):
+    record = _fork_harness_session(user_id, session_id, title=title)
+    if not record:
+        raise HTTPException(status_code=404, detail="No harness session found")
+    return {"status": "ok", "session": record}
+
+
 @app.get("/plan/{session_id}")
 async def get_plan(session_id: str):
     plan_path = Path.home() / ".narad" / "plans" / f"{session_id}.json"
@@ -438,7 +1468,17 @@ async def get_plan(session_id: str):
 async def get_sutras():
     from sutra_engine import get_all_sutras
     from tapas import sutra_summary
-    return {"summary": sutra_summary(), "sutras": get_all_sutras()}
+    from sutra_engine import COOLDOWN_HOURS
+    from tapas import PROMOTE_THRESHOLD
+    return {
+        "summary": sutra_summary(),
+        "settings": {
+            "promote_threshold": PROMOTE_THRESHOLD,
+            "cooldown_hours": COOLDOWN_HOURS,
+            "auto_promote_after_hours": COOLDOWN_HOURS,
+        },
+        "sutras": get_all_sutras(),
+    }
 
 
 @app.post("/sutras/{sutra_id}/accept")
@@ -465,12 +1505,20 @@ async def get_karma():
     return karma_summary()
 
 
+@app.get("/karma/mutations")
+async def get_karma_mutations(limit: int = 100):
+    from karma_log import load_mutations
+    return {"mutations": load_mutations(limit=limit)}
+
+
 @app.get("/sankalpa")
 async def get_sankalpa(user_id: str = "default"):
     from sankalpa import get_all_sankalpas, sankalpa_summary
+    from smriti_core import load_commitments
     return {
         "summary":    sankalpa_summary(user_id),
         "sankalpas":  get_all_sankalpas(user_id),
+        "commitments": load_commitments(user_id),
     }
 
 
@@ -552,7 +1600,7 @@ async def generate_quality_report(user_id: str = "default"):
 
     from andon import andon_stats, load_andon_log
 
-    # Assemble metrics packet for Buddha
+    # Assemble metrics packet for the canonical quality-auditor path
     stats = andon_stats(days=7)
     recent_andon = load_andon_log(limit=20)
 
@@ -570,8 +1618,8 @@ async def generate_quality_report(user_id: str = "default"):
     except Exception:
         pass
 
-    # Invoke Buddha with DMAIC task
-    from avatar_agents import buddha, _make_avatar_tool
+    # Invoke Parashurama with a structured DMAIC task
+    from avatar_agents import parashurama
     from google.adk.runners import Runner
     from google.adk.sessions import InMemorySessionService
     from google.genai import types as genai_types
@@ -593,7 +1641,7 @@ async def generate_quality_report(user_id: str = "default"):
         svc = InMemorySessionService()
         sid = str(uuid.uuid4())
         await svc.create_session(app_name="quality_report", user_id="narad", session_id=sid)
-        runner = Runner(agent=buddha, app_name="quality_report", session_service=svc)
+        runner = Runner(agent=parashurama, app_name="quality_report", session_service=svc)
         msg = genai_types.Content(role="user", parts=[genai_types.Part(text=dmaic_task)])
         report_text = ""
         async for event in runner.run_async(user_id="narad", session_id=sid, new_message=msg):
@@ -628,6 +1676,319 @@ async def get_quality_report():
     return _last_quality_report
 
 
+# ── Notion sync endpoints ─────────────────────────────────────────────────────
+
+@app.get("/notion/status")
+async def notion_status():
+    sys.path.insert(0, str(_ROOT / "phase-1"))
+    from notion_sync import NotionSync
+    return NotionSync().get_status()
+
+
+@app.post("/notion/setup")
+async def notion_setup(parent_page_id: str):
+    sys.path.insert(0, str(_ROOT / "phase-1"))
+    from notion_sync import NotionSync
+    return NotionSync().setup_workspace(parent_page_id)
+
+
+@app.post("/notion/sync")
+async def notion_sync_endpoint(user_id: str = "default"):
+    sys.path.insert(0, str(_ROOT / "phase-1"))
+    from notion_sync import NotionSync
+    return await NotionSync().sync_all(user_id)
+
+
+# ── Cultural-core endpoints ───────────────────────────────────────────────────
+
+@app.post("/swapna/run")
+async def run_swapna_endpoint(
+    user_id: str = "default",
+    project_id: str = "general",
+    max_episodes: int = 20,
+    apply: bool = False,
+):
+    from swapna import dream
+    return dream(
+        user_id=user_id,
+        project_id=project_id,
+        max_episodes=max_episodes,
+        apply=apply,
+    )
+
+
+@app.get("/swapna/inbox")
+async def get_swapna_inbox():
+    from swapna import inbox
+    return {"items": inbox()}
+
+
+@app.get("/provenance/{entity_id}")
+async def get_provenance_endpoint(entity_id: str, user_id: str = "default"):
+    from smriti_core import get_provenance
+    return get_provenance(entity_id, user_id=user_id)
+
+
+@app.get("/architecture/scorecard")
+async def get_architecture_scorecard():
+    from smriti_core import architecture_scorecard
+    return architecture_scorecard()
+
+
+@app.get("/evolution/history")
+async def get_evolution_history(days: int = 30):
+    from smriti_core import evolution_history
+    return evolution_history(days=days)
+
+
+# ── Memory query endpoint ─────────────────────────────────────────────────────
+
+@app.get("/memory")
+async def query_memory(
+    user_id: str = "default",
+    avatar: Optional[str] = None,
+    days: Optional[int] = None,
+    memory_type: Optional[str] = None,
+    limit: int = 50,
+    q: Optional[str] = None,
+):
+    """Query Smriti memories with optional filters."""
+    from datetime import timedelta
+    sys.path.insert(0, str(_ROOT / "phase-2"))
+    try:
+        from smriti import _get_table  # type: ignore
+        table = _get_table()
+        raw = (
+            table.search()
+            .where(f"user_id = '{user_id}'", prefilter=True)
+            .limit(limit * 4)
+            .to_list()
+        )
+    except Exception:
+        return []
+
+    cutoff = None
+    if days:
+        cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+
+    results = []
+    for row in raw:
+        if cutoff and row.get("created_at", "") < cutoff:
+            continue
+        if avatar and row.get("avatar") != avatar:
+            continue
+        text = row.get("memory", "")
+        if q and q.lower() not in text.lower():
+            continue
+        tl = text.lower()
+        if any(w in tl for w in ["decided", "decision", "chose", "choice"]):
+            mtype = "decision"
+        elif any(w in tl for w in ["implement", "built", "wrote", "created", "feature"]):
+            mtype = "feature"
+        elif any(w in tl for w in ["goal", "objective", "plan", "milestone"]):
+            mtype = "goal"
+        else:
+            mtype = "insight"
+        if memory_type and memory_type != mtype:
+            continue
+        results.append({
+            "id":         row.get("id", ""),
+            "avatar":     row.get("avatar", ""),
+            "text":       text,
+            "created_at": row.get("created_at", ""),
+            "type":       mtype,
+        })
+
+    results.sort(key=lambda x: x["created_at"], reverse=True)
+    return results[:limit]
+
+
+@app.get("/memory/tiers")
+async def get_memory_tiers(user_id: str = "default"):
+    from smriti_core import memory_tier_diagnostics
+
+    return memory_tier_diagnostics(user_id)
+
+
+# ── Unified search endpoint ───────────────────────────────────────────────────
+
+@app.get("/search")
+async def unified_search(
+    q: str,
+    user_id: str = "default",
+    limit: int = 20,
+):
+    """Search across memories, sutras, kanban steps, and andon log."""
+    if not q or len(q.strip()) < 2:
+        return []
+
+    results: list[dict] = []
+    q_lower = q.lower()
+
+    # Memories (FTS5)
+    try:
+        sys.path.insert(0, str(_ROOT / "phase-2"))
+        from smriti import recall_exact  # type: ignore
+        mem_text = recall_exact(q, user_id=user_id, limit=5)
+        for line in mem_text.strip().split("\n"):
+            line = line.strip()
+            if line.startswith("- ["):
+                parts = line[3:].split("]", 1)
+                if len(parts) == 2:
+                    results.append({
+                        "id": f"mem_{len(results)}",
+                        "type": "memory",
+                        "avatar": parts[0],
+                        "preview": parts[1].strip()[:120],
+                        "ts": "",
+                        "nav": "memory",
+                    })
+    except Exception:
+        pass
+
+    # Sutras
+    try:
+        sys.path.insert(0, str(_ROOT / "phase-5"))
+        from sutra_engine import get_all_sutras  # type: ignore
+        sutra_count = 0
+        for s in get_all_sutras():
+            if q_lower in s.get("query", "").lower() or q_lower in s.get("result", "").lower():
+                results.append({
+                    "id": s.get("id", ""),
+                    "type": "sutra",
+                    "avatar": s.get("avatar", ""),
+                    "preview": s.get("query", "")[:120],
+                    "ts": s.get("ts", ""),
+                    "nav": "sutras",
+                })
+                sutra_count += 1
+                if sutra_count >= 5:
+                    break
+    except Exception:
+        pass
+
+    # Kanban steps (active sessions)
+    try:
+        sys.path.insert(0, str(_ROOT / "phase-1"))
+        from kanban import KanbanBoard  # type: ignore
+        for board in KanbanBoard().get_all_active():
+            for col_steps in board.get("columns", {}).values():
+                for step in col_steps:
+                    if q_lower in step.get("title", "").lower():
+                        results.append({
+                            "id": f"step_{step.get('session_id','')}_{step.get('step_id','')}",
+                            "type": "plan",
+                            "avatar": step.get("owner", ""),
+                            "preview": step.get("title", "")[:120],
+                            "ts": step.get("started_at") or step.get("completed_at") or "",
+                            "nav": "kanban",
+                        })
+    except Exception:
+        pass
+
+    # Andon log
+    try:
+        sys.path.insert(0, str(_ROOT / "phase-1"))
+        from andon import load_andon_log  # type: ignore
+        andon_count = 0
+        for e in load_andon_log(limit=50):
+            if q_lower in e.get("task_preview", "").lower() or q_lower in e.get("trigger", "").lower():
+                results.append({
+                    "id": e.get("id", ""),
+                    "type": "andon",
+                    "avatar": e.get("avatar", ""),
+                    "preview": f"{e.get('trigger','')} — {e.get('task_preview','')[:80]}",
+                    "ts": e.get("ts", ""),
+                    "nav": "ops",
+                })
+                andon_count += 1
+                if andon_count >= 3:
+                    break
+    except Exception:
+        pass
+
+    # Audit log
+    try:
+        import json as _json
+        _audit_path = Path.home() / ".narad" / "audit.jsonl"
+        if _audit_path.exists():
+            audit_count = 0
+            for raw in reversed(_audit_path.read_text().splitlines()):
+                raw = raw.strip()
+                if not raw:
+                    continue
+                entry = _json.loads(raw)
+                preview = entry.get("task_preview", "")
+                if q_lower in preview.lower() or q_lower in entry.get("avatar", "").lower():
+                    results.append({
+                        "id": f"audit_{len(results)}",
+                        "type": "audit",
+                        "avatar": entry.get("avatar", ""),
+                        "preview": preview[:120],
+                        "ts": entry.get("ts", ""),
+                        "nav": "audit",
+                        "event": entry.get("event", "invocation"),
+                        "matched_signals": entry.get("matched_signals"),
+                    })
+                    audit_count += 1
+                    if audit_count >= 3:
+                        break
+    except Exception:
+        pass
+
+    type_order = {"memory": 0, "sutra": 1, "plan": 2, "andon": 3, "audit": 4}
+    results.sort(key=lambda x: type_order.get(x["type"], 9))
+    return results[:limit]
+
+
+# ── Audit log endpoint ────────────────────────────────────────────────────────
+
+@app.get("/audit")
+async def get_audit_log(
+    user_id: str = "default",
+    limit: int = 50,
+    event: Optional[str] = None,
+):
+    """Return recent audit invocation records from ~/.narad/audit.jsonl."""
+    import json as _json
+    _audit_path = Path.home() / ".narad" / "audit.jsonl"
+    if not _audit_path.exists():
+        return []
+    lines = [l.strip() for l in _audit_path.read_text().splitlines() if l.strip()]
+    records: list[dict] = []
+    for raw in reversed(lines):
+        try:
+            entry = _json.loads(raw)
+        except Exception:
+            continue
+        if user_id and entry.get("user_id", "default") != user_id:
+            continue
+        if event and entry.get("event") != event:
+            continue
+        records.append(entry)
+        if len(records) >= limit:
+            break
+    return records
+
+
+# ── Context sandbox expand endpoint ──────────────────────────────────────────
+
+@app.get("/sandbox/{doc_id}")
+async def expand_sandbox(doc_id: str):
+    """Retrieve full (uncompressed) output from context_sandbox by UUID."""
+    try:
+        sys.path.insert(0, str(_ROOT / "phase-8"))
+        from context_sandbox import expand_context  # type: ignore
+        text = expand_context(doc_id)
+        if text.startswith("[context_sandbox"):
+            raise HTTPException(status_code=404, detail=text)
+        return {"doc_id": doc_id, "content": text, "word_count": len(text.split())}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 # ── Daily Shuddhi background loop ─────────────────────────────────────────────
 
 async def _daily_shuddhi_loop():
@@ -648,38 +2009,122 @@ async def _start_background_tasks():
     asyncio.create_task(_daily_shuddhi_loop())
 
 
-def _event_to_sse(event: Event) -> str:
-    payload: dict = {"type": "unknown", "data": {}}
+class ThinkingFilter:
+    """Per-request stateful filter — strips <think>…</think> across streaming chunks.
+
+    DeepSeek streams chain-of-thought across many small SSE chunks; a single-pass
+    regex can only match complete tags inside one chunk and silently passes partial
+    tags through. This class buffers across calls so the tag boundaries are always
+    found regardless of how the model slices its output.
+    """
+    _OPEN  = "<think>"
+    _CLOSE = "</think>"
+
+    def __init__(self) -> None:
+        self._buf    = ""
+        self._inside = False
+
+    def feed(self, chunk: str) -> str:
+        """Feed one streaming chunk; return text that should reach the client."""
+        self._buf += chunk
+        out: list[str] = []
+
+        while self._buf:
+            if self._inside:
+                idx = self._buf.lower().find(self._CLOSE)
+                if idx == -1:
+                    # Closing tag may be split — keep last N chars safe
+                    safe = max(0, len(self._buf) - len(self._CLOSE))
+                    self._buf = self._buf[safe:]
+                    break
+                self._buf    = self._buf[idx + len(self._CLOSE):]
+                self._inside = False
+            else:
+                idx = self._buf.lower().find(self._OPEN)
+                if idx == -1:
+                    # No opening tag — tail might be a partial "<think…"
+                    for tail in range(min(len(self._OPEN) - 1, len(self._buf)), 0, -1):
+                        if self._buf[-tail:].lower() == self._OPEN[:tail]:
+                            out.append(self._buf[:-tail])
+                            self._buf = self._buf[-tail:]
+                            return "".join(out)
+                    out.append(self._buf)
+                    self._buf = ""
+                    break
+                out.append(self._buf[:idx])
+                self._buf    = self._buf[idx + len(self._OPEN):]
+                self._inside = True
+
+        return "".join(out)
+
+    def flush(self) -> str:
+        """Return any buffered text after the stream ends (empty if mid-block)."""
+        if self._inside:
+            return ""
+        result    = self._buf
+        self._buf = ""
+        return result
+
+
+def _event_to_sse(event: Event, think: "ThinkingFilter | None" = None) -> list[str]:
+    """Convert one ADK event to one or more SSE JSON strings.
+
+    Narad can emit multiple function_call parts in a single event when routing
+    to avatars in parallel — returning a list ensures every avatar_start fires.
+
+    *think* is a per-request ThinkingFilter that strips <think>…</think> blocks
+    correctly across streaming chunk boundaries.
+    """
+    def _filt(text: str) -> str:
+        return think.feed(text) if think is not None else text
 
     if event.is_final_response():
         text = ""
         if event.content and event.content.parts:
             text = "".join(p.text or "" for p in event.content.parts)
-        payload = {"type": "narad_synthesis", "data": {"text": text}}
+        text = _filt(text).strip()
+        if not text:
+            return []
+        return [json.dumps({"type": "narad_synthesis", "data": {"text": text}})]
 
-    elif event.content and event.content.parts:
-        for part in event.content.parts:
-            if part.function_call:
-                fc = part.function_call
-                avatar = _resolve_avatar(fc.name)
-                payload = {
-                    "type": "avatar_start",
-                    "data": {
-                        "avatar": avatar,
-                        "task": (fc.args or {}).get("request", ""),
-                    },
-                }
-            elif part.function_response:
-                fr = part.function_response
-                avatar = _resolve_avatar(fr.name)
-                payload = {
-                    "type": "avatar_done",
-                    "data": {"avatar": avatar, "result": fr.response},
-                }
-            elif part.text:
-                payload = {"type": "narad_synthesis", "data": {"text": part.text}}
+    if not (event.content and event.content.parts):
+        return [json.dumps({"type": "unknown", "data": {}})]
 
-    return json.dumps(payload)
+    payloads: list[str] = []
+    for part in event.content.parts:
+        if part.function_call:
+            fc = part.function_call
+            avatar = _resolve_avatar(fc.name)
+            discipline = _primary_discipline(avatar)
+            payloads.append(json.dumps({
+                "type": "avatar_start",
+                "data": {
+                    "avatar": avatar,
+                    "discipline": discipline,
+                    "disciplines": _agent_contract_map().get(avatar, {}).get("disciplines", []),
+                    "task": (fc.args or {}).get("request", ""),
+                },
+            }))
+        elif part.function_response:
+            fr = part.function_response
+            avatar = _resolve_avatar(fr.name)
+            discipline = _primary_discipline(avatar)
+            payloads.append(json.dumps({
+                "type": "avatar_done",
+                "data": {
+                    "avatar": avatar,
+                    "discipline": discipline,
+                    "disciplines": _agent_contract_map().get(avatar, {}).get("disciplines", []),
+                    "result": fr.response,
+                },
+            }))
+        elif part.text:
+            # Non-final text events are always Narad's internal routing thoughts or
+            # pre-emission tokens — never user-facing content. Suppress them entirely.
+            # The is_final_response() path above emits the complete synthesis once ready.
+            pass
+
+    return payloads or [json.dumps({"type": "unknown", "data": {}})]
 
 
 def _usage_to_sse(event: Event) -> str | None:
@@ -714,23 +2159,151 @@ def _usage_to_sse(event: Event) -> str | None:
 
 def _resolve_avatar(tool_name: str) -> str:
     lower = tool_name.lower()
+    tool_names = AGENT_TOOL_NAMES or _canonical_tool_name_map()
     # phase-1: invoke_matsya → Matsya; phase-0b compat: matsya → Matsya
-    return AGENT_TOOL_NAMES.get(lower, AGENT_TOOL_NAMES.get(lower.replace("invoke_", ""), tool_name.capitalize()))
+    return tool_names.get(lower, tool_names.get(lower.replace("invoke_", ""), tool_name.capitalize()))
 
 
 import re as _re
 
 def _extract_artifact_meta(task: str) -> tuple[str, str]:
-    """Return (topic, artifact_type) from a Parashurama CopilotKit task string."""
+    """Return (topic, artifact_type) from a legacy artifact task string."""
     m = _re.search(
         r"interactive\s+(flashcard\s+set|diagram)\s+on:?\s*[\"']?(.+?)[\"']?(?:\.|$)",
         task, _re.IGNORECASE
     )
     if m:
-        kind = "flashcards" if "flashcard" in m.group(1).lower() else "diagram"
+        kind = "flashcards" if "flashcard" in m.group(1).lower() else "concept_map"
         topic = m.group(2).strip().rstrip(".")
         return topic, kind
     # Fallback: anything after "on:"
     m2 = _re.search(r"on:?\s*[\"']?(.+?)[\"']?(?:\.|$)", task, _re.IGNORECASE)
     topic = m2.group(1).strip().rstrip(".") if m2 else "this topic"
     return topic, "flashcards"
+
+
+def _extract_learning_artifact_request(
+    text: str,
+    *,
+    offer_pending: bool = False,
+    fallback_topic: str = "this topic",
+) -> tuple[str, str] | None:
+    normalized = (text or "").strip()
+    lower = normalized.lower()
+    if not lower:
+        return None
+
+    if offer_pending:
+        if lower == "d":
+            return fallback_topic, "diagram"
+        if _is_affirmative_reply(lower):
+            return fallback_topic, "flashcards"
+
+    flashcard_match = _re.search(
+        r"\b(?:make|create|build|generate)?\s*flashcards?\s+(?:for|on|about)\s+(.+?)(?:[.?!]|$)",
+        normalized,
+        _re.IGNORECASE,
+    )
+    if flashcard_match:
+        return flashcard_match.group(1).strip().rstrip(".?!"), "flashcards"
+
+    diagram_match = _re.search(
+        r"\b(?:create|make|build|generate|draw)?\s*(?:a\s+)?(?:concept\s+diagram|concept\s+map|diagram|visuali[sz]ation)\s+(?:for|of|on|about)\s+(.+?)(?:[.?!]|$)",
+        normalized,
+        _re.IGNORECASE,
+    )
+    if diagram_match:
+        return diagram_match.group(1).strip().rstrip(".?!"), "concept_map"
+
+    if any(_re.search(pattern, lower) for pattern in (r"\bflashcards?\b", r"\bstudy cards?\b")):
+        return fallback_topic, "flashcards"
+    if any(_re.search(pattern, lower) for pattern in (r"\bconcept map\b", r"\bdiagram\b", r"\bvisuali[sz]e\b")):
+        return fallback_topic, "concept_map"
+    return None
+
+
+def _is_affirmative_reply(text: str) -> bool:
+    normalized = (text or "").strip().lower()
+    return normalized in {
+        "yes", "y", "yeah", "yep", "sure", "ok", "okay", "go ahead",
+        "proceed", "do it", "make it", "build it",
+    }
+
+
+def _is_explicit_learning_artifact_request(text: str, *, offer_pending: bool = False) -> bool:
+    return _extract_learning_artifact_request(
+        text,
+        offer_pending=offer_pending,
+    ) is not None
+
+
+def _normalize_learning_artifact_type(artifact_type: str) -> str:
+    return "concept_map" if artifact_type in {"diagram", "concept_map", "concept map"} else "flashcards"
+
+
+def _learning_artifact_label(artifact_type: str) -> str:
+    return "flashcard set" if _normalize_learning_artifact_type(artifact_type) == "flashcards" else "concept map"
+
+
+def _is_explicit_learning_artifact_edit(
+    text: str,
+    *,
+    artifact_type: str | None = None,
+) -> bool:
+    lowered = (text or "").strip().lower()
+    if not lowered:
+        return False
+    normalized_type = _normalize_learning_artifact_type(artifact_type or "flashcards")
+    if normalized_type == "concept_map":
+        edit_phrases = (
+            "add a node",
+            "add node",
+            "add a branch",
+            "remove node",
+            "delete node",
+            "connect ",
+            "expand the concept map",
+            "update the concept map",
+            "update the diagram",
+        )
+    else:
+        edit_phrases = (
+            "add one more card",
+            "add another card",
+            "add a card",
+            "remove card",
+            "delete card",
+            "drop the card",
+            "update the flashcards",
+        )
+    return any(phrase in lowered for phrase in edit_phrases)
+
+
+def _artifact_session_payload(
+    artifact: dict[str, Any],
+    *,
+    record_ids: list[str] | None = None,
+) -> dict[str, Any]:
+    merged_record_ids = list(dict.fromkeys([
+        *(artifact.get("record_ids") or []),
+        *(record_ids or []),
+    ]))
+    return {
+        "artifact_id": artifact["artifact_id"],
+        "workspace_id": artifact["workspace_id"],
+        "topic": artifact["topic"],
+        "artifact_type": _normalize_learning_artifact_type(str(artifact["artifact_type"])),
+        "version": artifact["version"],
+        "status": artifact.get("status", "active"),
+        "updated_at": artifact["updated_at"],
+        "record_ids": merged_record_ids,
+        "doc": artifact.get("doc") or {},
+    }
+
+
+def _learning_artifact_offer_pending(text: str) -> bool:
+    normalized = (text or "").strip().lower()
+    return (
+        "would you like me to create a visual learning artifact" in normalized
+        or "flashcards, an interactive quiz, or a diagram" in normalized
+    )

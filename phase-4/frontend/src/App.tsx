@@ -1,14 +1,22 @@
-import { useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { useAvatara } from './hooks/useAvatara'
-import type { KanbanUpdatePayload } from './hooks/useAvatara'
 import { ChatPanel }            from './components/ChatPanel'
-import { ProjectsPanel }        from './components/ProjectsPanel'
-import { LearningArtifactPanel } from './components/LearningArtifactPanel'
 import { AwarenessBar }         from './components/AwarenessBar'
-import { DarshanDashboard }     from './components/DarshanDashboard'
+import { NaradDashboard }      from './components/NaradDashboard'
+import { apiFetch, type RuntimeCapabilities } from './lib/api'
 import { TooltipProvider }      from '@/components/ui/tooltip'
 import { Toaster }              from '@/components/ui/sonner'
 import './index.css'
+
+const LearningArtifactPanel = lazy(async () => {
+  const mod = await import('./components/LearningArtifactPanel')
+  return { default: mod.LearningArtifactPanel }
+})
+
+const ToolWorkspacePanel = lazy(async () => {
+  const mod = await import('./components/ToolWorkspacePanel')
+  return { default: mod.ToolWorkspacePanel }
+})
 
 const USER_ID = 'default'
 
@@ -16,12 +24,26 @@ export default function App() {
   const {
     messages, avatars, naradActive, streaming, error,
     currentSession, send, stop, stepEvents, sessionTotals,
-    pendingArtifact, clearArtifact,
-    kanbanUpdate, andonAlert,
+    activeArtifactSession, clearArtifact,
+    pendingToolUi, clearToolUi,
+    kanbanUpdate, andonAlert, clearSession, resumeSession,
   } = useAvatara(USER_ID)
 
   const [darshanOpen, setDarshanOpen] = useState(false)
-  const [leftPanelOpen, setLeftPanelOpen] = useState(true)
+  const [capabilities, setCapabilities] = useState<RuntimeCapabilities | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    apiFetch('/capabilities')
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (!cancelled) setCapabilities(data)
+      })
+      .catch(() => {
+        if (!cancelled) setCapabilities(null)
+      })
+    return () => { cancelled = true }
+  }, [])
 
   const activeSteps = Object.values(avatars).filter(a => a.state === 'active').length
 
@@ -33,14 +55,13 @@ export default function App() {
       <div
         className="grid h-screen overflow-hidden"
         style={{
-          gridTemplateColumns: leftPanelOpen ? '260px 1fr 72px' : '40px 1fr 72px',
-          transition: 'grid-template-columns 0.2s ease',
+          gridTemplateColumns: activeArtifactSession || pendingToolUi
+            ? 'minmax(0,1fr) minmax(360px, 440px) 72px'
+            : '1fr 72px',
           position: 'relative',
           zIndex: 1,
         }}
       >
-        <ProjectsPanel open={leftPanelOpen} onToggle={() => setLeftPanelOpen(v => !v)} />
-
         <div className="flex flex-col h-full overflow-hidden">
           <ChatPanel
             messages={messages}
@@ -49,31 +70,52 @@ export default function App() {
             error={error}
             onSend={send}
             stop={stop}
+            onClear={clearSession}
+            activeArtifact={activeArtifactSession}
+            onCloseArtifact={clearArtifact}
           />
-
-          {/* Learning Artifact panel — inline in chat column */}
-          {pendingArtifact && (
-            <div style={{ flex: '0 0 320px', minHeight: 0, overflow: 'hidden', borderTop: '1px solid color-mix(in srgb, var(--kajal) 10%, transparent)' }}>
-              <LearningArtifactPanel
-                topic={pendingArtifact.topic}
-                artifactType={pendingArtifact.artifactType}
-                onClose={clearArtifact}
-              />
-            </div>
-          )}
         </div>
+
+        {(activeArtifactSession || pendingToolUi) && (
+          <div
+            className="h-full overflow-hidden border-l"
+            style={{ borderColor: 'color-mix(in srgb, var(--kajal) 10%, transparent)', background: 'var(--paper)' }}
+          >
+            <Suspense
+              fallback={
+                <div
+                  className="flex h-full items-center justify-center text-sm"
+                  style={{ color: 'rgba(45,42,38,0.55)', background: 'var(--paper)' }}
+                >
+                  Loading workspace…
+                </div>
+              }
+            >
+              {activeArtifactSession ? (
+                <LearningArtifactPanel
+                  artifact={activeArtifactSession}
+                  onClose={clearArtifact}
+                />
+              ) : pendingToolUi ? (
+                <ToolWorkspacePanel
+                  toolUi={pendingToolUi}
+                  onClose={clearToolUi}
+                />
+              ) : null}
+            </Suspense>
+          </div>
+        )}
 
         {/* Right column — AwarenessBar (72px) */}
         <AwarenessBar
           avatars={avatars}
-          totalTokens={sessionTotals.totalTokens}
           activeSteps={activeSteps}
           onOpenDarshan={() => setDarshanOpen(true)}
         />
       </div>
 
-      {/* Darshan Dashboard drawer — mounted at root level */}
-      <DarshanDashboard
+      {/* Narad Dashboard — unified cultural-core workspace overlay */}
+      <NaradDashboard
         open={darshanOpen}
         onClose={() => setDarshanOpen(false)}
         avatars={avatars}
@@ -86,6 +128,8 @@ export default function App() {
         userId={USER_ID}
         kanbanUpdate={kanbanUpdate}
         andonAlert={andonAlert}
+        capabilities={capabilities}
+        onResumeSession={resumeSession}
       />
 
       <Toaster />

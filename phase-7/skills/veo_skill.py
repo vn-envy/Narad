@@ -1,12 +1,12 @@
 """
-Veo 3 video generation skill — AI-generated video clips for Krishna.
+Veo 3.1 video generation skill — AI-generated video clips for Krishna.
 
 Krishna calls generate_video_clip() during the video BUILD phase.
-Each call produces one AI video clip (up to 8 seconds) via Veo 3.0 Fast.
+Each call produces one AI video clip (up to 8 seconds) via Veo 3.1.
 For multi-scene videos, call once per scene then use create_video() to stitch.
 
 Requires GEMINI_API_KEY env var.
-Model override: VEO_MODEL env var (default: veo-3.0-generate-preview).
+Model override: VEO_MODEL env var (default: veo-3.1-generate-preview).
 """
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from narad_config import ARTIFACTS_DIR
 
 _SERVER_MEDIA_BASE = os.environ.get("MEDIA_URL_BASE", "http://localhost:8000/media")
-_VEO_MODEL = os.environ.get("VEO_MODEL", "veo-3.0-generate-preview")
+_VEO_MODEL = os.environ.get("VEO_MODEL", "veo-3.1-generate-preview")
 _POLL_INTERVAL_S = 20
 _MAX_POLLS = 30  # 10 minutes max
 

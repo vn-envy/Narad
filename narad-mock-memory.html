@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Narad — Memory + Universal Search (Mock B)</title>
+  <style>
+    :root {
+      --c-bg: #0c0c14;
+      --c-surface: #14141f;
+      --c-surface-2: #1e1e2e;
+      --c-surface-3: #252535;
+      --c-border: #2a2a40;
+      --c-border-2: #353550;
+      --c-fg: #e0e0f0;
+      --c-fg-2: #a0a0c0;
+      --c-fg-3: #606080;
+      --c-accent: #7c6af7;
+      --c-accent-dim: #3d3580;
+      --c-accent-glow: rgba(124,106,247,0.15);
+      --c-highlight: rgba(124,106,247,0.28);
+      --c-matsya: #38bdf8;
+      --c-rama: #fb923c;
+      --c-krishna: #a78bfa;
+      --c-parashurama: #4ade80;
+      --c-narad: #f9c74f;
+      --c-warning: #f59e0b;
+      --c-success: #22c55e;
+      --c-compress: #e879f9;
+      --f-sans: 'Inter', system-ui, -apple-system, sans-serif;
+      --f-mono: 'JetBrains Mono', 'Fira Code', monospace;
+      --r-sm: 4px; --r-md: 8px; --r-lg: 12px;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--c-bg); color: var(--c-fg);
+      font-family: var(--f-sans); font-size: 13px; line-height: 1.5;
+      height: 100vh; overflow: hidden; display: flex; flex-direction: column;
+    }
+
+    /* ── HEADER ── */
+    .header {
+      background: var(--c-surface); border-bottom: 1px solid var(--c-border);
+      padding: 8px 16px; display: flex; align-items: center; gap: 12px; flex-shrink: 0;
+    }
+    .logo { font-size: 15px; font-weight: 700; color: var(--c-accent); letter-spacing: -0.5px; white-space: nowrap; }
+    .logo span { color: var(--c-fg-2); font-weight: 400; }
+
+    /* Search bar — active/focused state */
+    .search-bar { flex: 1; max-width: 540px; position: relative; }
+    .search-bar input {
+      width: 100%; background: var(--c-surface-2);
+      border: 1px solid var(--c-accent); border-radius: var(--r-md);
+      padding: 6px 52px 6px 32px; color: var(--c-fg);
+      font-family: var(--f-sans); font-size: 12.5px; outline: none;
+      box-shadow: 0 0 0 3px var(--c-accent-glow);
+    }
+    .search-icon  { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--c-accent); font-size: 14px; }
+    .search-clear {
+      position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+      font-size: 10px; color: var(--c-fg-3); cursor: pointer; padding: 1px 5px;
+      background: var(--c-surface-3); border: 1px solid var(--c-border); border-radius: 3px;
+    }
+    .search-clear:hover { color: var(--c-fg); }
+
+    .avatar-chips { display: flex; gap: 6px; margin-left: auto; }
+    .chip { display: flex; align-items: center; gap: 5px; padding: 3px 8px; border-radius: 20px; font-size: 11px; font-weight: 500; border: 1px solid; }
+    .chip-dot { width: 6px; height: 6px; border-radius: 50%; }
+    .chip.matsya   { color: var(--c-matsya);  border-color: rgba(56,189,248,0.3);  background: rgba(56,189,248,0.08); }
+    .chip.matsya   .chip-dot { background: var(--c-matsya); }
+    .chip.rama     { color: var(--c-rama);    border-color: rgba(251,146,60,0.3);  background: rgba(251,146,60,0.08); }
+    .chip.rama     .chip-dot { background: var(--c-rama); }
+    .chip.krishna  { color: var(--c-krishna); border-color: rgba(167,139,250,0.3); background: rgba(167,139,250,0.08); }
+    .chip.krishna  .chip-dot { background: var(--c-krishna); }
+    .chip.para     { color: var(--c-fg-3);    border-color: var(--c-border);       background: transparent; }
+    .chip.para     .chip-dot { background: var(--c-fg-3); }
+
+    /* ── METRICS STRIP ── */
+    .metrics-strip {
+      background: var(--c-surface-2); border-bottom: 1px solid var(--c-border);
+      padding: 5px 16px; display: flex; align-items: center;
+      flex-shrink: 0; font-size: 11.5px; overflow-x: auto;
+    }
+    .metric { display: flex; align-items: center; gap: 5px; padding: 0 12px; border-right: 1px solid var(--c-border); white-space: nowrap; }
+    .metric:first-child { padding-left: 0; }
+    .metric:last-child  { border-right: none; }
+    .m-label { color: var(--c-fg-3); }
+    .m-val   { font-weight: 600; }
+    .m-val.accent   { color: var(--c-accent); }
+    .m-val.warn     { color: var(--c-warning); }
+    .m-val.compress { color: var(--c-compress); }
+
+    /* ── TABS ── */
+    .tab-nav { background: var(--c-surface); border-bottom: 1px solid var(--c-border); padding: 0 16px; display: flex; flex-shrink: 0; }
+    .tab { padding: 10px 14px; font-size: 12.5px; font-weight: 500; color: var(--c-fg-3); cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; }
+    .tab:hover { color: var(--c-fg-2); }
+    .tab.active { color: var(--c-accent); border-bottom-color: var(--c-accent); }
+    .tab .badge { display: inline-flex; align-items: center; justify-content: center; margin-left: 5px; min-width: 16px; height: 16px; padding: 0 4px; background: var(--c-surface-3); border-radius: 8px; font-size: 10px; color: var(--c-fg-3); }
+    .tab.active .badge { background: var(--c-accent-dim); color: var(--c-accent); }
+
+    /* ── MAIN ── */
+    .main { flex: 1; display: flex; overflow: hidden; position: relative; }
+
+    /* ── BACKGROUND: Memory tab content (dimmed behind overlay) ── */
+    .memory-bg { flex: 1; display: flex; overflow: hidden; filter: blur(1px); opacity: 0.28; pointer-events: none; }
+
+    .mem-sidebar { width: 196px; border-right: 1px solid var(--c-border); background: var(--c-surface); padding: 14px 12px; flex-shrink: 0; }
+    .mem-sidebar-title { font-size: 10.5px; font-weight: 600; color: var(--c-fg-3); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; }
+    .mem-nav { padding: 6px 8px; border-radius: var(--r-sm); font-size: 12px; color: var(--c-fg-3); cursor: pointer; display: flex; align-items: center; justify-content: space-between; margin-bottom: 2px; }
+    .mem-nav.active { background: var(--c-surface-2); color: var(--c-fg); }
+    .mem-nav-count { font-size: 10.5px; color: var(--c-fg-3); }
+
+    .mem-main { flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
+    .mem-card { background: var(--c-surface-2); border: 1px solid var(--c-border); border-radius: var(--r-md); padding: 10px 12px; }
+    .mem-card-tag  { font-size: 9.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; color: var(--c-accent); margin-bottom: 4px; }
+    .mem-card-text { font-size: 12px; color: var(--c-fg-2); }
+    .mem-card-meta { font-size: 10.5px; color: var(--c-fg-3); margin-top: 5px; }
+
+    /* ── SEARCH RESULTS OVERLAY ── */
+    .search-overlay {
+      position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(12,12,20,0.82); backdrop-filter: blur(4px);
+      z-index: 100; display: flex; justify-content: center;
+      align-items: flex-start; padding: 20px 0;
+    }
+    .sr-panel {
+      background: var(--c-surface); border: 1px solid var(--c-border-2);
+      border-radius: var(--r-lg); width: 680px; max-height: calc(100vh - 160px);
+      overflow: hidden; display: flex; flex-direction: column;
+      box-shadow: 0 24px 64px rgba(0,0,0,0.65), 0 0 0 1px rgba(124,106,247,0.15);
+    }
+
+    .sr-header { padding: 14px 16px 0; border-bottom: 1px solid var(--c-border); flex-shrink: 0; }
+    .sr-query  { display: flex; align-items: center; gap: 6px; margin-bottom: 12px; }
+    .sr-query-label { font-size: 12px; color: var(--c-fg-3); }
+    .sr-query-term  { font-weight: 600; color: var(--c-fg); }
+    .sr-count { font-size: 11px; color: var(--c-fg-3); margin-left: auto; }
+
+    /* Filter chips row */
+    .filter-chips { display: flex; gap: 6px; padding-bottom: 12px; overflow-x: auto; }
+    .fchip { padding: 3px 10px; border-radius: 20px; font-size: 11.5px; font-weight: 500; border: 1px solid var(--c-border); color: var(--c-fg-3); cursor: pointer; white-space: nowrap; transition: all 0.12s; }
+    .fchip:hover { border-color: var(--c-border-2); color: var(--c-fg-2); }
+    .fchip.active { background: var(--c-accent-dim); border-color: var(--c-accent); color: var(--c-accent); }
+    .fchip .fc { display: inline; margin-left: 4px; font-size: 10.5px; opacity: 0.7; }
+
+    /* Results body */
+    .sr-body { overflow-y: auto; flex: 1; }
+
+    .result-group { padding: 0 16px 4px; }
+    .result-group + .result-group { border-top: 1px solid var(--c-border); padding-top: 4px; }
+
+    .group-label { display: flex; align-items: center; gap: 8px; padding: 10px 0 6px; font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--c-fg-3); }
+    .group-count { margin-left: auto; font-size: 10px; }
+
+    .result-item { display: flex; align-items: flex-start; gap: 10px; padding: 8px 10px; border-radius: var(--r-md); cursor: pointer; margin-bottom: 2px; transition: background 0.1s; }
+    .result-item:hover    { background: var(--c-surface-2); }
+    .result-item.selected { background: var(--c-surface-2); outline: 1px solid var(--c-accent-dim); }
+
+    /* Type badges */
+    .rtb { flex-shrink: 0; font-size: 9.5px; font-weight: 700; padding: 2px 6px; border-radius: 3px; text-transform: uppercase; letter-spacing: 0.4px; margin-top: 2px; }
+    .rtb-memory  { background: rgba(124,106,247,0.15); color: var(--c-accent); }
+    .rtb-sutra   { background: rgba(249,199,79,0.15);  color: var(--c-narad); }
+    .rtb-task    { background: rgba(74,222,128,0.12);  color: var(--c-parashurama); }
+    .rtb-audit   { background: rgba(245,158,11,0.12);  color: var(--c-warning); }
+    .rtb-session { background: rgba(56,189,248,0.12);  color: var(--c-matsya); }
+
+    .rc { flex: 1; min-width: 0; }
+    .rc-title   { font-size: 12.5px; font-weight: 600; color: var(--c-fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .rc-snippet { font-size: 11.5px; color: var(--c-fg-3); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .rc-meta    { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+    .rc-ts  { font-family: var(--f-mono); font-size: 10px; color: var(--c-fg-3); }
+    .rc-tag { font-size: 9.5px; padding: 1px 5px; border-radius: 3px; background: var(--c-surface-3); color: var(--c-fg-3); }
+
+    mark { background: var(--c-highlight); color: var(--c-accent); border-radius: 2px; padding: 0 1px; font-style: normal; }
+    .rc-snippet mark { color: var(--c-fg-2); }
+
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--c-border-2); border-radius: 3px; }
+  </style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header class="header">
+  <div class="logo">नारद <span>/ Narad</span></div>
+  <div class="search-bar">
+    <span class="search-icon">⌕</span>
+    <input type="text" value="budget GCP memory" />
+    <span class="search-clear">✕ clear</span>
+  </div>
+  <div class="avatar-chips">
+    <div class="chip matsya"><div class="chip-dot"></div>Matsya</div>
+    <div class="chip rama"><div class="chip-dot"></div>Rama</div>
+    <div class="chip krishna"><div class="chip-dot"></div>Krishna</div>
+    <div class="chip para"><div class="chip-dot"></div>Parashurama</div>
+  </div>
+</header>
+
+<!-- METRICS STRIP -->
+<div class="metrics-strip">
+  <div class="metric"><span class="m-label">Session</span><span class="m-val" style="font-family:var(--f-mono);font-size:11px;">s_7f3a…c291</span></div>
+  <div class="metric"><span class="m-label">Tokens</span><span class="m-val accent">4,218</span></div>
+  <div class="metric"><span class="m-label">Avg latency</span><span class="m-val">3.4s</span></div>
+  <div class="metric"><span class="m-label">Tool calls</span><span class="m-val">7</span></div>
+  <div class="metric"><span class="m-label">Compressions</span><span class="m-val compress">1</span></div>
+  <div class="metric"><span class="m-label">Scope warnings</span><span class="m-val warn">1</span></div>
+  <div class="metric"><span class="m-label">RRF recalls</span><span class="m-val">3</span></div>
+  <div class="metric"><span class="m-label">Sutras applied</span><span class="m-val">2</span></div>
+</div>
+
+<!-- TABS -->
+<nav class="tab-nav">
+  <div class="tab">Chat</div>
+  <div class="tab">Traces <span class="badge">4</span></div>
+  <div class="tab active">Memory <span class="badge">127</span></div>
+  <div class="tab">Tasks <span class="badge">3</span></div>
+  <div class="tab">Insights <span class="badge">12</span></div>
+</nav>
+
+<!-- MAIN -->
+<div class="main">
+
+  <!-- Background: Memory tab (shown dimmed under overlay) -->
+  <div class="memory-bg">
+    <div class="mem-sidebar">
+      <div class="mem-sidebar-title">Memory Stores</div>
+      <div class="mem-nav active">All memories <span class="mem-nav-count">127</span></div>
+      <div class="mem-nav">Finance <span class="mem-nav-count">34</span></div>
+      <div class="mem-nav">Planning <span class="mem-nav-count">28</span></div>
+      <div class="mem-nav">Code <span class="mem-nav-count">22</span></div>
+      <div class="mem-nav">Learner profile <span class="mem-nav-count">11</span></div>
+      <div class="mem-nav">Insights <span class="mem-nav-count">32</span></div>
+    </div>
+    <div class="mem-main">
+      <div class="mem-card">
+        <div class="mem-card-tag">finance</div>
+        <div class="mem-card-text">Monthly surplus $1,240 after rent, utilities, and food. GCP spend avg $68/mo over last 6 months.</div>
+        <div class="mem-card-meta">Rama · 2026-05-21 · s_7f3a…c291</div>
+      </div>
+      <div class="mem-card">
+        <div class="mem-card-tag">planning</div>
+        <div class="mem-card-text">LLM memory infrastructure project: evaluating TencentDB-style RRF fusion. GCP Cloud Run preferred over k8s for solo dev.</div>
+        <div class="mem-card-meta">Matsya · 2026-05-18 · s_4c2e…f810</div>
+      </div>
+      <div class="mem-card">
+        <div class="mem-card-tag">insight</div>
+        <div class="mem-card-text">User strongly prefers arxiv + GitHub as primary sources for ML research. Reject aggregator blogs.</div>
+        <div class="mem-card-meta">Matsya · 2026-05-14 · s_9d1b…a3c4</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Search Results Overlay -->
+  <div class="search-overlay">
+    <div class="sr-panel">
+      <div class="sr-header">
+        <div class="sr-query">
+          <span class="sr-query-label">Results for</span>
+          <span class="sr-query-term">"budget GCP memory"</span>
+          <span class="sr-count">18 results · 5 stores</span>
+        </div>
+        <div class="filter-chips">
+          <div class="fchip active">All <span class="fc">18</span></div>
+          <div class="fchip">Memories <span class="fc">7</span></div>
+          <div class="fchip">Sutras <span class="fc">4</span></div>
+          <div class="fchip">Tasks <span class="fc">3</span></div>
+          <div class="fchip">Audit <span class="fc">2</span></div>
+          <div class="fchip">Sessions <span class="fc">2</span></div>
+        </div>
+      </div>
+
+      <div class="sr-body">
+
+        <!-- MEMORIES -->
+        <div class="result-group">
+          <div class="group-label">🧠 Memories <span class="group-count">7 results</span></div>
+
+          <div class="result-item selected">
+            <span class="rtb rtb-memory">memory</span>
+            <div class="rc">
+              <div class="rc-title">Monthly surplus $1,240 · GCP spend <mark>budget</mark></div>
+              <div class="rc-snippet">Surplus after rent + utilities · avg GCP Cloud Run spend $68/mo · savings goal $12,000 remaining</div>
+              <div class="rc-meta">
+                <span class="rc-ts">2026-05-21</span>
+                <span class="rc-tag">finance</span>
+                <span class="rc-tag">Rama</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="result-item">
+            <span class="rtb rtb-memory">memory</span>
+            <div class="rc">
+              <div class="rc-title">LLM <mark>memory</mark> infrastructure on <mark>GCP</mark> — Cloud Run preferred</div>
+              <div class="rc-snippet">Evaluating TencentDB-style RRF fusion. GCP Cloud Run over k8s for solo dev workflow.</div>
+              <div class="rc-meta">
+                <span class="rc-ts">2026-05-18</span>
+                <span class="rc-tag">planning</span>
+                <span class="rc-tag">Matsya</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="result-item">
+            <span class="rtb rtb-memory">memory</span>
+            <div class="rc">
+              <div class="rc-title">Bear/base/bull overlay for <mark>GCP</mark> <mark>budget</mark> — $42/$68/$95 per month</div>
+              <div class="rc-snippet">Scenarios: Bear $42/mo · Base $68/mo · Bull $95/mo · probability 25% / 55% / 20%</div>
+              <div class="rc-meta">
+                <span class="rc-ts">2026-05-21</span>
+                <span class="rc-tag">finance</span>
+                <span class="rc-tag">Rama</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- SUTRAS -->
+        <div class="result-group">
+          <div class="group-label">✦ Sutras <span class="group-count">4 results</span></div>
+
+          <div class="result-item">
+            <span class="rtb rtb-sutra">sutra</span>
+            <div class="rc">
+              <div class="rc-title">Always show bear/base/bull scenarios for <mark>budget</mark> decisions</div>
+              <div class="rc-snippet">When user asks about financial feasibility, present three scenarios before committing to a plan.</div>
+              <div class="rc-meta">
+                <span class="rc-ts">2026-05-20</span>
+                <span class="rc-tag">Rama</span>
+                <span class="rc-tag" style="color:var(--c-narad);">score 0.94</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="result-item">
+            <span class="rtb rtb-sutra">sutra</span>
+            <div class="rc">
+              <div class="rc-title">Prefer arxiv + GitHub for <mark>GCP</mark> / ML infrastructure queries</div>
+              <div class="rc-snippet">Aggregator blogs and Medium articles rank lower. Prioritise primary docs + academic papers.</div>
+              <div class="rc-meta">
+                <span class="rc-ts">2026-05-14</span>
+                <span class="rc-tag">Matsya</span>
+                <span class="rc-tag" style="color:var(--c-narad);">score 0.89</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TASKS -->
+        <div class="result-group">
+          <div class="group-label">📋 Tasks <span class="group-count">3 results</span></div>
+
+          <div class="result-item">
+            <span class="rtb rtb-task">task</span>
+            <div class="rc">
+              <div class="rc-title">Set up <mark>GCP</mark> Cloud Run project for <mark>memory</mark> service</div>
+              <div class="rc-snippet">Status: backlog · Owner: Parashurama · Session s_4c2e…f810</div>
+              <div class="rc-meta">
+                <span class="rc-ts">2026-05-18</span>
+                <span class="rc-tag">backlog</span>
+                <span class="rc-tag">Parashurama</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="result-item">
+            <span class="rtb rtb-task">task</span>
+            <div class="rc">
+              <div class="rc-title">Compare <mark>GCP</mark> vs AWS costs for LanceDB vector store</div>
+              <div class="rc-snippet">Status: done · Owner: Matsya · Completed 2026-05-19</div>
+              <div class="rc-meta">
+                <span class="rc-ts">2026-05-19</span>
+                <span class="rc-tag">done</span>
+                <span class="rc-tag">Matsya</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- AUDIT -->
+        <div class="result-group">
+          <div class="group-label">🔍 Audit Events <span class="group-count">2 results</span></div>
+
+          <div class="result-item">
+            <span class="rtb rtb-audit">audit</span>
+            <div class="rc">
+              <div class="rc-title">Rama invoked — <mark>budget</mark> scenarios for <mark>GCP</mark></div>
+              <div class="rc-snippet">event: invocation · avatar: Rama · user: default · 2026-05-21 10:23:04</div>
+              <div class="rc-meta">
+                <span class="rc-ts">10:23:04</span>
+                <span class="rc-tag">invocation</span>
+                <span class="rc-tag">Rama</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="result-item">
+            <span class="rtb rtb-audit">audit</span>
+            <div class="rc">
+              <div class="rc-title">⚠ Scope warning — 'deploy' in Rama task matched Parashurama domain</div>
+              <div class="rc-snippet">event: scope_warning · matched_signals: ['deploy'] · avatar: Rama</div>
+              <div class="rc-meta">
+                <span class="rc-ts">10:23:04</span>
+                <span class="rc-tag">scope_warning</span>
+                <span class="rc-tag" style="color:var(--c-warning);">⚠ Rama</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- SESSIONS -->
+        <div class="result-group">
+          <div class="group-label">📂 Sessions <span class="group-count">2 results</span></div>
+
+          <div class="result-item">
+            <span class="rtb rtb-session">session</span>
+            <div class="rc">
+              <div class="rc-title"><mark>GCP</mark> <mark>memory</mark> research + <mark>budget</mark> planning session</div>
+              <div class="rc-snippet">Matsya + Rama · 4,218 tokens · 7.5s · 1 compression · 2026-05-21 10:23</div>
+              <div class="rc-meta">
+                <span class="rc-ts">2026-05-21</span>
+                <span class="rc-tag">s_7f3a…c291</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="result-item">
+            <span class="rtb rtb-session">session</span>
+            <div class="rc">
+              <div class="rc-title">LLM infra on <mark>GCP</mark> Cloud Run — architecture comparison</div>
+              <div class="rc-snippet">Matsya + Parashurama · 6,104 tokens · 11.2s · 2026-05-18 14:55</div>
+              <div class="rc-meta">
+                <span class="rc-ts">2026-05-18</span>
+                <span class="rc-tag">s_4c2e…f810</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /sr-body -->
+    </div><!-- /sr-panel -->
+  </div><!-- /search-overlay -->
+
+</div><!-- /main -->
+</body>
+</html>

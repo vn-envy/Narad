@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{DIGEST_TITLE|Weekly Digest}}</title>
+<style>
+  body{margin:0;padding:0;background:#f4f4f5;font-family:'Helvetica Neue',Arial,sans-serif;color:#18181b;}
+  .wrapper{max-width:600px;margin:32px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.06);}
+  .masthead{padding:28px 40px 20px;border-bottom:2px solid #18181b;display:flex;align-items:center;justify-content:space-between;}
+  .masthead .brand{font-size:18px;font-weight:800;letter-spacing:-.03em;color:#18181b;}
+  .masthead .edition{font-size:12px;color:#71717a;}
+  .intro{padding:24px 40px;border-bottom:1px solid #e4e4e7;}
+  .intro p{font-size:14px;line-height:1.6;color:#52525b;margin:0;}
+  /* Numbered items */
+  .items{padding:8px 40px 24px;}
+  .item{display:flex;gap:16px;padding:20px 0;border-bottom:1px solid #f4f4f5;}
+  .item:last-child{border-bottom:none;}
+  .item-num{font-size:28px;font-weight:900;color:#e4e4e7;line-height:1;flex-shrink:0;width:32px;text-align:right;}
+  .item-content{}
+  .item-tag{font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:{{ACCENT_COLOR|#4f46e5}};margin-bottom:5px;}
+  .item-title{font-size:16px;font-weight:700;margin:0 0 6px;line-height:1.3;}
+  .item-body{font-size:13px;color:#71717a;line-height:1.55;margin:0 0 8px;}
+  .item-link{font-size:12px;font-weight:600;color:{{ACCENT_COLOR|#4f46e5}};text-decoration:none;}
+  /* Quote section */
+  .quote-block{background:#f9fafb;padding:24px 40px;border-top:1px solid #e4e4e7;border-bottom:1px solid #e4e4e7;}
+  .quote-mark{font-size:48px;color:#e4e4e7;line-height:1;margin-bottom:-8px;font-family:Georgia,serif;}
+  .quote-text{font-size:17px;font-style:italic;color:#3f3f46;line-height:1.55;margin:0 0 10px;}
+  .quote-attr{font-size:12px;font-weight:600;color:#71717a;}
+  /* Footer */
+  .footer{padding:20px 40px;background:#f4f4f5;text-align:center;}
+  .footer p{font-size:12px;color:#a1a1aa;margin:0;line-height:1.6;}
+  .footer a{color:#71717a;}
+</style>
+</head>
+<body>
+<div class="wrapper">
+  <div class="masthead">
+    <div class="brand">{{BRAND|The Brief}}</div>
+    <div class="edition">{{EDITION_LABEL|Issue #{{ISSUE_NUM|42}}} · {{EDITION_DATE|21 May 2026}}</div>
+  </div>
+
+  <div class="intro">
+    <p>{{INTRO_TEXT|Welcome back. Here are the {{ITEM_COUNT|5}} things worth your attention this week — curated and condensed.}}</p>
+  </div>
+
+  <div class="items">
+    <div class="item">
+      <div class="item-num">01</div>
+      <div class="item-content">
+        <div class="item-tag">{{TAG_1|Highlight}}</div>
+        <div class="item-title">{{TITLE_1|First Item Headline}}</div>
+        <p class="item-body">{{BODY_1|Two to three sentences summarising what this is, why it matters, and what to do with it.}}</p>
+        <a class="item-link" href="{{LINK_1|#}}">{{LINK_LABEL_1|Read more →}}</a>
+      </div>
+    </div>
+
+    <div class="item">
+      <div class="item-num">02</div>
+      <div class="item-content">
+        <div class="item-tag">{{TAG_2|Analysis}}</div>
+        <div class="item-title">{{TITLE_2|Second Item Headline}}</div>
+        <p class="item-body">{{BODY_2|Two to three sentences. Keep it punchy — what changed, what it means for the reader.}}</p>
+        <a class="item-link" href="{{LINK_2|#}}">{{LINK_LABEL_2|Read more →}}</a>
+      </div>
+    </div>
+
+    <div class="item">
+      <div class="item-num">03</div>
+      <div class="item-content">
+        <div class="item-tag">{{TAG_3|Deep Dive}}</div>
+        <div class="item-title">{{TITLE_3|Third Item Headline}}</div>
+        <p class="item-body">{{BODY_3|This can go slightly longer — two to four sentences for a topic that needs a bit more setup.}}</p>
+        <a class="item-link" href="{{LINK_3|#}}">{{LINK_LABEL_3|Read more →}}</a>
+      </div>
+    </div>
+
+    <div class="item">
+      <div class="item-num">04</div>
+      <div class="item-content">
+        <div class="item-tag">{{TAG_4|Quick Take}}</div>
+        <div class="item-title">{{TITLE_4|Fourth Item Headline}}</div>
+        <p class="item-body">{{BODY_4|Short and snappy. One sentence if the story is self-evident.}}</p>
+        <a class="item-link" href="{{LINK_4|#}}">{{LINK_LABEL_4|Read more →}}</a>
+      </div>
+    </div>
+
+    <div class="item">
+      <div class="item-num">05</div>
+      <div class="item-content">
+        <div class="item-tag">{{TAG_5|Worth Watching}}</div>
+        <div class="item-title">{{TITLE_5|Fifth Item Headline}}</div>
+        <p class="item-body">{{BODY_5|A forward-looking item — something to keep an eye on over the coming weeks.}}</p>
+        <a class="item-link" href="{{LINK_5|#}}">{{LINK_LABEL_5|Read more →}}</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="quote-block">
+    <div class="quote-mark">"</div>
+    <p class="quote-text">{{QUOTE_TEXT|The measure of intelligence is the ability to change.}}</p>
+    <div class="quote-attr">— {{QUOTE_ATTR|Albert Einstein}}</div>
+  </div>
+
+  <div class="footer">
+    <p>{{ORG_NAME|Publication Name}} · {{ORG_CITY|City, Country}}<br>
+    <a href="{{UNSUBSCRIBE_URL|#}}">Unsubscribe</a> · <a href="{{ARCHIVE_URL|#}}">Past issues</a> · <a href="{{PRIVACY_URL|#}}">Privacy</a></p>
+  </div>
+</div>
+</body>
+</html>

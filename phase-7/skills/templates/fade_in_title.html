@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{TITLE}}</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: {{BG_COLOR|#0f0f1a}};
+    color: {{TEXT_COLOR|#f0f0f0}};
+    font-family: {{FONT|'Inter', 'Helvetica Neue', sans-serif}};
+    height: 100vh; width: 100vw;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden;
+  }
+  .stage {
+    text-align: center;
+    padding: 2rem;
+    max-width: 900px;
+  }
+  .eyebrow {
+    font-size: clamp(0.75rem, 1.5vw, 1rem);
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: {{ACCENT_COLOR|#7c6af7}};
+    opacity: 0;
+    transform: translateY(20px);
+    animation: rise 0.7s ease forwards;
+    animation-delay: 0.3s;
+  }
+  h1 {
+    font-size: clamp(2.5rem, 8vw, 7rem);
+    font-weight: 800;
+    line-height: 1.05;
+    letter-spacing: -0.03em;
+    opacity: 0;
+    transform: translateY(40px);
+    animation: rise 0.9s cubic-bezier(0.16,1,0.3,1) forwards;
+    animation-delay: 0.55s;
+    margin: 0.4em 0 0.3em;
+  }
+  .subtitle {
+    font-size: clamp(1rem, 2.5vw, 1.6rem);
+    font-weight: 400;
+    color: {{SUBTITLE_COLOR|#a0a0c0}};
+    opacity: 0;
+    transform: translateY(20px);
+    animation: rise 0.7s ease forwards;
+    animation-delay: 0.9s;
+    max-width: 600px;
+    margin: 0 auto;
+    line-height: 1.5;
+  }
+  .cta {
+    display: inline-block;
+    margin-top: 2.5rem;
+    padding: 0.8em 2.2em;
+    background: {{ACCENT_COLOR|#7c6af7}};
+    color: #fff;
+    border-radius: 100px;
+    font-weight: 600;
+    font-size: 1rem;
+    text-decoration: none;
+    opacity: 0;
+    transform: translateY(16px) scale(0.96);
+    animation: rise 0.6s ease forwards;
+    animation-delay: 1.2s;
+    transition: transform 0.2s, opacity 0.2s;
+  }
+  .cta:hover { transform: translateY(-2px) scale(1.02); }
+
+  @keyframes rise {
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  /* Background particle field */
+  .particles {
+    position: fixed; inset: 0; pointer-events: none; z-index: -1;
+  }
+  .dot {
+    position: absolute;
+    border-radius: 50%;
+    background: {{ACCENT_COLOR|#7c6af7}};
+    opacity: 0;
+    animation: float linear infinite;
+  }
+</style>
+</head>
+<body>
+<canvas class="particles" id="canvas"></canvas>
+<div class="stage">
+  <div class="eyebrow">{{EYEBROW|Introducing}}</div>
+  <h1>{{TITLE|Your Title Here}}</h1>
+  <p class="subtitle">{{SUBTITLE|A clear, compelling subtitle that sets the stage for what follows.}}</p>
+  <a class="cta" href="#">{{CTA_LABEL|Get Started}}</a>
+</div>
+
+<script>
+(function() {
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  const accent = '{{ACCENT_COLOR|#7c6af7}}';
+
+  function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+  }
+  resize();
+  window.addEventListener('resize', resize);
+
+  const dots = Array.from({length: 60}, () => ({
+    x: Math.random() * window.innerWidth,
+    y: Math.random() * window.innerHeight,
+    r: Math.random() * 2 + 0.5,
+    dx: (Math.random() - 0.5) * 0.4,
+    dy: -Math.random() * 0.5 - 0.2,
+    a: Math.random() * 0.4 + 0.05,
+  }));
+
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    dots.forEach(d => {
+      ctx.beginPath();
+      ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2);
+      ctx.fillStyle = accent;
+      ctx.globalAlpha = d.a;
+      ctx.fill();
+      d.x += d.dx;
+      d.y += d.dy;
+      if (d.y < -10) { d.y = canvas.height + 10; d.x = Math.random() * canvas.width; }
+      if (d.x < -10 || d.x > canvas.width + 10) d.dx *= -1;
+    });
+    ctx.globalAlpha = 1;
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
+</script>
+</body>
+</html>

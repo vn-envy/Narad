@@ -28,6 +28,13 @@ from typing import Any
 import sys as _sys_nc
 _sys_nc.path.insert(0, str(Path(__file__).parent.parent))
 from narad_config import WIKI_DIR
+from smriti_indexer import ensure_project_wiki_indexed
+from smriti_recall_ranker import build_project_memory_context
+try:
+    from context_governor import compact_text_block, count_text_tokens
+except Exception:
+    compact_text_block = None
+    count_text_tokens = None
 
 # ── Entity type → wiki page mapping ───────────────────────────────────────────
 
@@ -167,6 +174,10 @@ async def add_episode(
     entity_type = _classify_episode(avatar, task, result)
     entry = _format_wiki_entry(avatar, task, result)
     _append_to_wiki(user_id, entity_type, entry, project_id)
+    try:
+        ensure_project_wiki_indexed(user_id, project_id)
+    except Exception:
+        pass
 
     # Graphiti (optional layer)
     _init_graphiti()
@@ -184,7 +195,12 @@ async def add_episode(
 
 
 async def get_project_context(
-    user_id: str, query: str, top_n: int = 5, project_id: str = "general"
+    user_id: str,
+    query: str,
+    top_n: int = 5,
+    project_id: str = "general",
+    token_budget: int | None = None,
+    model: str | None = None,
 ) -> str:
     """
     Retrieve relevant project context for a query.
@@ -192,6 +208,17 @@ async def get_project_context(
     Tries Graphiti first (hybrid semantic + graph traversal);
     falls back to keyword scan of wiki Markdown pages for the given project.
     """
+    vector_packet = build_project_memory_context(
+        query=query,
+        user_id=user_id,
+        project_id=project_id,
+        token_budget=token_budget,
+        model=model or "deepseek/deepseek-v4-flash",
+        limit=top_n,
+    )
+    if vector_packet.get("text"):
+        return vector_packet["text"]
+
     # Graphiti path
     _init_graphiti()
     if _graphiti_enabled and _graphiti_client is not None:
@@ -220,8 +247,262 @@ async def get_project_context(
         return ""
 
     snippets = []
-    for _, entity, text in hits[:top_n]:
-        snippet = text[-400:].strip()
-        snippets.append(f"[{entity.upper()}]\n{snippet}")
+    query_words = set(re.findall(r"\w+", query.lower()))
 
-    return "[PROJECT MEMORY — from wiki]\n\n" + "\n\n---\n\n".join(snippets)
+    def _sections(text: str) -> list[str]:
+        if "\n## " not in text:
+            return [text.strip()]
+        parts = re.split(r"\n(?=##\s)", text)
+        return [part.strip() for part in parts if part.strip()]
+
+    for _, entity, text in hits[:top_n]:
+        ranked_sections: list[tuple[int, str]] = []
+        for section in _sections(text):
+            words = set(re.findall(r"\w+", section.lower()))
+            score = len(query_words & words)
+            if section.startswith("## "):
+                score += 1
+            ranked_sections.append((score, section))
+        ranked_sections.sort(key=lambda item: -item[0])
+        chosen = "\n\n".join(section for _, section in ranked_sections[:2]).strip()
+        snippets.append(f"[{entity.upper()}]\n{chosen}")
+
+    payload = "[PROJECT MEMORY — from wiki]\n\n" + "\n\n---\n\n".join(snippets)
+    if token_budget and model and compact_text_block is not None and count_text_tokens is not None:
+        if count_text_tokens(model, payload) > token_budget:
+            payload = compact_text_block(
+                payload,
+                model=model,
+                token_budget=token_budget,
+                query=query,
+                preserve_artifacts=True,
+            ).text
+    return payload
+
+
+# ── Smriti v3 — RRF Fusion Memory ─────────────────────────────────────────────
+# Inspired by TencentDB Agent Memory / RRF paper (Cormack et al. 2009)
+# Three retrieval signals merged via Reciprocal Rank Fusion (k=60):
+#   1. BM25-style keyword scoring against wiki pages (FTS5 approximate)
+#   2. Recency decay: newer entries rank higher when query terms match weakly
+#   3. Vector cosine similarity via LanceDB/smriti recall (graceful fallback)
+
+_L1_FACTS_DIR = WIKI_DIR / "_l1_facts"
+_L2_SCENARIOS_DIR = WIKI_DIR / "_l2_scenarios"
+_RRF_K = 60  # standard RRF smoothing constant
+
+
+def _bm25_score(query_words: set[str], doc_words: set[str], doc_len: int) -> float:
+    """Lightweight BM25-inspired relevance score (k1=1.5, b=0.75, avg_doc_len=300)."""
+    k1 = 1.5
+    b = 0.75
+    avg_dl = 300.0
+    score = 0.0
+    N = max(doc_len, 1)
+    for w in query_words:
+        tf = sum(1 for dw in doc_words if dw == w)
+        if tf == 0:
+            continue
+        idf = 1.0  # simplified — no global corpus stats
+        tf_norm = (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * N / avg_dl))
+        score += idf * tf_norm
+    return score
+
+
+def extract_l1_facts(
+    session_trace: str,
+    session_id: str = "",
+    avatar: str = "",
+    user_id: str = "default",
+    max_facts: int = 7,
+) -> list:
+    """Extract 3–7 atomic facts from a session trace using sentence scoring.
+
+    Scores each sentence by: lexical density + keyword signal words + length.
+    Returns the top-N sentences as Fact objects, stored to ~/.narad/project-memory/_l1_facts/.
+    """
+    from memory_schema import Fact
+    import uuid as _uuid
+
+    if not session_trace.strip():
+        return []
+
+    # Split into sentences (simple heuristic)
+    sentences = re.split(r'(?<=[.!?])\s+', session_trace.replace('\n', ' '))
+    sentences = [s.strip() for s in sentences if len(s.strip()) > 30]
+
+    # Score each sentence
+    signal_words = {
+        "decided", "conclusion", "result", "found", "discovered", "error",
+        "solution", "implemented", "created", "fixed", "plan", "goal",
+        "budget", "issue", "key", "important", "critical", "note",
+    }
+
+    def score(s: str) -> float:
+        words = re.findall(r"\w+", s.lower())
+        unique_ratio = len(set(words)) / max(len(words), 1)
+        signal_bonus = sum(0.5 for w in words if w in signal_words)
+        length_bonus = min(len(words) / 30.0, 1.0)  # favour ~30-word sentences
+        return unique_ratio + signal_bonus + length_bonus
+
+    scored = sorted(sentences, key=score, reverse=True)[:max_facts]
+
+    facts = []
+    for s in scored:
+        # Infer entity tags from content
+        text_lower = s.lower()
+        tags: list[str] = []
+        if any(kw in text_lower for kw in ["budget", "spend", "finance", "money", "goal", "income"]):
+            tags.append("finance")
+        if any(kw in text_lower for kw in ["learn", "study", "understand", "concept", "quiz", "teach"]):
+            tags.append("learner_profile")
+        if any(kw in text_lower for kw in ["code", "function", "class", "bug", "error", "deploy"]):
+            tags.append("code")
+        if any(kw in text_lower for kw in ["plan", "project", "milestone", "deadline", "task"]):
+            tags.append("planning")
+        if not tags:
+            tags.append("insight")
+
+        fact = Fact(
+            text=s[:200],
+            entity_tags=tags,
+            session_id=session_id or _uuid.uuid4().hex[:8],
+            avatar=avatar,
+            user_id=user_id,
+        )
+        facts.append(fact)
+
+    # Persist to disk (fire-and-forget)
+    try:
+        _L1_FACTS_DIR.mkdir(parents=True, exist_ok=True)
+        facts_path = _L1_FACTS_DIR / f"{user_id}.jsonl"
+        with open(facts_path, "a", encoding="utf-8") as f:
+            for fact in facts:
+                f.write(json.dumps(fact.to_dict(), ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+    return facts
+
+
+def cluster_l2_scenarios(
+    facts: list,
+    user_id: str = "default",
+) -> list:
+    """Cluster L1 facts into L2 scenarios by shared entity tags.
+
+    Facts sharing a majority of entity tags are grouped into one Scenario.
+    Each scenario's text is stored in LanceDB (if available) for vector search.
+    Returns list of Scenario objects.
+    """
+    from memory_schema import Scenario
+
+    if not facts:
+        return []
+
+    # Group by dominant tag
+    tag_groups: dict[str, list] = {}
+    for fact in facts:
+        dominant = fact.entity_tags[0] if fact.entity_tags else "insight"
+        tag_groups.setdefault(dominant, []).append(fact)
+
+    scenarios = []
+    for tag, fact_group in tag_groups.items():
+        if len(fact_group) < 2:
+            continue  # single facts don't need clustering
+        scenario = Scenario(topic=f"{tag} ({fact_group[0].session_id[:6]})",
+                            facts=fact_group, user_id=user_id)
+        scenarios.append(scenario)
+
+        # Persist
+        try:
+            _L2_SCENARIOS_DIR.mkdir(parents=True, exist_ok=True)
+            sc_path = _L2_SCENARIOS_DIR / f"{user_id}.jsonl"
+            with open(sc_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(scenario.to_dict(), ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+
+    return scenarios
+
+
+async def rrf_recall(
+    query: str,
+    user_id: str = "default",
+    top_k: int = 5,
+    project_id: str = "general",
+) -> list[str]:
+    """Retrieve the top-k most relevant memory snippets using RRF fusion.
+
+    Three retrieval signals:
+      1. BM25 keyword scoring of wiki Markdown pages
+      2. Recency decay (newer pages rank higher on ties)
+      3. Smriti v1 vector recall (LanceDB) — graceful fallback if unavailable
+
+    Returns:
+        List of up to top_k plain-text snippet strings, highest relevance first.
+        Empty list if no matching memories.
+    """
+    from memory_schema import merge_ranked
+
+    query_words = set(re.findall(r"\w+", query.lower()))
+    if not query_words:
+        return []
+
+    # ── Signal 1: BM25 over wiki pages ────────────────────────────────────────
+    d = _user_wiki_dir(user_id, project_id)
+    bm25_scored: list[tuple[float, str, str]] = []  # (score, page_id, text)
+
+    for p in sorted(d.glob("*.md"), key=lambda f: f.stat().st_mtime, reverse=True):
+        text = p.read_text()
+        doc_words = re.findall(r"\w+", text.lower())
+        score = _bm25_score(query_words, set(doc_words), len(doc_words))
+        if score > 0:
+            bm25_scored.append((score, p.stem, text))
+
+    bm25_scored.sort(key=lambda x: -x[0])
+    bm25_ids = [pid for _, pid, _ in bm25_scored]
+
+    # ── Signal 2: Recency (mtime of wiki pages, regardless of query score) ────
+    recency_ids = [p.stem for p in sorted(d.glob("*.md"),
+                   key=lambda f: f.stat().st_mtime, reverse=True)]
+
+    # ── Signal 3: Vector recall from smriti v1 (graceful fallback) ────────────
+    cosine_ids: list[str] = []
+    try:
+        import sys as _sys_sm
+        p1 = __import__("pathlib").Path(__file__).parent.parent / "phase-2"
+        if str(p1) not in _sys_sm.path:
+            _sys_sm.path.insert(0, str(p1))
+        from smriti import recall as _smriti_recall
+        _raw = _smriti_recall(query, user_id=user_id)
+        if _raw:
+            # Treat the entire recall result as one "doc" — rank it first
+            cosine_ids = ["_smriti_v1"]
+    except Exception:
+        pass
+
+    # ── RRF merge ─────────────────────────────────────────────────────────────
+    merged_ids = merge_ranked(bm25_ids, cosine_ids, recency_ids,
+                              k=_RRF_K, top_n=top_k)
+
+    # ── Build result snippets ─────────────────────────────────────────────────
+    snippets: list[str] = []
+    page_texts = {pid: txt for _, pid, txt in bm25_scored}
+
+    for doc_id in merged_ids:
+        if doc_id == "_smriti_v1":
+            try:
+                from smriti import recall as _r
+                v1 = _r(query, user_id=user_id)
+                if v1:
+                    snippets.append(v1[:600])
+            except Exception:
+                pass
+        elif doc_id in page_texts:
+            text = page_texts[doc_id]
+            # Return the most relevant section (last 400 chars tends to be most recent)
+            snippet = text[-400:].strip()
+            snippets.append(f"[{doc_id.upper()}]\n{snippet}")
+
+    return snippets[:top_k]

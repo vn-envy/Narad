@@ -1,0 +1,13 @@
+{
+  "name": "baseline_narad_legacy",
+  "captured_on": "2026-05-31",
+  "legacy_direct_memory_imports": 6,
+  "legacy_writer_count": 5,
+  "baseline_unit_tests": 12,
+  "baseline_unit_test_breakdown": {
+    "phase-1": 6,
+    "phase-2": 2,
+    "phase-8": 4
+  },
+  "notes": "Measured from Narad immediately before the cultural-core refactor."
+}

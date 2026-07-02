@@ -1,5 +1,5 @@
 """
-Health anomaly detection for Vamana's health log analysis.
+Health anomaly detection for Rama's health log analysis.
 
 Primary path: statistical z-score analysis (no extra dependencies).
 Enhanced path: IBM Granite TinyTimeMixer (tsfm-public) zero-shot forecasting,

@@ -1,0 +1,62 @@
+{
+  "version": "4-agent-v1",
+  "architecture": {
+    "canonical_agent_count": 4,
+    "model": "four-agent",
+    "cultural_mode": "runtime-semantics"
+  },
+  "agents": [
+    {
+      "name": "Matsya",
+      "description": "Retrieval, document understanding, analysis, and local information access.",
+      "disciplines": ["retrieval", "documents", "analysis", "local-information"],
+      "tool_families": ["search", "browser", "documents", "filesystem", "http"],
+      "routing_hints": ["current information", "documents", "research", "analysis"],
+      "ui": {
+        "deva": "मत्स्य",
+        "abbrev": "Ma",
+        "color": "#065f46",
+        "rgb": "6,95,70"
+      }
+    },
+    {
+      "name": "Rama",
+      "description": "Planning, calendar, finance, and health logging.",
+      "disciplines": ["planning", "calendar", "finance", "health-logging"],
+      "tool_families": ["calendar", "finance", "health", "planning"],
+      "routing_hints": ["plans", "sops", "budgets", "tracking"],
+      "ui": {
+        "deva": "राम",
+        "abbrev": "Ra",
+        "color": "#2d2a26",
+        "rgb": "45,42,38"
+      }
+    },
+    {
+      "name": "Krishna",
+      "description": "Communication, education, media creation, and wellness guidance.",
+      "disciplines": ["communication", "education", "media", "wellness-triage"],
+      "tool_families": ["email", "media", "documents", "presentation", "tts"],
+      "routing_hints": ["email", "teaching", "presentations", "wellness"],
+      "ui": {
+        "deva": "कृष्ण",
+        "abbrev": "Kr",
+        "color": "#0f766e",
+        "rgb": "15,118,110"
+      }
+    },
+    {
+      "name": "Parashurama",
+      "description": "Engineering, shell, SQL, automation, and execution-oriented systems work.",
+      "disciplines": ["engineering", "shell", "sql", "automation"],
+      "tool_families": ["shell", "sql", "automation", "filesystem", "media"],
+      "routing_hints": ["code", "debugging", "scripts", "automation"],
+      "ui": {
+        "deva": "परशुराम",
+        "abbrev": "Pa",
+        "color": "#57534e",
+        "rgb": "87,83,78"
+      }
+    }
+  ]
+}

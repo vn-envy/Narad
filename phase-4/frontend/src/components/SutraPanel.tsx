@@ -6,8 +6,8 @@ import { Separator } from '@/components/ui/separator'
 import { ZigzagBank } from './Motifs'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
-
-const API = 'http://localhost:8000'
+import { apiFetch, apiUrl } from '@/lib/api'
+import { avatarColour, AVATAR_COLOURS } from '@/lib/avatara-constants'
 
 interface Sutra {
   id: string
@@ -33,17 +33,6 @@ interface Sankalpa {
   source_count: number
   status: 'pending' | 'active' | 'reverted'
   cooldown_remaining: string | null
-}
-
-const AVATAR_COLOURS: Record<string, string> = {
-  Matsya:      '#065f46',
-  Varaha:      '#c2410c',
-  Narasimha:   '#c2410c',
-  Rama:        '#2d2a26',
-  Krishna:     '#065f46',
-  Buddha:      '#92610a',
-  Parashurama: '#57534e',
-  __global__:  '#78716c',
 }
 
 const PATTERN_TYPE_LABELS: Record<string, string> = {
@@ -114,21 +103,21 @@ function SutraLegend() {
         <div className="flex items-center gap-1.5">
           <span className="text-chip px-1.5 py-px rounded organic-border whitespace-nowrap"
             style={{ background: 'rgba(6,95,70,0.08)', color: '#065f46', borderColor: 'rgba(6,95,70,0.30)' }}>
-            score ≥ 0.75
+            meets Tapas threshold
           </span>
-          <span className="font-body text-[10px] opacity-65 leading-tight" style={{ color: 'var(--kajal)' }}>Tapas promotes to Sutra — enters cooldown</span>
+          <span className="font-body text-[10px] opacity-65 leading-tight" style={{ color: 'var(--kajal)' }}>Tapas promotes to Sutra, then it auto-promotes after cooldown unless you intervene.</span>
         </div>
         <div className="flex items-center gap-1.5">
           <span className="text-chip px-1.5 py-px rounded organic-border whitespace-nowrap"
             style={{ background: 'rgba(45,42,38,0.06)', color: 'var(--kajal)', borderColor: 'rgba(45,42,38,0.25)' }}>
-            Accept
+            Approve
           </span>
           <span className="font-body text-[10px] opacity-65 leading-tight" style={{ color: 'var(--kajal)' }}>Skip cooldown — starts influencing responses now</span>
         </div>
         <div className="flex items-center gap-1.5">
           <span className="text-chip px-1.5 py-px rounded organic-border whitespace-nowrap"
             style={{ background: 'rgba(194,65,12,0.08)', color: 'var(--sindoor)', borderColor: 'rgba(194,65,12,0.30)' }}>
-            Revert
+            Reject
           </span>
           <span className="font-body text-[10px] opacity-65 leading-tight" style={{ color: 'var(--kajal)' }}>Reject permanently — removed from all future context</span>
         </div>
@@ -176,7 +165,7 @@ function SutraCard({ sutra, actioning, onAccept, onRevert, showActions, dim }: {
   showActions?: boolean
   dim?: boolean
 }) {
-  const avatarColor = AVATAR_COLOURS[sutra.avatar] ?? 'var(--kajal)'
+  const avatarColor = avatarColour(sutra.avatar, 'var(--kajal)')
 
   return (
     <div className={cn(
@@ -226,7 +215,7 @@ function SutraCard({ sutra, actioning, onAccept, onRevert, showActions, dim }: {
               className="h-[22px] text-[9px] px-2.5 label-hero border-0 hover:opacity-90 rounded"
               style={{ background: 'var(--kajal)', color: 'var(--paper)' }}
             >
-              Accept ▲
+              Approve ▲
             </Button>
           )}
           {onRevert && (
@@ -238,7 +227,7 @@ function SutraCard({ sutra, actioning, onAccept, onRevert, showActions, dim }: {
               className="h-[22px] text-[9px] px-2.5 label-hero hover:bg-sindoor/10 rounded organic-border"
               style={{ borderColor: 'rgba(194,65,12,0.40)', color: 'var(--sindoor)' }}
             >
-              Revert ↩
+              Reject ↩
             </Button>
           )}
         </div>
@@ -254,7 +243,7 @@ function SutraCard({ sutra, actioning, onAccept, onRevert, showActions, dim }: {
             className="h-5 text-[9px] px-2 label-hero opacity-70 hover:opacity-100 hover:bg-sindoor/10 rounded organic-border"
             style={{ borderColor: 'rgba(194,65,12,0.35)', color: 'var(--sindoor)' }}
           >
-            Revert
+            Reject
           </Button>
         </div>
       )}
@@ -280,7 +269,7 @@ function SankalpаCard({ sankalpa, actioning, onAccept, onRevert, showActions, d
   showActions?: boolean
   dim?: boolean
 }) {
-  const avatarColor   = AVATAR_COLOURS[sankalpa.avatar] ?? '#78716c'
+  const avatarColor   = avatarColour(sankalpa.avatar, '#78716c')
   const patternColor  = PATTERN_COLOURS[sankalpa.pattern_type] ?? '#78716c'
   const displayAvatar = sankalpa.avatar === '__global__' ? 'Global' : sankalpa.avatar
 
@@ -345,7 +334,7 @@ function SankalpаCard({ sankalpa, actioning, onAccept, onRevert, showActions, d
               className="h-[22px] text-[9px] px-2.5 label-hero border-0 hover:opacity-90 rounded"
               style={{ background: 'var(--kajal)', color: 'var(--paper)' }}
             >
-              Accept ▲
+              Approve ▲
             </Button>
           )}
           {onRevert && (
@@ -357,7 +346,7 @@ function SankalpаCard({ sankalpa, actioning, onAccept, onRevert, showActions, d
               className="h-[22px] text-[9px] px-2.5 label-hero hover:bg-sindoor/10 rounded organic-border"
               style={{ borderColor: 'rgba(194,65,12,0.40)', color: 'var(--sindoor)' }}
             >
-              Revert ↩
+              Reject ↩
             </Button>
           )}
         </div>
@@ -373,7 +362,7 @@ function SankalpаCard({ sankalpa, actioning, onAccept, onRevert, showActions, d
             className="h-5 text-[9px] px-2 label-hero opacity-70 hover:opacity-100 hover:bg-sindoor/10 rounded organic-border"
             style={{ borderColor: 'rgba(194,65,12,0.35)', color: 'var(--sindoor)' }}
           >
-            Revert
+            Reject
           </Button>
         </div>
       )}
@@ -643,10 +632,11 @@ export function SutraPanel({
   const [karma, setKarma]           = useState<KarmaSummary | null>(null)
   const [loading, setLoading]       = useState(true)
   const [actioning, setActioning]   = useState<string | null>(null)
+  const [revertConfirm, setRevertConfirm] = useState<string | null>(null)
 
   const loadSutras = useCallback(async () => {
     try {
-      const res = await fetch(`${API}/sutras`)
+      const res = await apiFetch('/sutras')
       const data = await res.json()
       setSutras(data.sutras ?? [])
     } catch { /* server not ready */ }
@@ -654,7 +644,7 @@ export function SutraPanel({
 
   const loadSankalpas = useCallback(async () => {
     try {
-      const res = await fetch(`${API}/sankalpa?user_id=${userId}`)
+      const res = await apiFetch(apiUrl('/sankalpa', { user_id: userId }))
       const data = await res.json()
       setSankalpas(data.sankalpas ?? [])
     } catch { /* server not ready */ }
@@ -662,7 +652,7 @@ export function SutraPanel({
 
   const loadKarma = useCallback(async () => {
     try {
-      const res = await fetch(`${API}/karma`)
+      const res = await apiFetch('/karma')
       const data = await res.json()
       setKarma(data)
     } catch { /* server not ready */ }
@@ -683,9 +673,9 @@ export function SutraPanel({
   async function actSutra(id: string, action: 'accept' | 'revert') {
     setActioning(id)
     try {
-      const res = await fetch(`${API}/sutras/${id}/${action}`, { method: 'POST' })
+      const res = await apiFetch(`/sutras/${id}/${action}`, { method: 'POST' })
       if (!res.ok) throw new Error(await res.text())
-      toast.success(action === 'accept' ? 'Sutra accepted — active immediately' : 'Sutra reverted')
+      toast.success(action === 'accept' ? 'Sutra approved — active immediately' : 'Sutra rejected')
       await loadSutras()
     } catch (e) {
       toast.error(`Failed: ${e}`)
@@ -697,14 +687,21 @@ export function SutraPanel({
   async function actSankalpa(id: string, action: 'accept' | 'revert') {
     setActioning(id)
     try {
-      const res = await fetch(`${API}/sankalpa/${id}/${action}?user_id=${userId}`, { method: 'POST' })
+      const res = await apiFetch(apiUrl(`/sankalpa/${id}/${action}`, { user_id: userId }), { method: 'POST' })
       if (!res.ok) throw new Error(await res.text())
-      toast.success(action === 'accept' ? 'Style pattern active immediately' : 'Pattern reverted — will not be injected')
+      toast.success(action === 'accept' ? 'Style pattern approved — active immediately' : 'Pattern rejected — will not be injected')
       await loadSankalpas()
     } catch (e) {
       toast.error(`Failed: ${e}`)
     } finally {
       setActioning(null)
+    }
+  }
+
+  async function acceptAllPending() {
+    const pending = sutras.filter(s => s.status === 'pending')
+    for (const s of pending) {
+      await actSutra(s.id, 'accept')
     }
   }
 
@@ -811,14 +808,39 @@ export function SutraPanel({
                 )}
 
                 {pendingSutras.length > 0 && (
-                  <SectionLabel label="Pending Review" count={pendingSutras.length} accent="#c2410c" />
+                  <div className="flex items-center justify-between pr-1">
+                    <SectionLabel label="Pending Review" count={pendingSutras.length} accent="#c2410c" />
+                    {pendingSutras.length > 1 && (
+                      <button
+                        onClick={acceptAllPending}
+                        disabled={!!actioning}
+                        className="text-[10px] px-2 py-0.5 rounded transition-opacity opacity-60 hover:opacity-100 disabled:opacity-30"
+                        style={{ color: '#065f46', border: '1px solid #065f46', background: 'rgba(6,95,70,0.06)' }}
+                      >
+                        Approve all ({pendingSutras.length})
+                      </button>
+                    )}
+                  </div>
                 )}
                 {pendingSutras.map(s => (
                   <SutraCard key={s.id} sutra={s} actioning={actioning === s.id}
                     onAccept={() => actSutra(s.id, 'accept')}
-                    onRevert={() => actSutra(s.id, 'revert')}
+                    onRevert={() => {
+                      if (revertConfirm === s.id) {
+                        setRevertConfirm(null)
+                        actSutra(s.id, 'revert')
+                      } else {
+                        setRevertConfirm(s.id)
+                        setTimeout(() => setRevertConfirm(c => c === s.id ? null : c), 4000)
+                      }
+                    }}
                     showActions />
                 ))}
+                {revertConfirm && pendingSutras.some(s => s.id === revertConfirm) && (
+                  <p className="text-[10px] px-3 py-1 rounded mx-2 mb-1" style={{ background: 'rgba(194,65,12,0.12)', color: '#c2410c' }}>
+                    Click Reject ↩ again to confirm — this removes the pattern from future context.
+                  </p>
+                )}
 
                 {activeSutras.length > 0 && (
                   <>
@@ -828,8 +850,22 @@ export function SutraPanel({
                 )}
                 {activeSutras.map(s => (
                   <SutraCard key={s.id} sutra={s} actioning={actioning === s.id}
-                    onRevert={() => actSutra(s.id, 'revert')} showActions={false} />
+                    onRevert={() => {
+                      if (revertConfirm === s.id) {
+                        setRevertConfirm(null)
+                        actSutra(s.id, 'revert')
+                      } else {
+                        setRevertConfirm(s.id)
+                        setTimeout(() => setRevertConfirm(c => c === s.id ? null : c), 4000)
+                      }
+                    }}
+                    showActions={false} />
                 ))}
+                {revertConfirm && activeSutras.some(s => s.id === revertConfirm) && (
+                  <p className="text-[10px] px-3 py-1 rounded mx-2 mb-1" style={{ background: 'rgba(194,65,12,0.12)', color: '#c2410c' }}>
+                    Click Reject ↩ again to confirm — this removes the pattern from all future context.
+                  </p>
+                )}
 
                 {revertedSutras.length > 0 && (
                   <>

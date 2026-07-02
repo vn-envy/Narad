@@ -1,5 +1,5 @@
 """
-Varaha document extraction skill — IBM Docling.
+Matsya document extraction skill — IBM Docling.
 
 Replaces raw PyMuPDF/text extraction with Docling, which correctly handles:
   - Multi-column PDF layouts

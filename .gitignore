@@ -49,3 +49,8 @@ phase-6/session_log.jsonl
 
 # Test/generated artifacts
 output/
+outputs/
+phase-7/outputs/
+
+# Git recovery artifacts
+*.lock.stale

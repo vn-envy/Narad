@@ -1,0 +1,411 @@
+{
+  "version": "0.1",
+  "description": "50 test prompts for Phase 0a routing accuracy evaluation. Ground truth labels represent the ideal routing by a human expert. Scoring: avatar set match (primary), mode match (secondary).",
+  "scoring_notes": {
+    "exact_match": "All expected avatars present, no extra avatars, correct mode",
+    "partial_match": "All expected avatars present but extra avatar added OR mode wrong",
+    "miss": "At least one expected avatar missing"
+  },
+  "prompts": [
+    {
+      "id": 1,
+      "query": "What are the current mortgage interest rates in India for 2024?",
+      "expected_avatars": ["Matsya"],
+      "expected_mode": "sequential",
+      "category": "single_matsya",
+      "notes": "Pure factual lookup requiring current data"
+    },
+    {
+      "id": 2,
+      "query": "Find me the top 5 co-working spaces in Bangalore with prices",
+      "expected_avatars": ["Matsya"],
+      "expected_mode": "sequential",
+      "category": "single_matsya",
+      "notes": "Local search with structured results"
+    },
+    {
+      "id": 3,
+      "query": "What did RBI announce in its last monetary policy meeting?",
+      "expected_avatars": ["Matsya"],
+      "expected_mode": "sequential",
+      "category": "single_matsya",
+      "notes": "Recent news retrieval"
+    },
+    {
+      "id": 4,
+      "query": "Find recent papers on mixture-of-experts LLM architectures from 2024",
+      "expected_avatars": ["Matsya"],
+      "expected_mode": "sequential",
+      "category": "single_matsya",
+      "notes": "Academic literature search"
+    },
+    {
+      "id": 5,
+      "query": "What are the visa requirements for Indians travelling to Japan?",
+      "expected_avatars": ["Matsya"],
+      "expected_mode": "sequential",
+      "category": "single_matsya",
+      "notes": "Current regulatory information lookup"
+    },
+    {
+      "id": 6,
+      "query": "I have a 120-page SEBI circular on mutual fund regulations. Extract all the key compliance deadlines and organise them by date.",
+      "expected_avatars": ["Varaha"],
+      "expected_mode": "sequential",
+      "category": "single_varaha",
+      "notes": "Long-document deep extraction"
+    },
+    {
+      "id": 7,
+      "query": "Read through this 80-page due diligence report and give me the three most material risks the buyer should be aware of.",
+      "expected_avatars": ["Varaha"],
+      "expected_mode": "sequential",
+      "category": "single_varaha",
+      "notes": "Synthesis from long document"
+    },
+    {
+      "id": 8,
+      "query": "I'm attaching 15 customer interview transcripts. Identify the top 5 recurring pain points mentioned across all of them.",
+      "expected_avatars": ["Varaha"],
+      "expected_mode": "sequential",
+      "category": "single_varaha",
+      "notes": "Multi-document pattern extraction"
+    },
+    {
+      "id": 9,
+      "query": "Here are 6 months of sales data exports (CSV). Find the anomalies and explain what's driving the Q3 dip.",
+      "expected_avatars": ["Varaha"],
+      "expected_mode": "sequential",
+      "category": "single_varaha",
+      "notes": "Deep data extraction and pattern finding"
+    },
+    {
+      "id": 10,
+      "query": "Compare these three term sheets side by side and flag every clause where they materially differ.",
+      "expected_avatars": ["Varaha"],
+      "expected_mode": "sequential",
+      "category": "single_varaha",
+      "notes": "Multi-document comparison and extraction"
+    },
+    {
+      "id": 11,
+      "query": "My Python script throws `RecursionError: maximum recursion depth exceeded` but only on certain input sizes. Help me find the bug.",
+      "expected_avatars": ["Narasimha"],
+      "expected_mode": "sequential",
+      "category": "single_narasimha",
+      "notes": "Debugging a specific runtime error"
+    },
+    {
+      "id": 12,
+      "query": "My React app works in Chrome but crashes in Safari. It's a blank white screen with no console errors.",
+      "expected_avatars": ["Narasimha"],
+      "expected_mode": "sequential",
+      "category": "single_narasimha",
+      "notes": "Cross-browser edge case debugging"
+    },
+    {
+      "id": 13,
+      "query": "I've been stuck on this Kubernetes pod that keeps crashing on startup for 3 days. OOMKilled but memory limits look correct.",
+      "expected_avatars": ["Narasimha"],
+      "expected_mode": "sequential",
+      "category": "single_narasimha",
+      "notes": "Stuck-state infrastructure debugging"
+    },
+    {
+      "id": 14,
+      "query": "My SQL query runs in 200ms on staging but takes 45 seconds on prod. Same data volume.",
+      "expected_avatars": ["Narasimha"],
+      "expected_mode": "sequential",
+      "category": "single_narasimha",
+      "notes": "Performance bug root cause"
+    },
+    {
+      "id": 15,
+      "query": "My API is returning 429 rate limit errors intermittently. The retry logic I wrote isn't working. Walk me through diagnosing this.",
+      "expected_avatars": ["Narasimha"],
+      "expected_mode": "sequential",
+      "category": "single_narasimha",
+      "notes": "Intermittent bug diagnosis"
+    },
+    {
+      "id": 16,
+      "query": "Create a step-by-step SOP for onboarding a new contractor: background check, NDA signing, tool access, first-week schedule.",
+      "expected_avatars": ["Rama"],
+      "expected_mode": "sequential",
+      "category": "single_rama",
+      "notes": "Structured workflow / SOP creation"
+    },
+    {
+      "id": 17,
+      "query": "I need a checklist for deploying a new microservice to production: all the gates, sign-offs, and rollback steps.",
+      "expected_avatars": ["Rama"],
+      "expected_mode": "sequential",
+      "category": "single_rama",
+      "notes": "Sequential deployment workflow"
+    },
+    {
+      "id": 18,
+      "query": "Walk me through the steps for filing a GST return for my small business — from gathering invoices to final submission.",
+      "expected_avatars": ["Rama"],
+      "expected_mode": "sequential",
+      "category": "single_rama",
+      "notes": "Regulatory sequential workflow"
+    },
+    {
+      "id": 19,
+      "query": "Build me a project plan for launching a B2B SaaS product: from MVP definition to first paid customer, with milestones.",
+      "expected_avatars": ["Rama"],
+      "expected_mode": "sequential",
+      "category": "single_rama",
+      "notes": "Structured multi-step planning"
+    },
+    {
+      "id": 20,
+      "query": "Create a runbook for incident response: what to do the moment an alert fires at 3am.",
+      "expected_avatars": ["Rama"],
+      "expected_mode": "sequential",
+      "category": "single_rama",
+      "notes": "Operational runbook / SOP"
+    },
+    {
+      "id": 21,
+      "query": "Write a cold email to a Series A investor introducing my fintech startup. Make it compelling but not salesy.",
+      "expected_avatars": ["Krishna"],
+      "expected_mode": "sequential",
+      "category": "single_krishna",
+      "notes": "Persuasive communication drafting"
+    },
+    {
+      "id": 22,
+      "query": "I need to tell my team we're pivoting the product direction. Write a message that's honest, reassuring, and energising.",
+      "expected_avatars": ["Krishna"],
+      "expected_mode": "sequential",
+      "category": "single_krishna",
+      "notes": "Internal multi-stakeholder messaging"
+    },
+    {
+      "id": 23,
+      "query": "Draft a LinkedIn post announcing our Series A funding round — warm, genuine, celebrating the team.",
+      "expected_avatars": ["Krishna"],
+      "expected_mode": "sequential",
+      "category": "single_krishna",
+      "notes": "Public-facing announcement drafting"
+    },
+    {
+      "id": 24,
+      "query": "My enterprise client is unhappy about a delayed delivery. Write a response that acknowledges the issue and rebuilds trust.",
+      "expected_avatars": ["Krishna"],
+      "expected_mode": "sequential",
+      "category": "single_krishna",
+      "notes": "Client communication / damage control"
+    },
+    {
+      "id": 25,
+      "query": "Write a product launch email sequence (3 emails) for a new feature — teaser, launch day, and follow-up.",
+      "expected_avatars": ["Krishna"],
+      "expected_mode": "sequential",
+      "category": "single_krishna",
+      "notes": "Multi-part communication drafting"
+    },
+    {
+      "id": 26,
+      "query": "Is my reasoning correct here: if I lower prices by 20% and volume increases by 30%, I'm net positive on revenue?",
+      "expected_avatars": ["Buddha"],
+      "expected_mode": "sequential",
+      "category": "single_buddha",
+      "notes": "Logical reasoning check / evaluation"
+    },
+    {
+      "id": 27,
+      "query": "Review my argument for why we should hire before we have the funding secured. Tell me what's wrong with it.",
+      "expected_avatars": ["Buddha"],
+      "expected_mode": "sequential",
+      "category": "single_buddha",
+      "notes": "Critique of reasoning"
+    },
+    {
+      "id": 28,
+      "query": "I'm about to make a major architectural decision: monolith vs microservices for our 3-person team. Help me think through the tradeoffs.",
+      "expected_avatars": ["Buddha"],
+      "expected_mode": "sequential",
+      "category": "single_buddha",
+      "notes": "Structured reasoning / tradeoff evaluation"
+    },
+    {
+      "id": 29,
+      "query": "What assumptions am I making when I say 'our users want more features'? Which ones are dangerous?",
+      "expected_avatars": ["Buddha"],
+      "expected_mode": "sequential",
+      "category": "single_buddha",
+      "notes": "Assumption surfacing"
+    },
+    {
+      "id": 30,
+      "query": "Play devil's advocate on my business plan. What are the 3 most likely ways this fails in year 1?",
+      "expected_avatars": ["Buddha"],
+      "expected_mode": "sequential",
+      "category": "single_buddha",
+      "notes": "Adversarial critique / red-team"
+    },
+    {
+      "id": 31,
+      "query": "Refactor this Python function to use async/await and add proper error handling.",
+      "expected_avatars": ["Parashurama"],
+      "expected_mode": "sequential",
+      "category": "single_parashurama",
+      "notes": "Code refactoring"
+    },
+    {
+      "id": 32,
+      "query": "I need to migrate our authentication system from JWT stored in localStorage to httpOnly cookies across 12 files.",
+      "expected_avatars": ["Parashurama"],
+      "expected_mode": "sequential",
+      "category": "single_parashurama",
+      "notes": "Multi-file codebase migration"
+    },
+    {
+      "id": 33,
+      "query": "Write unit tests for this Express.js middleware. Cover happy path, error cases, and edge cases.",
+      "expected_avatars": ["Parashurama"],
+      "expected_mode": "sequential",
+      "category": "single_parashurama",
+      "notes": "Test writing"
+    },
+    {
+      "id": 34,
+      "query": "Convert this REST API to use GraphQL. The schema has 8 entity types.",
+      "expected_avatars": ["Parashurama"],
+      "expected_mode": "sequential",
+      "category": "single_parashurama",
+      "notes": "Large-scale API refactoring"
+    },
+    {
+      "id": 35,
+      "query": "Review my pull request diff and tell me if there are any security vulnerabilities.",
+      "expected_avatars": ["Parashurama"],
+      "expected_mode": "sequential",
+      "category": "single_parashurama",
+      "notes": "Code review / security audit"
+    },
+    {
+      "id": 36,
+      "query": "Research the current state of open-source vector databases, then write a comparison blog post for a developer audience.",
+      "expected_avatars": ["Matsya", "Krishna"],
+      "expected_mode": "sequential",
+      "category": "multi_avatar",
+      "notes": "Research (Matsya) then draft (Krishna) — classic sequential pair"
+    },
+    {
+      "id": 37,
+      "query": "Find the latest funding data for Indian climate-tech startups and draft a LinkedIn post about the trend.",
+      "expected_avatars": ["Matsya", "Krishna"],
+      "expected_mode": "sequential",
+      "category": "multi_avatar",
+      "notes": "Research then communication"
+    },
+    {
+      "id": 38,
+      "query": "I have a 200-page industry report on Indian EV adoption. Summarise the key findings, then write a 500-word op-ed I can publish.",
+      "expected_avatars": ["Varaha", "Krishna"],
+      "expected_mode": "sequential",
+      "category": "multi_avatar",
+      "notes": "Extract (Varaha) then write (Krishna)"
+    },
+    {
+      "id": 39,
+      "query": "Find recent research on transformer attention mechanisms, read it carefully, then explain whether our current architecture is outdated.",
+      "expected_avatars": ["Matsya", "Varaha"],
+      "expected_mode": "sequential",
+      "category": "multi_avatar",
+      "notes": "Find (Matsya) then deep-read and synthesise (Varaha)"
+    },
+    {
+      "id": 40,
+      "query": "Implement a Redis cache layer for our user sessions, then review the implementation for security issues.",
+      "expected_avatars": ["Parashurama", "Buddha"],
+      "expected_mode": "sequential",
+      "category": "multi_avatar",
+      "notes": "Implement (Parashurama) then critique (Buddha)"
+    },
+    {
+      "id": 41,
+      "query": "I need to launch a new product feature next week: write the internal announcement, the customer email, and the Twitter thread.",
+      "expected_avatars": ["Krishna"],
+      "expected_mode": "sequential",
+      "category": "multi_surface_single_avatar",
+      "notes": "Three outputs but all drafting/communication — Krishna can handle all"
+    },
+    {
+      "id": 42,
+      "query": "Research what competitors are charging for their API plans, then help me set our pricing.",
+      "expected_avatars": ["Matsya", "Buddha"],
+      "expected_mode": "sequential",
+      "category": "multi_avatar",
+      "notes": "Research (Matsya) then structured reasoning on pricing (Buddha)"
+    },
+    {
+      "id": 43,
+      "query": "My Node.js server is leaking memory in production. It crashes every 6 hours. I've been stuck for a week.",
+      "expected_avatars": ["Narasimha"],
+      "expected_mode": "sequential",
+      "category": "single_narasimha",
+      "notes": "Stuck-state debugging — Narasimha alone, not multi-avatar"
+    },
+    {
+      "id": 44,
+      "query": "Research how YC companies typically structure their Series A terms, then evaluate whether the term sheet I have is fair.",
+      "expected_avatars": ["Matsya", "Buddha"],
+      "expected_mode": "sequential",
+      "category": "multi_avatar",
+      "notes": "Find benchmarks (Matsya) then evaluate/critique (Buddha)"
+    },
+    {
+      "id": 45,
+      "query": "Write a Python script that pulls data from our Postgres DB and generates a weekly report PDF.",
+      "expected_avatars": ["Parashurama"],
+      "expected_mode": "sequential",
+      "category": "single_parashurama",
+      "notes": "Coding task — single avatar"
+    },
+    {
+      "id": 46,
+      "query": "I want to learn system design. Make me a 30-day study plan with daily tasks and resources.",
+      "expected_avatars": ["Rama"],
+      "expected_mode": "sequential",
+      "category": "single_rama",
+      "notes": "Structured plan / curriculum — Rama, not Krishna"
+    },
+    {
+      "id": 47,
+      "query": "Find the best practices for secure API key management, implement them in our codebase, and verify nothing is exposed in the git history.",
+      "expected_avatars": ["Matsya", "Parashurama"],
+      "expected_mode": "sequential",
+      "category": "multi_avatar",
+      "notes": "Research best practices (Matsya) then implement (Parashurama)"
+    },
+    {
+      "id": 48,
+      "query": "I need to send an email to 3 different investors: one who's lukewarm, one who's interested, one who said no. Write all three.",
+      "expected_avatars": ["Krishna"],
+      "expected_mode": "sequential",
+      "category": "single_krishna",
+      "notes": "Multiple drafts but single domain (communication) — Krishna alone"
+    },
+    {
+      "id": 49,
+      "query": "Walk me through setting up a CI/CD pipeline: what tools to pick, how to configure them, and what tests to run at each stage.",
+      "expected_avatars": ["Rama"],
+      "expected_mode": "sequential",
+      "category": "single_rama",
+      "notes": "Process/workflow guidance — Rama not Parashurama (no actual code to write)"
+    },
+    {
+      "id": 50,
+      "query": "Review my startup pitch deck slide by slide and tell me where the argument breaks down.",
+      "expected_avatars": ["Buddha"],
+      "expected_mode": "sequential",
+      "category": "single_buddha",
+      "notes": "Critical evaluation — Buddha, not Krishna"
+    }
+  ]
+}

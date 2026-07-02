@@ -1,8 +1,8 @@
 """
-Vamana local filesystem skill — safe, dry-run-first file operations.
+Matsya local filesystem skill — safe, dry-run-first file operations.
 
 All mutating tools (move_to_trash, organize_by_type) default to dry_run=True.
-Vamana MUST present the preview to the user and wait for explicit confirmation
+Matsya MUST present the preview to the user and wait for explicit confirmation
 ("yes", "do it", "go ahead") before calling with dry_run=False.
 
 Files are NEVER permanently deleted — always sent to macOS/OS Trash via send2trash.
@@ -57,7 +57,7 @@ def _check_blocked(p: Path) -> str | None:
     ps = str(p)
     for blocked in _BLOCKED_PATHS:
         if ps == blocked or ps.startswith(blocked + "/"):
-            return f"Blocked: '{ps}' is a protected system path. Vamana cannot operate on system directories."
+            return f"Blocked: '{ps}' is a protected system path. Narad cannot operate on system directories."
     return None
 
 
@@ -89,7 +89,7 @@ def scan_directory(path: str, include_hidden: bool = False) -> dict:
     This is a read-only operation — always safe to call without confirmation.
 
     Returns a summary with total count, total size, and per-file details so
-    Vamana can decide what to propose cleaning up or organising.
+    Matsya can decide what to propose cleaning up or organising.
     """
     p = _resolve(path)
     blocked = _check_blocked(p)
@@ -133,7 +133,7 @@ def scan_directory(path: str, include_hidden: bool = False) -> dict:
     }
 
 
-def move_to_trash(paths: list, dry_run: bool = True) -> dict:
+def move_to_trash(paths: list[str], dry_run: bool = True) -> dict:
     """Move files or folders to the system Trash (recoverable).
 
     SAFETY CONTRACT:

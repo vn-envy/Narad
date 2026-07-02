@@ -107,6 +107,21 @@ class KanbanBoard:
                     (new_status.value, session_id, step_id),
                 )
 
+        # Notion sync hook (fire-and-forget)
+        try:
+            import os as _os
+            if _os.environ.get("NOTION_API_TOKEN"):
+                import asyncio as _ao
+                from notion_sync import NotionSync as _NS  # type: ignore
+                _ns = _NS()
+                _ao.get_event_loop().call_soon(lambda _sid=session_id, _stid=step_id, _ns2=_ns:
+                    _ao.ensure_future(_ns2.push_kanban_step(
+                        _sid, _stid, "", "", new_status.value,
+                        started_at, completed_at, result_digest or ""
+                    )))
+        except Exception:
+            pass
+
     def get_board(self, session_id: str) -> dict[str, Any]:
         """Return board state as {column: [step dicts]} for SSE payload."""
         with _conn() as con:

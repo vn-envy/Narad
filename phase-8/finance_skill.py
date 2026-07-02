@@ -1,5 +1,5 @@
 """
-Personal finance data layer — cross-domain skill for Vamana / Rama / Buddha.
+Personal finance data layer — Rama-owned, with Matsya for source extraction and Parashurama for coded modeling.
 
 Data sources:
   CSV import  — HDFC / ICICI / Axis / SBI bank statement exports (credit + debit)
@@ -484,7 +484,7 @@ def sync_gmail(days_back: int = 30) -> dict:
                 "duplicates": 0, "sources_found": []}
 
 
-# ── Public: Queries (read-only, shared across Vamana + Rama + Buddha) ─────────
+# ── Public: Queries (read-only, used by Rama and by downstream modeling flows) ─
 
 def _period_to_dates(period: str) -> tuple[str, str, str]:
     """Return (start_date, end_date, label) for a period string."""
@@ -865,7 +865,7 @@ def get_goals() -> dict:
         return {"status": "error", "message": str(exc), "goals": []}
 
 
-# ── Public: Write tools (Vamana-only) ─────────────────────────────────────────
+# ── Public: Write tools (Rama-owned) ──────────────────────────────────────────
 
 def set_budget(category: str, amount: float) -> dict:
     """Set a monthly spending limit for a category.

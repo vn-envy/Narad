@@ -1,0 +1,37 @@
+[
+  {
+    "name": "announcement",
+    "file": "announcement.html",
+    "description": "Hero image slot, headline, 3 feature rows, CTA button. Best for product launches, major updates, org-wide news.",
+    "tone": "formal",
+    "slots": ["EYEBROW","HEADLINE","HERO_BODY","CTA_LABEL","CTA_URL","GREETING_NAME","INTRO_PARA","DETAIL_PARA","FEAT1_ICON","FEAT1_TITLE","FEAT1_DESC","FEAT2_ICON","FEAT2_TITLE","FEAT2_DESC","FEAT3_ICON","FEAT3_TITLE","FEAT3_DESC","CLOSING_PARA","SIGN_OFF","SENDER_NAME","ORG_NAME","ORG_ADDRESS","ACCENT_COLOR","ACCENT_LIGHT"]
+  },
+  {
+    "name": "invitation",
+    "file": "invitation.html",
+    "description": "Event details (date/time/location), RSVP / decline buttons. Best for events, meetups, dinners, workshops.",
+    "tone": "warm",
+    "slots": ["EVENT_NAME","EVENT_TAGLINE","EVENT_DATE","EVENT_TIME","EVENT_LOCATION","RSVP_BLURB","RSVP_DEADLINE","RSVP_URL","RSVP_YES_LABEL","DECLINE_URL","GREETING_NAME","BODY_PARA","LOGISTICS_PARA","CLOSING_LINE","SIGN_OFF","SENDER_NAME","ORG_NAME","ACCENT_COLOR","BANNER_LABEL"]
+  },
+  {
+    "name": "follow_up",
+    "file": "follow_up.html",
+    "description": "Thread reference bar, context recap block, single CTA. Best for re-engagement, sales follow-up, unanswered threads.",
+    "tone": "direct",
+    "slots": ["THREAD_SUBJECT","THREAD_DATE","RECIPIENT_NAME","OPENING_LINE","CONTEXT_RECAP","MAIN_PARA","ASK_LINE","CTA_LABEL","CTA_URL","SENDER_NAME","SENDER_ROLE","SENDER_EMAIL","ACCENT_COLOR"]
+  },
+  {
+    "name": "digest",
+    "file": "digest.html",
+    "description": "Numbered items (up to 5), section dividers, quote block, footer. Best for newsletters, weekly roundups, briefings.",
+    "tone": "editorial",
+    "slots": ["BRAND","EDITION_LABEL","ISSUE_NUM","EDITION_DATE","INTRO_TEXT","TAG_1","TITLE_1","BODY_1","LINK_1","TAG_2","TITLE_2","BODY_2","LINK_2","TAG_3","TITLE_3","BODY_3","LINK_3","TAG_4","TITLE_4","BODY_4","LINK_4","TAG_5","TITLE_5","BODY_5","LINK_5","QUOTE_TEXT","QUOTE_ATTR","ORG_NAME","ACCENT_COLOR"]
+  },
+  {
+    "name": "alert",
+    "file": "alert.html",
+    "description": "Colour-coded status bar (red/amber/green), concise body, detail table, action buttons. Best for system alerts, incident notifications, urgent action required.",
+    "tone": "urgent",
+    "slots": ["STATUS_LABEL","STATUS_COLOR","STATUS_BG","ALERT_TIMESTAMP","ALERT_ICON","ALERT_TITLE","ALERT_LEAD","ALERT_DETAIL","SEVERITY","AFFECTED","DETECTED_AT","REFERENCE_ID","PRIMARY_ACTION_LABEL","PRIMARY_ACTION_URL","SECONDARY_ACTION_LABEL","SECONDARY_ACTION_URL","SYSTEM_NAME"]
+  }
+]

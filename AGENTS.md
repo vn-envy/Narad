@@ -2,7 +2,7 @@
 
 > **Source of truth.** This document defines every agent's identity, tools, hard skills,
 > soft skills, and routing rules. Update this whenever any of those change.
-> Last verified: 2026-05-12. Updated through Phase 12 (AssetOpsBench Integration).
+> Last verified: 2026-05-19. Updated through Phase 14 (Notion Sync) + Pre-Phase-15 hardening.
 
 ---
 
@@ -703,7 +703,7 @@ CAPTURE → CONFIRM → STORE → SUMMARY
 
 ## Shared Infrastructure
 
-### Smriti (Memory) — v1.5
+### Smriti (Memory) — v1.5 + v2
 Every avatar invocation is enriched with relevant past memories before running,
 and the result is stored after completion. Memory is scoped per `user_id`.
 Storage: `~/.narad/memory/` (LanceDB), `~/.narad/memory_fts.db` (SQLite FTS5).
@@ -715,8 +715,14 @@ Storage: `~/.narad/memory/` (LanceDB), `~/.narad/memory_fts.db` (SQLite FTS5).
   < 0.10 (near-identical), the insert is skipped.
 - **Size guard:** Probabilistic (5% on insert) — if user row count exceeds 500, oldest
   50 are purged.
-- **FTS5 exact-match:** `recall_exact(query, user_id)` for Parashurama and Narasimha
-  where semantic similarity is insufficient (code snippets, error messages).
+- **FTS5 exact-match:** `recall_exact(query, user_id)` is routed selectively to Parashurama
+  and Narasimha — the two avatāras where exact code-snippet and error-message matching
+  outperforms semantic vector search. Results are prepended as `[EXACT-MATCH MEMORY]`.
+- **Embedding LRU cache:** `@lru_cache(maxsize=128)` on `_embed()` deduplicates Gemini
+  embedding API calls within a session. Identical task strings reuse the cached vector.
+- **Smriti v2 — project context:** `get_project_context(user_id, task)` from
+  `phase-9/smriti_v2.py` is injected as the outermost context layer for project-tagged
+  sessions. Falls back silently on error; never blocks avatar execution.
 
 ### Sutras (Learned Patterns)
 Active sutras (high-quality response patterns) for the specific agent + task are
@@ -733,6 +739,10 @@ After every avatar run (async), Tapas scores the response with an avatar-specifi
 - **Promotion threshold:** 0.80 (raised from 0.75).
 - **Independent judge:** DeepSeek R1 (`deepseek/deepseek-r1`), independent of the avatar
   being scored. Override via `TAPAS_JUDGE_MODEL` env var.
+- **Retry with backoff:** LLM calls use `_litellm_with_retry()` — 2 retries with 1s→2s
+  exponential backoff before declaring the judge unavailable.
+- **`tapas_skipped` event:** If all retries fail, `process_session()` logs a `tapas_skipped`
+  Karma event and returns immediately. The avatar session is never blocked by judge failures.
 - **CAI self-critique pass:** After score ≥ 0.80, a second LLM call asks three
   Constitutional AI questions (harm to vulnerable users, autonomy, specificity).
   Only sessions that pass all three are promoted.
@@ -762,18 +772,40 @@ tool results, text chunks) are emitted live to the SSE stream.
 Traces are queryable at `GET /trace/{session_id}`.
 Trace files: `~/.narad/sessions/{session_id}.jsonl`.
 
-Phase 10 trace events added:
-- `avatar_done` now includes `result_digest` (first 100 chars) and `usage` dict
-  (`prompt_tokens`, `completion_tokens`).
+Phase 10 trace events:
+- `avatar_done` includes `result_digest` (first 100 chars) and `usage` dict (`prompt_tokens`, `completion_tokens`).
 - `phase_transition` — emitted whenever an avatar outputs `CURRENT_PHASE: X`.
 - `routing_decision` — captures which avatars Narad invoked and mode (sequential/parallel).
-- All Narad-level and avatar-level events land in the same session JSONL via
-  `_http_session_id_ctx` ContextVar propagation.
+- All Narad-level and avatar-level events land in the same session JSONL via `_http_session_id_ctx`.
 
-Phase 12 additions:
+Phase 12 addition:
 - `plan_created` — emitted by Rama when a `PLAN_JSON:` block is extracted and persisted.
-- `GET /plan/{session_id}` — returns the structured `Plan` JSON for a session where Rama
-  emitted a project plan.
+
+Pre-Phase-15 hardening addition:
+- `error` events now include `error_type` field — one of: `tool_not_found`, `import_failed`,
+  `timeout`, `model_error`, `json_parse`, `event_loop`, `notion_sync`. Classified by
+  `_classify_error(exc)` in `yantra.py`, aligned with AndonGate's trigger taxonomy.
+
+### Six Sigma Quality Layer (Phase 13)
+
+**AndonGate** (`phase-1/andon.py`) — fires on four conditions after every avatar run:
+
+| Trigger class | Condition |
+|---|---|
+| `EMPTY_RESULT` | Stripped result < 80 chars (`ANDON_MIN_LENGTH`) |
+| `TIMEOUT` | Latency > 120 000 ms (`ANDON_LATENCY_MS`) |
+| `CONNECTION` | `retries_exhausted=True` |
+| `TOOL_ERROR` | `tool_error=True` |
+
+When fired: appends to `~/.narad/config/andon_log.jsonl` · emits `andon_alert` SSE · fires Narasimha `ANDON_DIAGNOSTIC` (fire-and-forget) · emits `andon_diagnosis` SSE.
+
+**KanbanBoard** (`phase-1/kanban.py`) — tracks each `PlanStep` through `backlog → in_progress → review → done | blocked`. Persisted to `~/.narad/kanban.db`. `_make_avatar_tool` drives transitions; `kanban_update` SSE events update the Kanban tab in DarshanDashboard.
+
+**5S / DMAIC** (`phase-1/narad_5s.py`, `phase-1/server.py`) — daily filesystem hygiene (`_daily_shuddhi_loop`) and on-demand Buddha DMAIC reports (`POST /quality/report`).
+
+### Notion Sync (Phase 14)
+
+**NotionSync** (`phase-1/notion_sync.py`) — fire-and-forget push to five Notion databases (Memory, Kanban, Andon, Sutras, Wiki). All push methods are async, never block avatar execution. Failed pushes log to `~/.narad/notion_errors.jsonl` at WARNING level. `GET /notion/status` returns `sync_degraded: true` and last 5 errors when failures have occurred. Setup: `POST /notion/setup {parent_page_id}` · resync: `POST /notion/sync`.
 
 ### Dharma Layer (Guardrails)
 Input-level blocking in `server.py` before any avatar is invoked.
@@ -837,12 +869,10 @@ WEBSITES / APPS (engineering):
   User → Narad → Parashurama [CLASSIFY → SELECT_TEMPLATE → APPLY_TOKENS → DELIVER]
                → HTML page served at /media/…/index.html
 
-LEARNING ARTIFACTS (the one remaining Krishna → Parashurama handoff):
+LEARNING ARTIFACTS (native Narad side panel):
   Krishna completes REINFORCE → offers flashcards or concept diagram
-  User confirms → Krishna sends handoff to Parashurama via Narad:
-    "Build an interactive [flashcard set / diagram] on: [topic]. Use CopilotKit…"
-  Parashurama task contains "copilotkit" → backend emits learning_artifact SSE event
-  Frontend LearningArtifactPanel opens (4th panel) with CopilotKit runtime at :8123
+  User confirms → Narad opens a native artifact document for the topic
+  Frontend LearningArtifactPanel opens as a side panel
 
 HEALTH SYMPTOM ASSESSMENT:
   User → Narad → Narasimha [COLLECT → RED_FLAG_CHECK → ASSESSMENT → TRIAGE → DISCLAIMER]
@@ -855,9 +885,9 @@ HEALTH DOCUMENT REVIEW:
 
 ---
 
-## Phase 12 Status (as of 2026-05-12)
+## Phase Status (as of 2026-05-19)
 
-All Phase 10 and Phase 11 work is complete. Phase 12 (AssetOpsBench Integration) is complete.
+Phases 10–14 complete. Pre-Phase-15 production hardening complete. Phase 15 (Electron) is next.
 
 ### Phase 10 — Observability, Memory & Guardrail Refinements
 
@@ -877,31 +907,55 @@ All Phase 10 and Phase 11 work is complete. Phase 12 (AssetOpsBench Integration)
 | Dharma gate (input-level blocking, rate limiting) | ✅ Done |
 | All data canonical at `~/.narad/` | ✅ Done |
 
-### Phase 12 — AssetOpsBench Integration
+### Phase 13 — Six Sigma Quality Layer
 
 | Item | Status |
 |---|---|
-| `yantra_models.py`: `Trajectory`/`TurnRecord`/`ToolCall` typed dataclasses | ✅ Done |
-| `_TokenMeter` in `yantra.py`: token accumulation across all LLM events per span | ✅ Done |
-| `_parse_json()` in `avatar_agents.py`: fence-stripping + `{…}` extraction | ✅ Done |
-| `plan_models.py`: `PlanStep`/`Plan`/`levels()` topological sort | ✅ Done |
-| Rama `PLAN_JSON:` emission + extraction + persistence to `~/.narad/plans/` | ✅ Done |
-| `GET /plan/{session_id}` endpoint | ✅ Done |
-| Narad `PLAN-AWARE DISPATCH`: level-0 steps with 2+ owners → parallel | ✅ Done |
-| Gemini `text-embedding-005` (768-dim) as default Smriti embedding | ✅ Done |
-| `health_anomaly.py`: z-score + optional Granite TTM anomaly detection | ✅ Done |
-| `get_health_log(anomaly_detection=True, symptom_filter=…)` | ✅ Done |
-| `finance_patterns.py`: Markov spend transition matrix + `predict_next_category()` | ✅ Done |
-| `get_spend_patterns()` in `finance_skill.py` + Vamana tool wiring | ✅ Done |
-| Tapas `hallucination_free` hard gate (score zeroed on false) | ✅ Done |
-| Tapas `sequence_correct` penalty gate (−0.20 on false) | ✅ Done |
-| `karma_log.py` `hallucination_free` field + `blocked_hallucination` action | ✅ Done |
-| FastMCP server template in Parashurama prompt | ✅ Done |
+| `kanban.py` `KanbanBoard` SQLite step lifecycle (Karyakrama) | ✅ Done |
+| `andon.py` `AndonGate` quality gate — 4 trigger classes + diagnostic fire-and-forget | ✅ Done |
+| `narad_5s.py` `NaradShuddhi` 5S health + `_daily_shuddhi_loop` in server.py | ✅ Done |
+| DMAIC `POST /quality/report` → Buddha → wiki save | ✅ Done |
+| `AwarenessBar.tsx` — 72 px right strip with pills + token counter | ✅ Done |
+| `DarshanDashboard.tsx` — 5-tab full-screen drawer (Live/Kanban/Sutras/Memory/Ops) | ✅ Done |
+| `KanbanBoardView.tsx` — 4-column board rendered from `kanban_update` SSE payload | ✅ Done |
+| `OpsView.tsx` — Andon log + 5S score + DMAIC trigger | ✅ Done |
+
+### Phase 14 — Notion Sync Bridge
+
+| Item | Status |
+|---|---|
+| `notion_sync.py` `NotionSync` — 5 database push methods (Memory, Kanban, Andon, Sutras, Wiki) | ✅ Done |
+| `POST /notion/setup`, `POST /notion/sync`, `GET /notion/status` endpoints | ✅ Done |
+| `notion_errors.jsonl` error capture + `sync_degraded` in status response | ✅ Done |
+| Push hooks wired in `andon.py`, `kanban.py`, `avatar_agents.py` | ✅ Done |
+
+### Pre-Phase-15 Production Hardening
+
+| Item | Status |
+|---|---|
+| Defensive `shell_skill` import fallback (matching research_tools pattern) | ✅ Done |
+| FTS5 `recall_exact()` routed to Parashurama and Narasimha only | ✅ Done |
+| Smriti v2 `get_project_context()` wired into `_make_avatar_tool` pipeline | ✅ Done |
+| Embedding `@lru_cache(128)` on `_embed()` — deduplicates within session | ✅ Done |
+| Smriti fallback: `_lg_smriti.warning()` logged on `recall()` failure | ✅ Done |
+| Tapas `_litellm_with_retry()` — 2 retries, 1s→2s backoff | ✅ Done |
+| Tapas `tapas_skipped` Karma event when judge unavailable after retries | ✅ Done |
+| Yantra `error_type` field on all error events (7-class taxonomy) | ✅ Done |
+| Notion push failures: `_log.warning()` + `notion_errors.jsonl` write | ✅ Done |
+| Shared `avatara-constants.ts` — single source of truth for 6 consumers | ✅ Done |
+| Shared `format-time.ts` — canonical `relativeTime()` for 3 consumers | ✅ Done |
+| Clear conversation button + `clearSession()` in ChatPanel / useAvatara | ✅ Done |
+| Sutra revert two-step confirmation (4 s auto-cancel) | ✅ Done |
+| "Accept all (N)" bulk accept for pending sutras | ✅ Done |
+| `stepEvents` bounded to last 200 entries | ✅ Done |
+| Native artifact side panel replaces the old Copilot runtime path | ✅ Done |
+| Rama and Buddha routing prompts — natural language trigger examples added | ✅ Done |
+| ARCHITECTURE.md injection order corrected (Sankalpa → Sutras → Smriti → task) | ✅ Done |
+| README phase checklist extended to Phase 14 | ✅ Done |
 
 **Open / By design:**
 - ml-intern requires `HF_TOKEN` env var before Matsya's `ml_experiment` EXECUTE phase
-- CopilotKit learning artifacts require `phase-4/copilot-runtime/node server.js` on port 8123
 - Granite TTM (`tsfm-public`) is optional — graceful z-score fallback when not installed
 
-**Next phase (Phase 13 — Electron Packaging):**
-Local Gemma 4 E4B runtime, signed macOS installer, offline-first mode.
+**Next (Phase 15 — Electron Desktop Packaging):**
+Bundle server + frontend into signed macOS installer, local Gemma 4 E4B runtime, offline-first mode.

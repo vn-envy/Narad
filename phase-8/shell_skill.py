@@ -199,7 +199,7 @@ def read_file(path: str, max_chars: int = 50_000) -> dict:
     """Read a text file from disk and return its content.
 
     Use this to read scripts, configs, source code, plain-text resumes, HTML,
-    JSON, YAML, etc. For PDFs and DOCX use Varaha's extract_document() instead.
+    JSON, YAML, etc. For PDFs and DOCX use Matsya's extract_document() instead.
 
     Args:
         path:      File path under ~ (e.g. "~/scripts/job_search.py").

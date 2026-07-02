@@ -215,6 +215,90 @@ def _fallback_matches(mood: str, tone: str, top_n: int) -> list[TemplateMatch]:
     return fallbacks[:top_n]
 
 
+_THUMBNAILS_DIR = _DEFAULT_TEMPLATES_DIR / "thumbnails"
+
+
+def generate_preview_url(
+    template_name: str,
+    templates_dir: str | None = None,
+) -> str:
+    """Return a URL or file path to a preview thumbnail for a template.
+
+    Checks for a pre-generated thumbnail first. If none exists, attempts headless
+    Chrome screenshot via Playwright (if installed). Falls back to a descriptive
+    string for text-only clients.
+
+    Args:
+        template_name: Template name (e.g. "editorial-minimal").
+        templates_dir: Override path to beautiful-html-templates directory.
+
+    Returns:
+        Absolute path to a PNG thumbnail, a /media/ URL, or a descriptive fallback string.
+    """
+    base = Path(templates_dir or os.environ.get("BEAUTIFUL_TEMPLATES_PATH", "") or _DEFAULT_TEMPLATES_DIR)
+    thumbs = base / "thumbnails"
+
+    # 1. Pre-generated thumbnail (fastest — just return the path)
+    for ext in ("png", "jpg", "jpeg", "webp"):
+        thumb_path = thumbs / f"{template_name}.{ext}"
+        if thumb_path.exists():
+            return str(thumb_path)
+
+    # 2. Generate via Playwright headless screenshot
+    html_path = base / f"{template_name}.html"
+    if not html_path.exists():
+        # Try nested structure (some repos use subdirs)
+        candidates = list(base.rglob(f"*{template_name}*.html"))
+        html_path = candidates[0] if candidates else None
+
+    if html_path and html_path.exists():
+        try:
+            from playwright.sync_api import sync_playwright
+            thumbs.mkdir(parents=True, exist_ok=True)
+            out_path = thumbs / f"{template_name}.png"
+            with sync_playwright() as pw:
+                browser = pw.chromium.launch()
+                page = browser.new_page(viewport={"width": 400, "height": 300})
+                page.goto(f"file://{html_path.absolute()}", wait_until="networkidle", timeout=8000)
+                page.screenshot(path=str(out_path), clip={"x": 0, "y": 0, "width": 400, "height": 300})
+                browser.close()
+            return str(out_path)
+        except Exception:
+            pass  # Playwright unavailable — fall through
+
+    # 3. Descriptive fallback
+    return f"[no thumbnail — template: {template_name}]"
+
+
+def rank_with_previews(
+    mood: str = "",
+    tone: str = "",
+    formality: str = "",
+    scheme: str = "",
+    avoid: str = "",
+    top_n: int = 3,
+    templates_dir: str | None = None,
+) -> list[dict[str, Any]]:
+    """Rank templates and include preview_url in each result.
+
+    Returns a list of dicts with all TemplateMatch fields plus preview_url.
+    """
+    matches = rank(mood=mood, tone=tone, formality=formality,
+                   scheme=scheme, avoid=avoid, top_n=top_n,
+                   templates_dir=templates_dir)
+    results = []
+    for m in matches:
+        d = {
+            "name":        m.name,
+            "score":       m.score,
+            "reasoning":   m.reasoning,
+            "metadata":    m.metadata,
+            "preview_url": generate_preview_url(m.name, templates_dir=templates_dir),
+        }
+        results.append(d)
+    return results
+
+
 if __name__ == "__main__":
     import sys
     args = dict(arg.split("=") for arg in sys.argv[1:] if "=" in arg)

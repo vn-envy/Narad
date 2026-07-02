@@ -20,6 +20,10 @@ Schema (one JSON per line):
     "content_hash":      str | null   (sha256[:12] of the sutra/detail text),
     "critique_passed":   bool | null  (True/False = CAI reviewed; None = not reviewed),
     "hallucination_free": bool | null (False = hallucination detected and blocked),
+    "entity_type":       str | null   (defaults to "sutra" for legacy events),
+    "policy":            str | null   (e.g. dharma.swapna),
+    "provenance_ids":    list[str] | null,
+    "metadata":          dict | null,
   }
 """
 
@@ -35,6 +39,7 @@ from typing import Any
 import sys as _sys_nc
 _sys_nc.path.insert(0, str(Path(__file__).parent.parent))
 from narad_config import KARMA_PATH as _KARMA_PATH
+from narad_config import KARMA_MUTATIONS_PATH as _KARMA_MUTATIONS_PATH
 
 
 def log_karma(
@@ -47,6 +52,10 @@ def log_karma(
     tapas_score: float | None = None,
     critique_passed: bool | None = None,
     hallucination_free: bool | None = None,
+    entity_type: str = "sutra",
+    policy: str | None = None,
+    provenance_ids: list[str] | None = None,
+    metadata: dict[str, Any] | None = None,
 ) -> None:
     """Append a karma event. Best-effort — never raises.
 
@@ -69,6 +78,7 @@ def log_karma(
             "sutra_id": sutra_id,
             "avatar":   avatar,
             "detail":   detail[:200],
+            "entity_type": entity_type,
         }
         if triggered_by is not None:
             record["triggered_by"] = triggered_by
@@ -80,10 +90,18 @@ def log_karma(
             record["critique_passed"] = critique_passed
         if hallucination_free is not None:
             record["hallucination_free"] = hallucination_free
+        if policy is not None:
+            record["policy"] = policy
+        if provenance_ids:
+            record["provenance_ids"] = provenance_ids
+        if metadata:
+            record["metadata"] = metadata
 
         _KARMA_PATH.parent.mkdir(parents=True, exist_ok=True)
         with _KARMA_PATH.open("a") as f:
             f.write(json.dumps(record) + "\n")
+        with _KARMA_MUTATIONS_PATH.open("a") as f2:
+            f2.write(json.dumps(record) + "\n")
     except Exception:
         pass
 
@@ -115,3 +133,20 @@ def karma_summary() -> dict:
         "by_action": counts,
         "recent": events[:20],
     }
+
+
+def load_mutations(limit: int = 100) -> list[dict]:
+    """Load expanded mutation log, newest first."""
+    path = _KARMA_MUTATIONS_PATH if _KARMA_MUTATIONS_PATH.exists() else _KARMA_PATH
+    if not path.exists():
+        return []
+    rows = []
+    for line in path.read_text().splitlines():
+        if not line.strip():
+            continue
+        try:
+            rows.append(json.loads(line))
+        except Exception:
+            continue
+    rows.sort(key=lambda x: x.get("ts", ""), reverse=True)
+    return rows[:limit]

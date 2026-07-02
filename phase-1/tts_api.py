@@ -8,8 +8,8 @@ lang="hi"           — translate to Hindi first, then Hindi TTS
 
 Voice mapping (Sarvam bulbul:v2):
   Krishna → abhilash
-  Buddha  → karun
   Rama    → hitesh
+  Parashurama → karun
 """
 
 from __future__ import annotations
@@ -29,8 +29,8 @@ SARVAM_TRANSLATE_URL = "https://api.sarvam.ai/translate"
 
 AVATAR_VOICES: dict[str, str] = {
     "krishna": "abhilash",
-    "buddha":  "karun",
     "rama":    "hitesh",
+    "parashurama": "karun",
 }
 
 

@@ -108,7 +108,16 @@ def query_database(connection_string: str, sql: str, limit: int = 200) -> dict:
             connect_args={"check_same_thread": False} if "sqlite" in connection_string else {},
         )
 
+        is_sqlite = "sqlite" in connection_string.lower()
+
         with engine.connect() as conn:
+            # Enforce read-only at the database level — cannot be bypassed by clever SQL
+            # (unlike keyword scanning, which is only a fast early-rejection pre-check).
+            if is_sqlite:
+                conn.execute(text("PRAGMA query_only = 1"))
+            else:  # PostgreSQL / MySQL
+                conn.execute(text("SET TRANSACTION READ ONLY"))
+
             result = conn.execute(text(sql))
             columns = list(result.keys())
 

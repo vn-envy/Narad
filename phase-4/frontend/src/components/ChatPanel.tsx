@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import type { Message, AvatarName, AvatarStatus, TokenUsage } from '../hooks/useAvatara'
+import type { ActiveArtifactSession, Message, AvatarName, AvatarStatus, TokenUsage } from '../hooks/useAvatara'
 import { useTTS, VOICE_AVATARS } from '../hooks/useTTS'
 import type { TTSAvatar } from '../hooks/useTTS'
 import { MahatiLogo } from './MahatiLogo'
@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils'
 import { Pencil, RotateCcw, Square, Copy, Check, Volume2, VolumeX, Loader, Paperclip, X } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { AVATAR_COLOURS, AVATAR_RGB } from '@/lib/avatara-constants'
 
 const MEDIA_RE = /https?:\/\/\S+\/media\/[^\s"')]+\.(mp4|wav|mp3)/gi
 
@@ -146,28 +147,6 @@ function UserMessageText({ text }: { text: string }) {
   )
 }
 
-const AVATAR_COLOURS: Record<AvatarName, string> = {
-  Matsya:      '#065f46',
-  Varaha:      '#c2410c',
-  Narasimha:   '#c2410c',
-  Rama:        '#2d2a26',
-  Krishna:     '#065f46',
-  Buddha:      '#92610a',
-  Parashurama: '#57534e',
-  Vamana:      '#78716c',
-}
-
-const AVATAR_RGB: Record<AvatarName, string> = {
-  Matsya:      '6,95,70',
-  Varaha:      '194,65,12',
-  Narasimha:   '194,65,12',
-  Rama:        '45,42,38',
-  Krishna:     '6,95,70',
-  Buddha:      '146,97,10',
-  Parashurama: '87,83,78',
-  Vamana:      '120,113,108',
-}
-
 interface TokenTickerProps {
   usage?: TokenUsage
   tokenEstimate?: number
@@ -263,9 +242,22 @@ interface Props {
   error: string | null
   onSend: (query: string, images?: string[]) => void
   stop: () => void
+  onClear?: () => void
+  activeArtifact?: ActiveArtifactSession | null
+  onCloseArtifact?: () => void
 }
 
-export function ChatPanel({ messages, avatars, streaming, error, onSend, stop }: Props) {
+export function ChatPanel({
+  messages,
+  avatars,
+  streaming,
+  error,
+  onSend,
+  stop,
+  onClear,
+  activeArtifact,
+  onCloseArtifact,
+}: Props) {
   const [input, setInput] = useState('')
   const [pendingImages, setPendingImages] = useState<string[]>([])
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -358,6 +350,17 @@ export function ChatPanel({ messages, avatars, streaming, error, onSend, stop }:
             नारद  अवतारा
           </span>
         </div>
+        {onClear && messages.length > 0 && (
+          <button
+            onClick={onClear}
+            title="Clear conversation"
+            className="ml-auto z-10 flex items-center gap-1 px-2 py-1 rounded text-[11px] transition-opacity opacity-50 hover:opacity-100"
+            style={{ color: 'rgba(252,250,242,0.7)', background: 'rgba(252,250,242,0.08)', border: '1px solid rgba(252,250,242,0.15)' }}
+          >
+            <RotateCcw size={12} />
+            clear
+          </button>
+        )}
         {/* Zigzag motif at bottom edge of header */}
         <div className="absolute bottom-0 left-0 w-full overflow-hidden" style={{ height: 16, opacity: 0.12 }}>
           <ZigzagBank color="var(--paper)" className="w-full" />
@@ -615,6 +618,38 @@ export function ChatPanel({ messages, avatars, streaming, error, onSend, stop }:
           borderTop: '1px solid color-mix(in srgb, var(--kajal) 10%, transparent)',
         }}
       >
+        {activeArtifact && (
+          <div
+            className="flex items-center justify-between gap-3 rounded px-3 py-2"
+            style={{
+              background: 'rgba(255,255,255,0.58)',
+              border: '1px solid color-mix(in srgb, var(--kajal) 10%, transparent)',
+            }}
+          >
+            <div className="min-w-0">
+              <div className="font-mono text-[10px] uppercase tracking-[0.12em]" style={{ color: 'rgba(45,42,38,0.48)' }}>
+                Active Artifact
+              </div>
+              <div className="text-[12px] font-semibold truncate" style={{ color: 'var(--kajal)' }}>
+                {activeArtifact.artifactType === 'flashcards' ? 'Flashcards' : 'Concept Map'} · {activeArtifact.topic}
+              </div>
+              <div className="text-[11px] truncate" style={{ color: 'rgba(45,42,38,0.58)' }}>
+                Explicit edit prompts only: “add one more card…” or “add a node for…”
+              </div>
+            </div>
+            {onCloseArtifact && (
+              <button
+                onClick={onCloseArtifact}
+                className="w-8 h-8 rounded flex items-center justify-center flex-shrink-0"
+                style={{ border: '1px solid color-mix(in srgb, var(--kajal) 12%, transparent)', color: 'rgba(45,42,38,0.62)' }}
+                title="Close artifact panel"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Thumbnail strip */}
         {pendingImages.length > 0 && (
           <div className="flex flex-wrap gap-2">

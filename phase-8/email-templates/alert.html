@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{SUBJECT|Alert}}</title>
+<style>
+  body{margin:0;padding:0;background:#fafafa;font-family:'Helvetica Neue',Arial,sans-serif;color:#18181b;}
+  .wrapper{max-width:560px;margin:32px auto;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.07);}
+  /* Status bar — colour changes by severity */
+  .status-bar{padding:12px 28px;display:flex;align-items:center;gap:10px;background:{{STATUS_BG|#fef2f2}};}
+  .status-dot{width:10px;height:10px;border-radius:50%;background:{{STATUS_COLOR|#ef4444}};flex-shrink:0;}
+  .status-label{font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:{{STATUS_COLOR|#ef4444}};}
+  .status-ts{margin-left:auto;font-size:11px;color:#9ca3af;}
+  /* Body */
+  .body{padding:32px 28px 24px;}
+  .alert-icon{font-size:36px;margin-bottom:12px;}
+  .body h2{font-size:22px;font-weight:800;margin:0 0 8px;line-height:1.2;}
+  .body .lead{font-size:15px;font-weight:500;color:#3f3f46;line-height:1.55;margin:0 0 20px;padding-bottom:20px;border-bottom:1px solid #f4f4f5;}
+  .body p{font-size:14px;line-height:1.65;color:#52525b;margin:0 0 12px;}
+  /* Details table */
+  .details{width:100%;border-collapse:collapse;margin:20px 0;}
+  .details td{padding:8px 0;font-size:13px;border-bottom:1px solid #f4f4f5;}
+  .details td:first-child{color:#9ca3af;font-weight:600;width:36%;font-size:11px;letter-spacing:.08em;text-transform:uppercase;}
+  .details td:last-child{color:#18181b;font-weight:500;}
+  /* CTA */
+  .cta-row{margin:24px 0 8px;display:flex;gap:10px;flex-wrap:wrap;}
+  .btn-primary{display:inline-block;padding:11px 24px;background:{{STATUS_COLOR|#ef4444}};color:#fff;font-size:14px;font-weight:700;border-radius:8px;text-decoration:none;}
+  .btn-secondary{display:inline-block;padding:11px 20px;background:transparent;border:1px solid #e4e4e7;color:#52525b;font-size:14px;font-weight:600;border-radius:8px;text-decoration:none;}
+  /* Footer */
+  .footer{padding:16px 28px;background:{{STATUS_BG|#fef2f2}};border-top:1px solid #fee2e2;}
+  .footer p{font-size:11px;color:#9ca3af;margin:0;line-height:1.5;}
+</style>
+</head>
+<body>
+<div class="wrapper">
+  <div class="status-bar">
+    <div class="status-dot"></div>
+    <span class="status-label">{{STATUS_LABEL|Critical Alert}}</span>
+    <span class="status-ts">{{ALERT_TIMESTAMP|21 May 2026, 14:32 UTC}}</span>
+  </div>
+  <div class="body">
+    <div class="alert-icon">{{ALERT_ICON|🚨}}</div>
+    <h2>{{ALERT_TITLE|Alert: Action Required}}</h2>
+    <p class="lead">{{ALERT_LEAD|A clear, direct one-sentence statement of what happened and why the recipient needs to act now.}}</p>
+    <p>{{ALERT_DETAIL|Add context here — what caused this, what the impact is, and what the window for action looks like.}}</p>
+
+    <table class="details">
+      <tr>
+        <td>Severity</td>
+        <td>{{SEVERITY|High}}</td>
+      </tr>
+      <tr>
+        <td>Affected</td>
+        <td>{{AFFECTED|{{AFFECTED_ITEM|Service / User / System}}}</td>
+      </tr>
+      <tr>
+        <td>Detected</td>
+        <td>{{DETECTED_AT|{{ALERT_TIMESTAMP|21 May 2026, 14:32 UTC}}}</td>
+      </tr>
+      <tr>
+        <td>Reference</td>
+        <td>{{REFERENCE_ID|INC-20260521-001}}</td>
+      </tr>
+    </table>
+
+    <div class="cta-row">
+      <a class="btn-primary" href="{{PRIMARY_ACTION_URL|#}}">{{PRIMARY_ACTION_LABEL|Take Action Now}}</a>
+      <a class="btn-secondary" href="{{SECONDARY_ACTION_URL|#}}">{{SECONDARY_ACTION_LABEL|View Details}}</a>
+    </div>
+  </div>
+  <div class="footer">
+    <p>This is an automated alert from {{SYSTEM_NAME|Narad}} · {{SYSTEM_ID|ref: {{REFERENCE_ID|INC-20260521-001}}} · Do not reply to this email.</p>
+  </div>
+</div>
+</body>
+</html>

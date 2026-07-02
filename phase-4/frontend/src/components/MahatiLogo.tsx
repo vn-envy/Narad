@@ -8,29 +8,15 @@
  *   Top gourd height : total = 0.28
  *   Bottom gourd height : total = 0.32
  *
- * Each of the 7 strings maps to one avatar. When that avatar is active,
+ * Each string maps to one live agent. When that agent is active,
  * the string picks up the avatar's canonical colour briefly.
  */
 
-import type { AvatarName, AvatarState } from '../hooks/useAvatara'
-
-const AVATAR_NAMES: AvatarName[] = [
-  'Matsya', 'Varaha', 'Narasimha', 'Rama', 'Krishna', 'Buddha', 'Parashurama', 'Vamana'
-]
-
-const AVATAR_COLOURS: Record<AvatarName, string> = {
-  Matsya:      '#1E2A5E',
-  Varaha:      '#E55A1F',
-  Narasimha:   '#C0392B',
-  Rama:        '#2E7D4F',
-  Krishna:     '#1F7A8C',
-  Buddha:      '#F2C14E',
-  Parashurama: '#4A4A4A',
-  Vamana:      '#6B4C9A',
-}
+import type { AvatarState } from '../hooks/useAvatara'
+import { AVATAR_COLOURS, AVATAR_NAMES } from '@/lib/avatara-constants'
 
 interface Props {
-  avatarStates?: Partial<Record<AvatarName, AvatarState>>
+  avatarStates?: Partial<Record<string, AvatarState>>
   naradActive?: boolean
   size?: number
 }

@@ -6,7 +6,7 @@ Three functions with a screenshot-first safety model:
   browser_fill               — fill form fields; dry_run=True (default) previews only
   browser_upload_and_submit  — fill + upload files + submit (explicit user confirmation required)
 
-The safety model mirrors Vamana:
+The safety model is preview-first:
   - Read-only operations (screenshot) are always safe.
   - Mutating operations (fill + submit) require dry_run=False, which Matsya must
     only set after the user has explicitly confirmed ("yes", "submit", "go ahead").

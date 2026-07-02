@@ -1,5 +1,5 @@
 """
-Krishna email skill — SMTP sending with dry-run-first confirmation.
+Krishna email skill — SMTP sending with dry-run-first confirmation + HTML templates.
 
 Uses Python's built-in smtplib — no OAuth required.
 Configure with environment variables:
@@ -12,7 +12,7 @@ Configure with environment variables:
 For Gmail: generate an App Password at
   Google Account → Security → 2-Step Verification → App passwords
 
-Safety model — same as Vamana:
+Safety model — preview-first:
   send_email(... dry_run=True)  → previews what would be sent, nothing goes out
   send_email(... dry_run=False) → actually sends. ONLY call after user confirms.
 """
@@ -24,8 +24,10 @@ import smtplib
 import ssl
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from pathlib import Path
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+_TEMPLATES_DIR = Path(__file__).parent / "email-templates"
 
 
 def _parse_recipients(raw: str | list) -> list[str]:
@@ -41,16 +43,59 @@ def _validate_recipients(recipients: list[str]) -> str | None:
     return None
 
 
+def compose_rich_email(template_name: str, context: dict) -> str:
+    """Render an HTML email from a pre-built template by filling {{SLOT}} placeholders.
+
+    Templates live in phase-8/email-templates/. Pass context as a dict mapping
+    slot name (without braces) → replacement value.
+
+    Available templates: announcement, invitation, follow_up, digest, alert.
+
+    Args:
+        template_name: One of "announcement", "invitation", "follow_up", "digest", "alert".
+        context:       Dict of slot-name → value pairs to substitute.
+                       Un-filled slots keep their default value from the template.
+
+    Returns:
+        Rendered HTML string, ready to pass as html_body to send_email().
+
+    Example:
+        html = compose_rich_email("announcement", {
+            "HEADLINE": "Narad 2.0 is here",
+            "HERO_BODY": "Your personal AI just got a lot smarter.",
+            "CTA_LABEL": "See What's New",
+            "SENDER_NAME": "The Narad Team",
+        })
+        send_email(to="user@example.com", subject="Narad 2.0",
+                   body="See HTML version.", html_body=html, dry_run=True)
+    """
+    name = template_name.strip().lower().replace("-", "_")
+    html_path = _TEMPLATES_DIR / f"{name}.html"
+    if not html_path.exists():
+        available = [p.stem for p in _TEMPLATES_DIR.glob("*.html")]
+        return f"Template {name!r} not found. Available: {available}"
+
+    html = html_path.read_text(encoding="utf-8")
+
+    def replacer(m: re.Match) -> str:
+        slot, default = m.group(1), m.group(2) or ""
+        return str(context.get(slot, default))
+
+    html = re.sub(r'\{\{([A-Z0-9_]+)\|?([^}]*)\}\}', replacer, html)
+    return html
+
+
 def send_email(
     to: str,
     subject: str,
     body: str,
     cc: str = "",
     dry_run: bool = True,
+    html_body: str = "",
 ) -> dict:
     """Send an email via SMTP. Requires EMAIL_ADDRESS and EMAIL_APP_PASSWORD env vars.
 
-    SAFETY CONTRACT — same pattern as Vamana's move_to_trash:
+    SAFETY CONTRACT — same preview-first pattern as other mutating Narad tools:
       dry_run=True (default): returns a full preview of the email. Nothing is sent.
       dry_run=False: actually sends. ONLY call after the user explicitly confirms.
 
@@ -59,11 +104,13 @@ def send_email(
     calling with dry_run=False.
 
     Args:
-        to:      Recipient(s). Single address or comma/semicolon-separated list.
-        subject: Email subject line.
-        body:    Email body (plain text). Write the complete final draft here.
-        cc:      CC recipients. Optional, same format as to.
-        dry_run: True = preview only (default). False = send now.
+        to:        Recipient(s). Single address or comma/semicolon-separated list.
+        subject:   Email subject line.
+        body:      Plain-text body (required — serves as fallback for non-HTML clients).
+        cc:        CC recipients. Optional, same format as to.
+        dry_run:   True = preview only (default). False = send now.
+        html_body: Optional rendered HTML from compose_rich_email(). When provided,
+                   the email is sent as multipart/alternative with HTML + plain-text.
 
     Required environment variables:
         EMAIL_ADDRESS       — sender address (e.g. you@gmail.com)
@@ -90,12 +137,13 @@ def send_email(
 
     sender = os.environ.get("EMAIL_ADDRESS", "")
     preview = {
-        "from":    sender or "(EMAIL_ADDRESS not set)",
-        "to":      to_list,
-        "cc":      cc_list,
-        "subject": subject,
-        "body":    body,
-        "dry_run": dry_run,
+        "from":      sender or "(EMAIL_ADDRESS not set)",
+        "to":        to_list,
+        "cc":        cc_list,
+        "subject":   subject,
+        "body":      body,
+        "html_body": html_body[:200] + "…" if len(html_body) > 200 else html_body,
+        "dry_run":   dry_run,
     }
 
     if dry_run:
@@ -136,15 +184,18 @@ def send_email(
     msg["Subject"] = subject
     if cc_list:
         msg["Cc"] = ", ".join(cc_list)
+
     msg.attach(MIMEText(body, "plain"))
+    if html_body.strip():
+        msg.attach(MIMEText(html_body, "html"))
 
     all_recipients = to_list + cc_list
 
     try:
-        context = ssl.create_default_context()
+        context_ssl = ssl.create_default_context()
         with smtplib.SMTP(smtp_host, smtp_port) as server:
             server.ehlo()
-            server.starttls(context=context)
+            server.starttls(context=context_ssl)
             server.login(sender, app_password)
             server.sendmail(sender, all_recipients, msg.as_string())
 

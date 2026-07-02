@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Narad — Traces (Mock A)</title>
+  <style>
+    :root {
+      --c-bg: #0c0c14;
+      --c-surface: #14141f;
+      --c-surface-2: #1e1e2e;
+      --c-surface-3: #252535;
+      --c-border: #2a2a40;
+      --c-border-2: #353550;
+      --c-fg: #e0e0f0;
+      --c-fg-2: #a0a0c0;
+      --c-fg-3: #606080;
+      --c-accent: #7c6af7;
+      --c-accent-dim: #3d3580;
+      --c-accent-glow: rgba(124,106,247,0.15);
+      --c-matsya: #38bdf8;
+      --c-rama: #fb923c;
+      --c-krishna: #a78bfa;
+      --c-parashurama: #4ade80;
+      --c-narad: #f9c74f;
+      --c-warning: #f59e0b;
+      --c-success: #22c55e;
+      --c-compress: #e879f9;
+      --f-sans: 'Inter', system-ui, -apple-system, sans-serif;
+      --f-mono: 'JetBrains Mono', 'Fira Code', monospace;
+      --r-sm: 4px; --r-md: 8px; --r-lg: 12px;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--c-bg); color: var(--c-fg);
+      font-family: var(--f-sans); font-size: 13px; line-height: 1.5;
+      height: 100vh; overflow: hidden; display: flex; flex-direction: column;
+    }
+
+    /* ── HEADER ── */
+    .header {
+      background: var(--c-surface); border-bottom: 1px solid var(--c-border);
+      padding: 8px 16px; display: flex; align-items: center; gap: 12px; flex-shrink: 0;
+    }
+    .logo { font-size: 15px; font-weight: 700; color: var(--c-accent); letter-spacing: -0.5px; white-space: nowrap; }
+    .logo span { color: var(--c-fg-2); font-weight: 400; }
+
+    .search-bar { flex: 1; max-width: 540px; position: relative; }
+    .search-bar input {
+      width: 100%; background: var(--c-surface-2); border: 1px solid var(--c-border);
+      border-radius: var(--r-md); padding: 6px 48px 6px 32px;
+      color: var(--c-fg); font-family: var(--f-sans); font-size: 12.5px; outline: none;
+    }
+    .search-bar input:focus { border-color: var(--c-accent); box-shadow: 0 0 0 3px var(--c-accent-glow); }
+    .search-bar input::placeholder { color: var(--c-fg-3); }
+    .search-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--c-fg-3); font-size: 14px; }
+    .search-kbd {
+      position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+      font-family: var(--f-mono); font-size: 10px; color: var(--c-fg-3);
+      background: var(--c-surface-3); border: 1px solid var(--c-border); border-radius: 3px; padding: 1px 5px;
+    }
+
+    .avatar-chips { display: flex; gap: 6px; margin-left: auto; }
+    .chip { display: flex; align-items: center; gap: 5px; padding: 3px 8px; border-radius: 20px; font-size: 11px; font-weight: 500; border: 1px solid; }
+    .chip-dot { width: 6px; height: 6px; border-radius: 50%; }
+    .chip.matsya   { color: var(--c-matsya);      border-color: rgba(56,189,248,0.3);  background: rgba(56,189,248,0.08); }
+    .chip.matsya   .chip-dot { background: var(--c-matsya); }
+    .chip.rama     { color: var(--c-rama);        border-color: rgba(251,146,60,0.3);  background: rgba(251,146,60,0.08); }
+    .chip.rama     .chip-dot { background: var(--c-rama); }
+    .chip.krishna  { color: var(--c-krishna);     border-color: rgba(167,139,250,0.3); background: rgba(167,139,250,0.08); }
+    .chip.krishna  .chip-dot { background: var(--c-krishna); }
+    .chip.para     { color: var(--c-fg-3);        border-color: var(--c-border);       background: transparent; }
+    .chip.para     .chip-dot { background: var(--c-fg-3); }
+
+    /* ── METRICS STRIP ── */
+    .metrics-strip {
+      background: var(--c-surface-2); border-bottom: 1px solid var(--c-border);
+      padding: 5px 16px; display: flex; align-items: center;
+      flex-shrink: 0; font-size: 11.5px; overflow-x: auto; gap: 0;
+    }
+    .metric { display: flex; align-items: center; gap: 5px; padding: 0 12px; border-right: 1px solid var(--c-border); white-space: nowrap; }
+    .metric:first-child { padding-left: 0; }
+    .metric:last-child  { border-right: none; }
+    .m-label { color: var(--c-fg-3); }
+    .m-val   { font-weight: 600; }
+    .m-val.accent   { color: var(--c-accent); }
+    .m-val.warn     { color: var(--c-warning); }
+    .m-val.compress { color: var(--c-compress); }
+
+    /* ── TABS ── */
+    .tab-nav { background: var(--c-surface); border-bottom: 1px solid var(--c-border); padding: 0 16px; display: flex; flex-shrink: 0; }
+    .tab { padding: 10px 14px; font-size: 12.5px; font-weight: 500; color: var(--c-fg-3); cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; transition: color 0.15s; }
+    .tab:hover { color: var(--c-fg-2); }
+    .tab.active { color: var(--c-accent); border-bottom-color: var(--c-accent); }
+    .tab .badge { display: inline-flex; align-items: center; justify-content: center; margin-left: 5px; min-width: 16px; height: 16px; padding: 0 4px; background: var(--c-surface-3); border-radius: 8px; font-size: 10px; color: var(--c-fg-3); }
+    .tab.active .badge { background: var(--c-accent-dim); color: var(--c-accent); }
+
+    /* ── MAIN ── */
+    .main { flex: 1; display: flex; overflow: hidden; }
+    .traces-panel { flex: 1; display: flex; overflow: hidden; }
+
+    /* ── TIMELINE ── */
+    .timeline-col { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; }
+    .tl-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+    .tl-title  { font-size: 11.5px; font-weight: 600; color: var(--c-fg-2); text-transform: uppercase; letter-spacing: 0.5px; }
+    .session-id { font-family: var(--f-mono); font-size: 10.5px; color: var(--c-fg-3); }
+
+    .session-marker { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 11px; color: var(--c-fg-3); }
+    .session-marker-line { flex: 1; height: 1px; background: var(--c-border); }
+    .s-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c-accent); flex-shrink: 0; }
+    .s-dot.end { background: var(--c-fg-3); }
+
+    .tl-entry { position: relative; padding-left: 22px; margin-bottom: 4px; }
+    .tl-entry::before { content: ''; position: absolute; left: 6px; top: 20px; bottom: -4px; width: 1px; background: var(--c-border); }
+    .tl-entry:last-child::before { display: none; }
+    .tl-dot { position: absolute; left: 0; top: 8px; width: 13px; height: 13px; border-radius: 50%; border: 2px solid; background: var(--c-surface); }
+    .tl-dot.matsya { border-color: var(--c-matsya); }
+    .tl-dot.rama   { border-color: var(--c-rama); }
+    .tl-dot.narad  { border-color: var(--c-narad); }
+
+    .tl-card { background: var(--c-surface-2); border: 1px solid var(--c-border); border-radius: var(--r-md); margin-bottom: 4px; overflow: hidden; transition: border-color 0.12s; }
+    .tl-card:hover { border-color: var(--c-border-2); }
+    .tl-card-header { padding: 8px 12px; display: flex; align-items: center; gap: 8px; cursor: pointer; }
+
+    .tl-avatar-tag { font-size: 11px; font-weight: 700; letter-spacing: 0.3px; flex-shrink: 0; }
+    .tl-avatar-tag.matsya { color: var(--c-matsya); }
+    .tl-avatar-tag.rama   { color: var(--c-rama); }
+    .tl-avatar-tag.narad  { color: var(--c-narad); }
+
+    .tl-task { flex: 1; font-size: 12px; color: var(--c-fg-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tl-meta { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
+    .mpill { font-size: 10.5px; padding: 1px 6px; border-radius: 10px; font-family: var(--f-mono); }
+    .mpill.tok   { background: rgba(124,106,247,0.15); color: var(--c-accent); }
+    .mpill.lat   { background: rgba(160,160,192,0.1);  color: var(--c-fg-3); }
+    .mpill.tools { background: rgba(56,189,248,0.1);   color: var(--c-matsya); }
+
+    .tl-card-body { border-top: 1px solid var(--c-border); padding: 8px 12px; display: flex; flex-direction: column; gap: 4px; }
+
+    .tool-call { display: flex; align-items: flex-start; gap: 8px; padding: 5px 8px; background: var(--c-surface-3); border-radius: var(--r-sm); font-size: 11.5px; }
+    .tool-name   { font-family: var(--f-mono); color: var(--c-fg); font-size: 11px; flex-shrink: 0; }
+    .tool-result { color: var(--c-fg-3); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tool-lat    { font-family: var(--f-mono); font-size: 10px; color: var(--c-fg-3); flex-shrink: 0; }
+
+    /* Corrective RAG validate event */
+    .validate-event { display: flex; align-items: center; gap: 8px; padding: 5px 8px; background: rgba(34,197,94,0.06); border-left: 2px solid var(--c-success); border-radius: 0 var(--r-sm) var(--r-sm) 0; font-size: 11px; }
+    .validate-tag    { font-size: 10px; font-weight: 600; color: var(--c-success); text-transform: uppercase; letter-spacing: 0.3px; flex-shrink: 0; }
+    .validate-detail { color: var(--c-fg-3); }
+
+    /* Compression event */
+    .compress-event { display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: rgba(232,121,249,0.08); border: 1px solid rgba(232,121,249,0.22); border-radius: var(--r-sm); font-size: 11px; }
+    .compress-tag    { color: var(--c-compress); font-weight: 600; font-size: 10px; text-transform: uppercase; letter-spacing: 0.3px; flex-shrink: 0; }
+    .compress-detail { color: var(--c-fg-3); flex: 1; }
+    .expand-btn      { font-size: 10px; color: var(--c-compress); cursor: pointer; padding: 1px 6px; border: 1px solid rgba(232,121,249,0.35); border-radius: 3px; flex-shrink: 0; }
+    .expand-btn:hover { background: rgba(232,121,249,0.12); }
+
+    /* Scope warning */
+    .scope-warn        { display: flex; align-items: center; gap: 8px; padding: 5px 8px; background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.25); border-radius: var(--r-sm); font-size: 11px; }
+    .scope-warn-detail { flex: 1; color: var(--c-fg-3); }
+    .scope-warn-detail strong { color: var(--c-warning); }
+
+    /* ── RIGHT SUMMARY PANEL ── */
+    .summary-panel { width: 256px; border-left: 1px solid var(--c-border); background: var(--c-surface); display: flex; flex-direction: column; overflow-y: auto; flex-shrink: 0; }
+    .sum-sec       { padding: 12px 14px 10px; border-bottom: 1px solid var(--c-border); }
+    .sum-title     { font-size: 10.5px; font-weight: 600; color: var(--c-fg-3); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; }
+
+    .tok-row   { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+    .tok-label { width: 72px; font-size: 11px; font-weight: 600; flex-shrink: 0; }
+    .tok-label.matsya { color: var(--c-matsya); }
+    .tok-label.rama   { color: var(--c-rama); }
+    .tok-label.narad  { color: var(--c-narad); }
+    .tok-bar  { flex: 1; height: 5px; background: var(--c-surface-3); border-radius: 3px; overflow: hidden; }
+    .tok-fill { height: 100%; border-radius: 3px; }
+    .tok-count { font-family: var(--f-mono); font-size: 10.5px; color: var(--c-fg-3); width: 36px; text-align: right; }
+
+    .lat-row { display: flex; align-items: center; justify-content: space-between; padding: 3px 0; font-size: 11.5px; }
+    .lat-name { color: var(--c-fg-2); }
+    .lat-val  { font-family: var(--f-mono); color: var(--c-fg-3); }
+
+    .mem-pill { display: flex; align-items: center; gap: 6px; padding: 5px 8px; background: var(--c-surface-2); border: 1px solid var(--c-border); border-radius: var(--r-sm); margin-bottom: 5px; font-size: 11px; }
+    .mem-tag  { font-size: 9.5px; padding: 1px 5px; border-radius: 3px; background: rgba(124,106,247,0.15); color: var(--c-accent); font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px; flex-shrink: 0; }
+    .mem-text { color: var(--c-fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .audit-row  { display: flex; align-items: flex-start; gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--c-border); font-size: 11px; }
+    .audit-row:last-of-type { border-bottom: none; }
+    .audit-ts   { font-family: var(--f-mono); font-size: 10px; color: var(--c-fg-3); flex-shrink: 0; margin-top: 1px; }
+    .audit-av   { font-weight: 600; }
+    .audit-av.matsya { color: var(--c-matsya); }
+    .audit-av.rama   { color: var(--c-rama); }
+    .audit-task { color: var(--c-fg-3); margin-top: 1px; }
+    .audit-warn { display: flex; align-items: center; gap: 6px; padding: 4px 0; font-size: 11px; color: var(--c-warning); }
+
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--c-border-2); border-radius: 3px; }
+  </style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header class="header">
+  <div class="logo">नारद <span>/ Narad</span></div>
+  <div class="search-bar">
+    <span class="search-icon">⌕</span>
+    <input type="text" placeholder="Search memories, sessions, tasks, insights…" />
+    <span class="search-kbd">⌘K</span>
+  </div>
+  <div class="avatar-chips">
+    <div class="chip matsya"><div class="chip-dot"></div>Matsya</div>
+    <div class="chip rama"><div class="chip-dot"></div>Rama</div>
+    <div class="chip krishna"><div class="chip-dot"></div>Krishna</div>
+    <div class="chip para"><div class="chip-dot"></div>Parashurama</div>
+  </div>
+</header>
+
+<!-- METRICS STRIP -->
+<div class="metrics-strip">
+  <div class="metric"><span class="m-label">Session</span><span class="m-val" style="font-family:var(--f-mono);font-size:11px;">s_7f3a…c291</span></div>
+  <div class="metric"><span class="m-label">Tokens</span><span class="m-val accent">4,218</span></div>
+  <div class="metric"><span class="m-label">Avg latency</span><span class="m-val">3.4s</span></div>
+  <div class="metric"><span class="m-label">Tool calls</span><span class="m-val">7</span></div>
+  <div class="metric"><span class="m-label">Compressions</span><span class="m-val compress">1</span><span class="m-label" style="margin-left:3px;">— 3,240w → 480w</span></div>
+  <div class="metric"><span class="m-label">Scope warnings</span><span class="m-val warn">1</span></div>
+  <div class="metric"><span class="m-label">RRF recalls</span><span class="m-val">3</span></div>
+  <div class="metric"><span class="m-label">Sutras applied</span><span class="m-val">2</span></div>
+</div>
+
+<!-- TAB NAV -->
+<nav class="tab-nav">
+  <div class="tab">Chat</div>
+  <div class="tab active">Traces <span class="badge">4</span></div>
+  <div class="tab">Memory <span class="badge">127</span></div>
+  <div class="tab">Tasks <span class="badge">3</span></div>
+  <div class="tab">Insights <span class="badge">12</span></div>
+</nav>
+
+<!-- MAIN -->
+<div class="main">
+  <div class="traces-panel">
+
+    <!-- Timeline -->
+    <div class="timeline-col">
+      <div class="tl-header">
+        <span class="tl-title">Session Timeline</span>
+        <span class="session-id">2026-05-21 · 10:23 AM · 7.5s total</span>
+      </div>
+
+      <div class="session-marker" style="margin-bottom:8px;">
+        <div class="s-dot"></div>
+        <span>session_start · 10:23:00.122</span>
+        <div class="session-marker-line"></div>
+      </div>
+
+      <!-- Matsya -->
+      <div class="tl-entry">
+        <div class="tl-dot matsya"></div>
+        <div class="tl-card">
+          <div class="tl-card-header">
+            <span class="tl-avatar-tag matsya">MATSYA</span>
+            <span class="tl-task">Research latest open-source LLM memory architectures and summarize top 5 approaches…</span>
+            <div class="tl-meta">
+              <span class="mpill tok">1,840 tok</span>
+              <span class="mpill lat">4.2s</span>
+              <span class="mpill tools">3 tools</span>
+            </div>
+          </div>
+          <div class="tl-card-body">
+            <div class="tool-call">
+              <span class="tool-name">web_search</span>
+              <span class="tool-result">"open source LLM memory architectures 2025 site:arxiv.org" → 8 results</span>
+              <span class="tool-lat">1.1s</span>
+            </div>
+            <div class="validate-event">
+              <span class="validate-tag">✓ VALIDATE</span>
+              <span class="validate-detail">5/8 sources passed recency · 3 failed → CORRECT triggered with site:arxiv.org filter</span>
+            </div>
+            <div class="tool-call">
+              <span class="tool-name">web_search</span>
+              <span class="tool-result">"LLM memory RRF fusion arxiv 2025" (corrected) → 6 results</span>
+              <span class="tool-lat">0.9s</span>
+            </div>
+            <div class="tool-call">
+              <span class="tool-name">search_last30days</span>
+              <span class="tool-result">reddit · HN · 5 discussions · top engagement: 1.2k pts</span>
+              <span class="tool-lat">1.0s</span>
+            </div>
+            <div class="compress-event">
+              <span class="compress-tag">⚡ Compressed</span>
+              <span class="compress-detail">3,240 words → 480-word summary · uuid: a3f8b2c1…d9e7</span>
+              <span class="expand-btn">Expand ↗</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Rama -->
+      <div class="tl-entry">
+        <div class="tl-dot rama"></div>
+        <div class="tl-card">
+          <div class="tl-card-header">
+            <span class="tl-avatar-tag rama">RAMA</span>
+            <span class="tl-task">Estimate monthly GCP budget for personal LLM memory service — bear/base/bull scenarios…</span>
+            <div class="tl-meta">
+              <span class="mpill tok">1,102 tok</span>
+              <span class="mpill lat">2.1s</span>
+              <span class="mpill tools">2 tools</span>
+            </div>
+          </div>
+          <div class="tl-card-body">
+            <div class="tool-call">
+              <span class="tool-name">get_financial_context</span>
+              <span class="tool-result">Surplus: $1,240/mo · savings goal: $12,000 remaining</span>
+              <span class="tool-lat">0.4s</span>
+            </div>
+            <div class="scope-warn">
+              <span>⚠</span>
+              <span class="scope-warn-detail"><strong>Scope signal:</strong> 'deploy' in task — Parashurama domain. Cross-scope logged to audit.</span>
+            </div>
+            <div class="tool-call">
+              <span class="tool-name">create_budget_plan</span>
+              <span class="tool-result">Bear $42/mo · Base $68/mo · Bull $95/mo · probability 25%/55%/20%</span>
+              <span class="tool-lat">0.3s</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Narad synthesis -->
+      <div class="tl-entry">
+        <div class="tl-dot narad"></div>
+        <div class="tl-card">
+          <div class="tl-card-header">
+            <span class="tl-avatar-tag narad">NARAD</span>
+            <span class="tl-task">Synthesis — merging Matsya research + Rama budget scenarios → final user response</span>
+            <div class="tl-meta">
+              <span class="mpill tok">1,276 tok</span>
+              <span class="mpill lat">1.2s</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="session-marker" style="margin-top:2px;">
+        <div class="s-dot end"></div>
+        <span>session_done · 10:23:07.610 · 7.5s total</span>
+        <div class="session-marker-line"></div>
+      </div>
+    </div>
+
+    <!-- Summary panel (right) -->
+    <div class="summary-panel">
+
+      <div class="sum-sec">
+        <div class="sum-title">Token Usage</div>
+        <div class="tok-row">
+          <span class="tok-label matsya">Matsya</span>
+          <div class="tok-bar"><div class="tok-fill" style="width:64%;background:var(--c-matsya);"></div></div>
+          <span class="tok-count">1,840</span>
+        </div>
+        <div class="tok-row">
+          <span class="tok-label narad">Narad</span>
+          <div class="tok-bar"><div class="tok-fill" style="width:44%;background:var(--c-narad);"></div></div>
+          <span class="tok-count">1,276</span>
+        </div>
+        <div class="tok-row">
+          <span class="tok-label rama">Rama</span>
+          <div class="tok-bar"><div class="tok-fill" style="width:38%;background:var(--c-rama);"></div></div>
+          <span class="tok-count">1,102</span>
+        </div>
+        <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--c-border);display:flex;justify-content:space-between;">
+          <span style="font-size:11px;color:var(--c-fg-3);">Total</span>
+          <span style="font-family:var(--f-mono);font-size:12px;font-weight:600;color:var(--c-accent);">4,218</span>
+        </div>
+      </div>
+
+      <div class="sum-sec">
+        <div class="sum-title">Latency Breakdown</div>
+        <div class="lat-row"><span class="lat-name" style="color:var(--c-matsya);">Matsya</span><span class="lat-val">4,218 ms</span></div>
+        <div class="lat-row"><span class="lat-name" style="color:var(--c-rama);">Rama</span><span class="lat-val">2,089 ms</span></div>
+        <div class="lat-row"><span class="lat-name" style="color:var(--c-narad);">Synthesis</span><span class="lat-val">1,211 ms</span></div>
+        <div class="lat-row" style="margin-top:4px;padding-top:4px;border-top:1px solid var(--c-border);">
+          <span class="lat-name">Wall-clock</span>
+          <span class="lat-val" style="color:var(--c-fg);">7,518 ms</span>
+        </div>
+      </div>
+
+      <div class="sum-sec">
+        <div class="sum-title">RRF Memory Recalled</div>
+        <div class="mem-pill"><span class="mem-tag">finance</span><span class="mem-text">Monthly surplus $1,240 · GCP spend history</span></div>
+        <div class="mem-pill"><span class="mem-tag">planning</span><span class="mem-text">LLM infra project context Jan 2026</span></div>
+        <div class="mem-pill"><span class="mem-tag">insight</span><span class="mem-text">Prefer arxiv + GitHub for ML research</span></div>
+      </div>
+
+      <div class="sum-sec">
+        <div class="sum-title">Audit Log</div>
+        <div class="audit-row">
+          <span class="audit-ts">10:23:00</span>
+          <div>
+            <div><span class="audit-av matsya">Matsya</span> invoked</div>
+            <div class="audit-task">Research LLM memory architectures…</div>
+          </div>
+        </div>
+        <div class="audit-warn">⚠ <span style="color:var(--c-fg-3);">Scope: 'deploy' in Rama task flagged</span></div>
+        <div class="audit-row">
+          <span class="audit-ts">10:23:04</span>
+          <div>
+            <div><span class="audit-av rama">Rama</span> invoked</div>
+            <div class="audit-task">Estimate GCP budget scenarios…</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

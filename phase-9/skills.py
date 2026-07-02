@@ -6,15 +6,20 @@ Skipping or collapsing phases is never acceptable.
 
 Agent → skill mapping:
   Parashurama  bug→diagnose, feature→tdd, scaffold→scaffold, refactor→refactor,
-               prototype→prototype, review→review, migrate→migrate, ui→ui, pptx→pptx,
-               security_audit→security_audit, data_pipeline→data_pipeline
-  Buddha       research→research, analysis→analysis
-  Matsya       web_research→web_research, form_submit→form_submit
-  Varaha       document_review→document_review, financial_analysis→financial_analysis
-  Narasimha    bug/error→narasimha_diagnose, perf→perf_audit
-  Rama         project→project_plan, budget→budget_plan, calendar→schedule_event
-  Krishna      email→email_send, teach→teach, content→content_create
-  Vamana       cleanup→file_cleanup, import→finance_import, spending→spending_review
+               prototype→prototype, review→review, migrate→migrate, ui→ui,
+               security_audit→security_audit, data_pipeline→data_pipeline,
+               perf→perf_audit, financial_model→financial_model
+  Matsya       web_research→web_research, form_submit→form_submit,
+               document_review→document_review, analysis→analysis,
+               research→research, cleanup→file_cleanup
+  Rama         project→project_plan, budget→budget_plan, calendar→schedule_event,
+               import→finance_import, spending→spending_review,
+               health_log→health_log, wellness→wellness_plan,
+               financial_decision→financial_decision
+  Krishna      email→email_send, teach→teach, content→content_create,
+               presentation→presentation_create, video→video_create,
+               health_guidance→health_guidance, symptom_check→symptom_check,
+               mental_health→mental_health_check
 """
 
 from __future__ import annotations
@@ -67,15 +72,10 @@ SKILLS: dict[str, list[str]] = {
         "classify",         # Determine output type, tone, audience — ask one clarifying Q if ambiguous
         "select_template",  # Present 3 template / shadcn block options — wait for user selection
         "apply_tokens",     # Emit token summary table (colors, type, shape, elevation, spacing)
+        "design_audit",     # Check for slop, hierarchy drift, weak visual contrast, or generic layout
+        "design_redesign",  # Tighten the layout using explicit anti-slop design heuristics
         "add_interactions", # State layers, motion rules, breakpoints
         "deliver",          # Output complete file(s) + token map + "how to extend" notes
-    ],
-    "pptx": [
-        "outline",    # Title, audience, purpose, slide count — confirm before proceeding
-        "structure",  # Slide-by-slide table: title, key points, layout, speaker notes
-        "design",     # Design token table: colours, fonts, mood
-        "build",      # create_document(format="pptx") with all tokens applied
-        "verify",     # Confirm file exists, report path + slide count + size
     ],
     "security_audit": [
         "enumerate_surfaces", # List input vectors, auth boundaries, data flows, trust boundaries
@@ -91,21 +91,19 @@ SKILLS: dict[str, list[str]] = {
         "validate",  # run_shell on full dataset; report row counts, null rates, anomalies
         "load",      # write_script for output writing; confirm destination
     ],
-
-    # ── Buddha (analysis + research) ─────────────────────────────────────────
-    "research": [
-        "frame",       # Define core question, sub-questions, scope boundaries
-        "gather",      # Collect structured sources via Matsya's research tools
-        "triangulate", # Cross-check claims; identify consensus vs outlier vs contested
-        "gaps",        # Name what the sources do NOT answer; rate each gap
-        "synthesise",  # Final answer with evidence citations + mandatory gap disclosure
+    "perf_audit": [
+        "baseline",     # Current measured performance — ask if not provided
+        "profile",      # Where does time/memory go? Code paths, queries, I/O
+        "bottlenecks",  # Name ≤3 specific slow paths with estimated impact
+        "optimize",     # Targeted changes for each bottleneck; no speculative rewrites
+        "verify",       # Measure improvement; report before/after delta
     ],
-    "analysis": [
-        "steelman",    # State the strongest version of the argument/plan
-        "assumptions", # List every assumption; rate each solid/shaky/untested
-        "weaknesses",  # Specific logical gaps, missing evidence, quantified risks
-        "verdict",     # sound / needs_revision / fundamentally_flawed — with reasoning
-        "conditions",  # What specific evidence would change the verdict
+    "financial_model": [
+        "extract_inputs", # Gather raw numbers from user text, Matsya output, or repo data
+        "validate",       # Check units, completeness, reasonableness; flag issues
+        "model",          # write_script with code execution; run_shell to compute
+        "interpret",      # Plain-English findings: what the numbers show, what matters
+        "disclaimer",     # Append mandatory finance disclaimer before returning
     ],
 
     # ── Matsya (retrieval + web) ──────────────────────────────────────────────
@@ -121,8 +119,6 @@ SKILLS: dict[str, list[str]] = {
         "confirm",     # Show preview to user; STOP and wait for explicit approval
         "submit",      # browser_fill(dry_run=False) or browser_upload_and_submit
     ],
-
-    # ── Varaha (documents + quant finance) ───────────────────────────────────
     "document_review": [
         "extract",   # extract_document(file_path); confirm page/section count
         "structure", # Identify sections, tables, key entities, dates, figures
@@ -130,28 +126,27 @@ SKILLS: dict[str, list[str]] = {
         "gaps",      # What is missing, ambiguous, or contradicted within the doc
         "synthesis", # Direct answer to user's specific question with evidence refs
     ],
-    "financial_analysis": [
-        "extract_inputs", # Gather raw numbers from document or user text
-        "validate",       # Check units, completeness, reasonableness; flag issues
-        "model",          # write_script with pandas/numpy; run_shell to execute
-        "interpret",      # Plain-English findings: what the numbers show, what matters
-        "disclaimer",     # Append mandatory finance disclaimer before returning
+    "analysis": [
+        "steelman",    # State the strongest version of the argument/plan
+        "assumptions", # List every assumption; rate each solid/shaky/untested
+        "weaknesses",  # Specific logical gaps, missing evidence, quantified risks
+        "verdict",     # sound / needs_revision / fundamentally_flawed — with reasoning
+        "conditions",  # What specific evidence would change the verdict
     ],
-
-    # ── Narasimha (debugging + performance) ──────────────────────────────────
-    "narasimha_diagnose": [
-        "symptoms",   # Restate exactly what is observed: error text, behaviour, context
-        "hypothesize", # List ≥2 root cause candidates ranked by likelihood
-        "root_cause", # Name the most probable cause with evidence; explicit declaration
-        "fix",        # Copy-paste-ready fix steps; ONLY after root_cause is declared
-        "verify",     # Confirm fix resolves original symptom; how to test
+    "research": [
+        "frame",       # Define core question, sub-questions, scope boundaries
+        "search",      # Collect structured sources via Matsya's research tools
+        "triangulate", # Cross-check claims; identify consensus vs outlier vs contested
+        "gaps",        # Name what the sources do NOT answer; rate each gap
+        "synthesise",  # Final answer with evidence citations + mandatory gap disclosure
     ],
-    "perf_audit": [
-        "baseline",     # Current measured performance — ask if not provided
-        "profile",      # Where does time/memory go? Code paths, queries, I/O
-        "bottlenecks",  # Name ≤3 specific slow paths with estimated impact
-        "optimize",     # Targeted changes for each bottleneck; no speculative rewrites
-        "verify",       # Measure improvement; report before/after delta
+    "file_cleanup": [
+        "scan",       # scan_directory + find_large_files + get_disk_info
+        "categorize", # Group files by type, age (>90d), size (>100MB), duplicates
+        "preview",    # organize_by_type/move_to_trash dry_run=True; list every file
+        "confirm",    # STOP; "N files to move, M MB to free — proceed?"
+        "execute",    # Run with dry_run=False only after confirmation
+        "report",     # What was done, space freed, where files went
     ],
 
     # ── Rama (planning + calendar + budget) ──────────────────────────────────
@@ -176,6 +171,38 @@ SKILLS: dict[str, list[str]] = {
         "confirm",          # STOP; wait for explicit user approval
         "create",           # create_event(dry_run=False) only after confirmation
     ],
+    "finance_import": [
+        "import",     # import_csv(file_path) or sync_gmail_finance()
+        "review",     # Show imported rows, top merchants, auto-categories; flag uncertain
+        "reconcile",  # Let user correct miscategorizations before proceeding
+        "baseline",   # get_spending("last_3_months") + get_budget_status()
+        "goals",      # Offer add_goal()/set_budget(); ask about targets
+    ],
+    "spending_review": [
+        "extract",          # get_spending(period) by category + get_recurring_expenses()
+        "categorize",       # Fixed vs variable, essential vs discretionary
+        "patterns",         # Month-over-month changes, top 3 categories, anomalies
+        "recommendations",  # 2–3 specific actions ranked by impact
+    ],
+    "health_log": [
+        "capture",  # Determine log/reminder/history action and gather required fields
+        "confirm",  # Preview write operations; history queries can move straight through
+        "store",    # log_symptom / set_medication_reminder / get_health_log / query_rxnorm
+        "summary",  # Confirm what was written or summarize history data
+    ],
+    "wellness_plan": [
+        "assess",   # Current activity, sleep, nutrition, constraints, real schedule
+        "goals",    # Define measurable targets and flag conflicts/medical caveats
+        "plan",     # Weekly exercise/nutrition/sleep structure
+        "schedule", # Map the plan onto the user's calendar with dry-run previews
+        "monitor",  # Check-ins, adjustment triggers, 4-week milestone
+    ],
+    "financial_decision": [
+        "data",      # Pull current financial state from real account and spending data
+        "steelman",  # State the strongest case for the decision
+        "scenarios", # Bear/base/bull grounded in the user's actual baseline
+        "verdict",   # Clear recommendation with conditions and mandatory disclaimer
+    ],
 
     # ── Krishna (communication + education) ──────────────────────────────────
     "email_send": [
@@ -199,29 +226,66 @@ SKILLS: dict[str, list[str]] = {
         "polish",  # Tighten language; check opening hook and closing CTA
         "deliver", # Final version with formatting notes
     ],
-
-    # ── Vamana (filesystem + personal finance) ───────────────────────────────
-    "file_cleanup": [
-        "scan",       # scan_directory + find_large_files + get_disk_info
-        "categorize", # Group files by type, age (>90d), size (>100MB), duplicates
-        "preview",    # organize_by_type/move_to_trash dry_run=True; list every file
-        "confirm",    # STOP; "N files to move, M MB to free — proceed?"
-        "execute",    # Run with dry_run=False only after confirmation
-        "report",     # What was done, space freed, where files went
+    "presentation_create": [
+        "brief",     # Purpose, audience, slide count, tone, HTML/PDF export note
+        "outline",   # Slide narrative arc
+        "structure", # Slide-by-slide content and layout table
+        "design_audit", # Check visual hierarchy and reject generic/sloppy deck structure
+        "build",     # rank_ui_templates() then create_webpage(code)
     ],
-    "finance_import": [
-        "import",     # import_csv(file_path) or sync_gmail_finance()
-        "review",     # Show N transactions, top 5 merchants, auto-categories; flag uncertain
-        "reconcile",  # Let user correct miscategorizations before proceeding
-        "baseline",   # get_spending("last_3_months") + get_budget_status()
-        "goals",      # Offer add_goal(); ask about budget/savings targets
+    "video_create": [
+        "brief",  # Topic, duration, scene count, style, platform
+        "script", # Scene-by-scene content plan
+        "design_redesign", # Refine the visual direction before rendering
+        "build",  # Veo → HyperFrames → moviepy fallback cascade
     ],
-    "spending_review": [
-        "extract",          # get_spending(period) by category + get_recurring_expenses()
-        "categorize",       # Fixed vs variable, essential vs discretionary
-        "patterns",         # Month-over-month changes, top 3 categories, anomalies
-        "insights",         # Compare to get_budget_status(); gap vs budget
-        "recommendations",  # 2–3 specific actions ranked by impact
+    "dogfood_ui": [
+        "scope",       # Define the UI or flow to inspect
+        "exercise",    # Drive the product through key user journeys
+        "capture",     # Save screenshots, traces, and visible regressions
+        "report",      # Summarize the UX failures and likely root causes
+    ],
+    "kanban_orchestrator": [
+        "intake",      # Read the incoming goal or project state
+        "structure",   # Create or reshape board columns and milestones
+        "assign",      # Map tasks to avatars or owners
+        "monitor",     # Update blocked/done state from live execution signals
+    ],
+    "kanban_worker": [
+        "claim",       # Pick the next eligible card
+        "execute",     # Perform the assigned work slice
+        "handoff",     # Record outputs and update board status
+    ],
+    "native_mcp": [
+        "inventory",   # Detect the server/tool surface and schemas
+        "connect",     # Validate auth/transport assumptions
+        "exercise",    # Run a minimal safe tool call
+        "report",      # Summarize capability and integration risks
+    ],
+    "youtube_content": [
+        "discover",    # Find candidate videos/channels for the topic
+        "extract",     # Pull transcript highlights and notable comments
+        "rank",        # Score relevance and novelty
+        "synthesize",  # Convert creator signal into grounded findings
+    ],
+    "health_guidance": [
+        "context",         # Understand the user's wellness context and constraints
+        "evidence",        # Find credible support for recommendations
+        "recommendations", # Specific, actionable guidance
+        "disclaimer",      # General wellness, not medical advice
+    ],
+    "mental_health_check": [
+        "screen",            # PHQ-4 intake
+        "support",           # Score-based coping guidance or crisis response
+        "resources",         # Appropriate follow-up resources
+        "professional_gate", # Strong recommendation based on severity
+    ],
+    "symptom_check": [
+        "collect",         # Structured symptom interview
+        "red_flag_check",  # Emergency gate before any assessment
+        "assessment",      # Associated-with framing only
+        "triage",          # Appropriate level of care
+        "disclaimer",      # Not a diagnosis
     ],
 }
 
@@ -238,33 +302,35 @@ def get_skill_for_task_type(task_type: str) -> list[str] | None:
         "review":         "review",
         "migrate":        "migrate",
         "ui":             "ui",
-        "pptx":           "pptx",
         "security_audit": "security_audit",
         "data_pipeline":  "data_pipeline",
-        # Buddha
-        "research":       "research",
-        "analysis":       "analysis",
+        "perf_audit":     "perf_audit",
+        "financial_model": "financial_model",
         # Matsya
         "web_research":   "web_research",
         "form_submit":    "form_submit",
-        # Varaha
-        "document_review":    "document_review",
-        "financial_analysis": "financial_analysis",
-        # Narasimha
-        "narasimha_diagnose": "narasimha_diagnose",
-        "perf_audit":         "perf_audit",
+        "document_review": "document_review",
+        "analysis":       "analysis",
+        "research":       "research",
+        "file_cleanup":   "file_cleanup",
         # Rama
         "project_plan":   "project_plan",
         "budget_plan":    "budget_plan",
         "schedule_event": "schedule_event",
+        "finance_import": "finance_import",
+        "spending_review": "spending_review",
+        "health_log":     "health_log",
+        "wellness_plan":  "wellness_plan",
+        "financial_decision": "financial_decision",
         # Krishna
         "email_send":     "email_send",
         "teach":          "teach",
         "content_create": "content_create",
-        # Vamana
-        "file_cleanup":    "file_cleanup",
-        "finance_import":  "finance_import",
-        "spending_review": "spending_review",
+        "presentation_create": "presentation_create",
+        "video_create":   "video_create",
+        "health_guidance": "health_guidance",
+        "symptom_check":  "symptom_check",
+        "mental_health_check": "mental_health_check",
     }
     skill_name = mapping.get(task_type.lower())
     return SKILLS.get(skill_name) if skill_name else None

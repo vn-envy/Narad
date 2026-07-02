@@ -96,17 +96,19 @@ def execute_code(
             "run_id":       run_id,
         }
 
-    # Wrap the user code so OUTPUT_DIR is available as a variable
-    wrapper = textwrap.dedent(f"""\
-        import os, sys
-        OUTPUT_DIR = {str(output_dir)!r}
-        os.makedirs(OUTPUT_DIR, exist_ok=True)
-        os.chdir(OUTPUT_DIR)
-
-        # ── USER CODE ────────────────────────────────────────
-        {textwrap.indent(code, '        ')}
-        # ── END USER CODE ────────────────────────────────────
-    """)
+    # Wrap the user code so OUTPUT_DIR is available as a variable.
+    # IMPORTANT: do NOT use textwrap.indent on user code — adding indentation to
+    # module-level code causes IndentationError in the subprocess.
+    wrapper = (
+        "import os, sys\n"
+        f"OUTPUT_DIR = {str(output_dir)!r}\n"
+        "os.makedirs(OUTPUT_DIR, exist_ok=True)\n"
+        "os.chdir(OUTPUT_DIR)\n"
+        "\n"
+        "# ── USER CODE ────────────────────────────────────────\n"
+        + code.strip()
+        + "\n# ── END USER CODE ────────────────────────────────────\n"
+    )
 
     # Write to a temp file so tracebacks show line numbers
     with tempfile.NamedTemporaryFile(
@@ -115,7 +117,10 @@ def execute_code(
         f.write(wrapper)
         script_path = f.name
 
-    env = {**os.environ, "OUTPUT_DIR": str(output_dir), "PYTHONPATH": ""}
+    # Inherit os.environ so the subprocess can import venv packages (moviepy, Pillow, etc.).
+    # The blocklist above prevents dangerous operations; clearing PYTHONPATH would prevent
+    # any package imports and make the executor useless.
+    env = {**os.environ, "OUTPUT_DIR": str(output_dir)}
 
     t0 = time.monotonic()
     try:

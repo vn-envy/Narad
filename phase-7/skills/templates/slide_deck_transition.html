@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{DECK_TITLE|Presentation}}</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --bg:      {{BG_COLOR|#ffffff}};
+    --text:    {{TEXT_COLOR|#1a1a2e}};
+    --accent:  {{ACCENT_COLOR|#4f46e5}};
+    --muted:   {{MUTED_COLOR|#6b7280}};
+    --slide-w: 100vw;
+    --slide-h: 100vh;
+  }
+  html, body { height: 100%; overflow: hidden; background: var(--bg); }
+
+  .deck {
+    display: flex;
+    width: calc(var(--slide-w) * {{SLIDE_COUNT|5}});
+    height: 100%;
+    transition: transform 0.7s cubic-bezier(0.77, 0, 0.175, 1);
+  }
+
+  .slide {
+    width: var(--slide-w);
+    height: var(--slide-h);
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 6vw;
+    position: relative;
+    font-family: 'Inter', 'Helvetica Neue', sans-serif;
+    color: var(--text);
+    background: var(--bg);
+  }
+
+  /* Accent line across top of each slide */
+  .slide::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 6vw; right: 6vw;
+    height: 3px;
+    background: var(--accent);
+    transform: scaleX(0);
+    transform-origin: left;
+    transition: transform 0.5s ease 0.3s;
+  }
+  .slide.active::before { transform: scaleX(1); }
+
+  .slide-label {
+    position: absolute;
+    top: 2rem; right: 2.5rem;
+    font-size: 0.75rem;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+  }
+  h2 {
+    font-size: clamp(2rem, 5vw, 4.5rem);
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    line-height: 1.1;
+    text-align: center;
+    margin-bottom: 1.2rem;
+  }
+  .body-text {
+    font-size: clamp(0.95rem, 1.8vw, 1.4rem);
+    line-height: 1.65;
+    color: var(--muted);
+    text-align: center;
+    max-width: 680px;
+  }
+  .tag {
+    display: inline-block;
+    margin-bottom: 1rem;
+    padding: 0.3em 1em;
+    background: var(--accent);
+    color: #fff;
+    border-radius: 100px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  /* Slide content animations (trigger when .active) */
+  .slide h2, .slide .body-text, .slide .tag {
+    opacity: 0;
+    transform: translateY(30px);
+    transition: opacity 0.6s ease, transform 0.6s cubic-bezier(0.16,1,0.3,1);
+  }
+  .slide.active h2 { opacity: 1; transform: none; transition-delay: 0.25s; }
+  .slide.active .tag { opacity: 1; transform: none; transition-delay: 0.15s; }
+  .slide.active .body-text { opacity: 1; transform: none; transition-delay: 0.4s; }
+
+  /* Navigation */
+  .nav {
+    position: fixed;
+    bottom: 2rem;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 0.6rem;
+    z-index: 100;
+  }
+  .nav button {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    border: 2px solid var(--accent);
+    background: transparent;
+    cursor: pointer;
+    transition: background 0.2s;
+    padding: 0;
+  }
+  .nav button.active { background: var(--accent); }
+
+  .arrow {
+    position: fixed;
+    top: 50%;
+    transform: translateY(-50%);
+    background: transparent;
+    border: 1.5px solid var(--muted);
+    color: var(--text);
+    width: 3rem; height: 3rem;
+    border-radius: 50%;
+    font-size: 1.2rem;
+    cursor: pointer;
+    z-index: 100;
+    display: flex; align-items: center; justify-content: center;
+    transition: border-color 0.2s, opacity 0.2s;
+    opacity: 0.5;
+  }
+  .arrow:hover { border-color: var(--accent); opacity: 1; }
+  #prev { left: 1.5rem; }
+  #next { right: 1.5rem; }
+</style>
+</head>
+<body>
+
+<div class="deck" id="deck">
+  <!-- Slide 1 -->
+  <section class="slide active">
+    <span class="slide-label">01 / {{SLIDE_COUNT|5}}</span>
+    <span class="tag">{{TAG_1|Introduction}}</span>
+    <h2>{{TITLE_1|Opening Slide}}</h2>
+    <p class="body-text">{{BODY_1|Set the context and hook your audience with the central question or opportunity.}}</p>
+  </section>
+
+  <!-- Slide 2 -->
+  <section class="slide">
+    <span class="slide-label">02 / {{SLIDE_COUNT|5}}</span>
+    <span class="tag">{{TAG_2|Problem}}</span>
+    <h2>{{TITLE_2|The Challenge}}</h2>
+    <p class="body-text">{{BODY_2|Define the problem clearly. What is broken, missing, or inefficient today?}}</p>
+  </section>
+
+  <!-- Slide 3 -->
+  <section class="slide">
+    <span class="slide-label">03 / {{SLIDE_COUNT|5}}</span>
+    <span class="tag">{{TAG_3|Solution}}</span>
+    <h2>{{TITLE_3|Our Approach}}</h2>
+    <p class="body-text">{{BODY_3|Introduce the solution. Keep this crisp — one sentence of what it is and why it works.}}</p>
+  </section>
+
+  <!-- Slide 4 -->
+  <section class="slide">
+    <span class="slide-label">04 / {{SLIDE_COUNT|5}}</span>
+    <span class="tag">{{TAG_4|Evidence}}</span>
+    <h2>{{TITLE_4|Results So Far}}</h2>
+    <p class="body-text">{{BODY_4|Data, metrics, or proof points. Quantify wherever possible.}}</p>
+  </section>
+
+  <!-- Slide 5 -->
+  <section class="slide">
+    <span class="slide-label">05 / {{SLIDE_COUNT|5}}</span>
+    <span class="tag">{{TAG_5|Next Steps}}</span>
+    <h2>{{TITLE_5|What's Next}}</h2>
+    <p class="body-text">{{BODY_5|Clear call to action. What do you need from this audience?}}</p>
+  </section>
+</div>
+
+<div class="nav" id="nav"></div>
+<button class="arrow" id="prev">&#8592;</button>
+<button class="arrow" id="next">&#8594;</button>
+
+<script>
+(function() {
+  const slides = Array.from(document.querySelectorAll('.slide'));
+  const deck   = document.getElementById('deck');
+  const nav    = document.getElementById('nav');
+  let current  = 0;
+
+  function buildNav() {
+    slides.forEach((_, i) => {
+      const btn = document.createElement('button');
+      if (i === 0) btn.classList.add('active');
+      btn.addEventListener('click', () => goTo(i));
+      nav.appendChild(btn);
+    });
+  }
+
+  function goTo(idx) {
+    slides[current].classList.remove('active');
+    nav.children[current].classList.remove('active');
+    current = Math.max(0, Math.min(idx, slides.length - 1));
+    deck.style.transform = `translateX(-${current * 100}vw)`;
+    slides[current].classList.add('active');
+    nav.children[current].classList.add('active');
+    document.getElementById('prev').style.opacity = current === 0 ? '0.2' : '0.5';
+    document.getElementById('next').style.opacity = current === slides.length - 1 ? '0.2' : '0.5';
+  }
+
+  document.getElementById('prev').addEventListener('click', () => goTo(current - 1));
+  document.getElementById('next').addEventListener('click', () => goTo(current + 1));
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight' || e.key === ' ') goTo(current + 1);
+    if (e.key === 'ArrowLeft') goTo(current - 1);
+  });
+
+  let ts = 0;
+  document.addEventListener('touchstart', e => { ts = e.touches[0].clientX; });
+  document.addEventListener('touchend', e => {
+    const diff = ts - e.changedTouches[0].clientX;
+    if (Math.abs(diff) > 50) goTo(current + (diff > 0 ? 1 : -1));
+  });
+
+  buildNav();
+})();
+</script>
+</body>
+</html>

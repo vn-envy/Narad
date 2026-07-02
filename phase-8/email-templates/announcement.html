@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{SUBJECT}}</title>
+<style>
+  body{margin:0;padding:0;background:#f4f4f5;font-family:'Helvetica Neue',Arial,sans-serif;color:#18181b;}
+  .wrapper{max-width:600px;margin:32px auto;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 16px rgba(0,0,0,.07);}
+  .hero{background:{{ACCENT_COLOR|#4f46e5}};padding:48px 40px 40px;text-align:center;}
+  .hero-eyebrow{font-size:11px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:rgba(255,255,255,.75);margin-bottom:12px;}
+  .hero h1{font-size:32px;font-weight:800;color:#fff;line-height:1.15;margin:0 0 16px;}
+  .hero p{font-size:16px;color:rgba(255,255,255,.85);line-height:1.55;margin:0 auto 28px;max-width:460px;}
+  .cta-btn{display:inline-block;padding:14px 32px;background:#ffffff;color:{{ACCENT_COLOR|#4f46e5}};font-size:15px;font-weight:700;border-radius:100px;text-decoration:none;}
+  .body{padding:40px;}
+  .body p{font-size:15px;line-height:1.65;color:#3f3f46;margin:0 0 16px;}
+  .divider{height:1px;background:#e4e4e7;margin:28px 0;}
+  .feature-row{display:flex;gap:16px;margin-bottom:20px;}
+  .feature-icon{width:40px;height:40px;border-radius:10px;background:{{ACCENT_LIGHT|#ede9fe}};flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:20px;}
+  .feature-body h3{font-size:14px;font-weight:700;margin:0 0 4px;color:#18181b;}
+  .feature-body p{font-size:13px;color:#71717a;line-height:1.5;margin:0;}
+  .footer{background:#f4f4f5;padding:24px 40px;text-align:center;}
+  .footer p{font-size:12px;color:#a1a1aa;line-height:1.6;margin:0;}
+  .footer a{color:#71717a;text-decoration:underline;}
+</style>
+</head>
+<body>
+<div class="wrapper">
+  <div class="hero">
+    <div class="hero-eyebrow">{{EYEBROW|Announcement}}</div>
+    <h1>{{HEADLINE|We're excited to share something new}}</h1>
+    <p>{{HERO_BODY|A brief, compelling sentence that sets up what you're announcing and why the reader should care.}}</p>
+    <a class="cta-btn" href="{{CTA_URL|#}}">{{CTA_LABEL|Learn More}}</a>
+  </div>
+  <div class="body">
+    <p>Hi {{GREETING_NAME|there}},</p>
+    <p>{{INTRO_PARA|We're thrilled to announce [name of thing]. Starting [date], you'll be able to [key action/benefit].}}</p>
+    <p>{{DETAIL_PARA|Add a second paragraph here with any important context, caveats, or backstory that helps the reader understand the significance.}}</p>
+
+    <div class="divider"></div>
+
+    <div class="feature-row">
+      <div class="feature-icon">{{FEAT1_ICON|🚀}}</div>
+      <div class="feature-body">
+        <h3>{{FEAT1_TITLE|Feature One}}</h3>
+        <p>{{FEAT1_DESC|One-line description of the first key feature or benefit.}}</p>
+      </div>
+    </div>
+    <div class="feature-row">
+      <div class="feature-icon">{{FEAT2_ICON|✨}}</div>
+      <div class="feature-body">
+        <h3>{{FEAT2_TITLE|Feature Two}}</h3>
+        <p>{{FEAT2_DESC|One-line description of the second key feature or benefit.}}</p>
+      </div>
+    </div>
+    <div class="feature-row">
+      <div class="feature-icon">{{FEAT3_ICON|🎯}}</div>
+      <div class="feature-body">
+        <h3>{{FEAT3_TITLE|Feature Three}}</h3>
+        <p>{{FEAT3_DESC|One-line description of the third key feature or benefit.}}</p>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+    <p>{{CLOSING_PARA|Questions? Just reply to this email — we'd love to hear from you.}}</p>
+    <p>{{SIGN_OFF|Warm regards,}}<br><strong>{{SENDER_NAME|The Team}}</strong></p>
+  </div>
+  <div class="footer">
+    <p>{{ORG_NAME|Organisation}} · {{ORG_ADDRESS|Address Line}}<br>
+    <a href="{{UNSUBSCRIBE_URL|#}}">Unsubscribe</a> · <a href="{{PRIVACY_URL|#}}">Privacy Policy</a></p>
+  </div>
+</div>
+</body>
+</html>

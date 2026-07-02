@@ -39,6 +39,7 @@ from pydantic import BaseModel
 
 from smriti_v2 import get_wiki_pages, get_wiki_page, put_wiki_page, add_episode, WIKI_DIR
 from project_manager import load_projects, rename_project
+from project_session_info import session_info as _fast_session_info
 
 wiki_router     = APIRouter(prefix="/wiki",     tags=["wiki"])
 projects_router = APIRouter(prefix="/projects", tags=["projects"])
@@ -129,14 +130,26 @@ async def list_projects(user_id: str) -> dict:
     projects = load_projects(user_id)
     result = []
     for p in projects:
+        session_ids = p.get("session_ids", [])
+        active_session_id = p.get("active_session_id") or (session_ids[-1] if session_ids else None)
+        last_activity_at = p.get("last_activity_at") or p.get("created_at")
+        if active_session_id and not last_activity_at:
+            latest = _session_info(active_session_id)
+            last_activity_at = latest.get("ts") or p.get("created_at")
         result.append({
             "id":            p["id"],
             "name":          p["name"],
+            "workspace_root": p.get("workspace_root"),
+            "workspace_label": p.get("workspace_label"),
+            "status": p.get("project_status", "active"),
+            "project_status": p.get("project_status", "active"),
             "created_at":    p.get("created_at"),
-            "session_count": len(p.get("session_ids", [])),
+            "session_count": len(session_ids),
+            "active_session_id": active_session_id,
+            "last_activity_at": last_activity_at,
         })
-    # Sort by most recent (created_at descending)
-    result.sort(key=lambda x: x.get("created_at") or "", reverse=True)
+    # Sort by most recent activity first, falling back to created_at.
+    result.sort(key=lambda x: x.get("last_activity_at") or x.get("created_at") or "", reverse=True)
     return {"user_id": user_id, "projects": result}
 
 
@@ -153,40 +166,7 @@ async def rename_project_route(user_id: str, project_id: str, body: ProjectRenam
 
 def _session_info(session_id: str) -> dict:
     """Load session metadata from Yantra trace."""
-    try:
-        from yantra import Tracer
-        events = Tracer.load(session_id)
-        start_evt   = next((e for e in events if e.get("event") == "session_start"), None)
-        first_avatar = next((e for e in events if e.get("event") == "avatar_start"), None)
-        done_evt    = next((e for e in events if e.get("event") == "session_done"), None)
-        avatars     = list(dict.fromkeys(
-            e["avatar"] for e in events
-            if e.get("event") == "avatar_done" and e.get("avatar")
-        ))
-        # Fall back to first avatar_start if no session_start event (older traces)
-        ts    = (start_evt or first_avatar or {}).get("ts")
-        query = (start_evt or first_avatar or {}).get("task")
-        total_ms = done_evt.get("total_ms") if done_evt else None
-        if total_ms is None and first_avatar:
-            # Estimate from sum of avatar latencies
-            total_ms = sum(
-                e.get("latency_ms", 0) for e in events if e.get("event") == "avatar_done"
-            ) or None
-        return {
-            "session_id": session_id,
-            "ts":         ts,
-            "query":      query,
-            "avatars":    avatars,
-            "total_ms":   total_ms,
-        }
-    except Exception:
-        return {
-            "session_id": session_id,
-            "ts":         None,
-            "query":      None,
-            "avatars":    [],
-            "total_ms":   None,
-        }
+    return _fast_session_info(session_id)
 
 
 @sessions_router.get("/{user_id}/{project_id}")

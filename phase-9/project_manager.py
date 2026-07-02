@@ -3,7 +3,9 @@ Project Manager — classifies sessions into named projects using LiteLLM.
 
 Storage: project-memory/{user_id}/projects.json
 
-Each project:  {"id": "proj_{hex8}", "name": str, "created_at": ISO, "session_ids": [str]}
+Each project is normalized to include workspace-first metadata so the UI can
+group and summarize workspaces without leaning on wiki pages as the primary
+project model.
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ import sys as _sys_nc
 _sys_nc.path.insert(0, str(Path(__file__).parent.parent))
 from narad_config import WIKI_DIR as _WIKI_DIR
 _MODEL = os.environ.get("NARAD_CLASSIFY_MODEL", "deepseek/deepseek-chat")
+_DEFAULT_WORKSPACE_ROOT = str((Path(__file__).parent.parent).resolve())
 
 
 # ── Storage helpers ────────────────────────────────────────────────────────────
@@ -28,18 +31,62 @@ def _proj_file(user_id: str) -> Path:
     return d / "projects.json"
 
 
+def _default_workspace_root() -> str:
+    return os.environ.get("NARAD_WORKSPACE_ROOT", _DEFAULT_WORKSPACE_ROOT)
+
+
+def _workspace_label(workspace_root: str | None) -> str:
+    if not workspace_root:
+        return "workspace"
+    try:
+        name = Path(workspace_root).name.strip()
+        return name or workspace_root
+    except Exception:
+        return workspace_root
+
+
+def _iso_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _normalize_project(project: dict) -> dict:
+    workspace_root = str(project.get("workspace_root") or _default_workspace_root())
+    normalized = dict(project)
+    session_ids = list(dict.fromkeys(project.get("session_ids", [])))
+    normalized["workspace_root"] = workspace_root
+    normalized["workspace_label"] = str(
+        project.get("workspace_label") or _workspace_label(workspace_root)
+    )
+    normalized["project_status"] = str(project.get("project_status") or "active")
+    normalized["session_ids"] = session_ids
+    normalized["active_session_id"] = (
+        str(project.get("active_session_id"))
+        if project.get("active_session_id")
+        else (session_ids[-1] if session_ids else None)
+    )
+    normalized["last_activity_at"] = str(
+        project.get("last_activity_at") or project.get("created_at") or _iso_now()
+    )
+    return normalized
+
+
 def load_projects(user_id: str) -> list[dict]:
     f = _proj_file(user_id)
     if not f.exists():
         return []
     try:
-        return json.loads(f.read_text()).get("projects", [])
+        raw_projects = json.loads(f.read_text()).get("projects", [])
+        normalized = [_normalize_project(project) for project in raw_projects]
+        if normalized != raw_projects:
+            save_projects(user_id, normalized)
+        return normalized
     except Exception:
         return []
 
 
 def save_projects(user_id: str, projects: list[dict]) -> None:
-    _proj_file(user_id).write_text(json.dumps({"projects": projects}, indent=2))
+    normalized = [_normalize_project(project) for project in projects]
+    _proj_file(user_id).write_text(json.dumps({"projects": normalized}, indent=2))
 
 
 # ── CRUD ───────────────────────────────────────────────────────────────────────
@@ -48,26 +95,80 @@ def get_project(user_id: str, project_id: str) -> dict | None:
     return next((p for p in load_projects(user_id) if p["id"] == project_id), None)
 
 
-def create_project(user_id: str, name: str, session_id: str | None = None) -> dict:
+def create_project(
+    user_id: str,
+    name: str,
+    session_id: str | None = None,
+    *,
+    workspace_root: str | None = None,
+) -> dict:
     projects = load_projects(user_id)
     proj: dict = {
         "id": f"proj_{uuid4().hex[:8]}",
         "name": name,
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": _iso_now(),
         "session_ids": [session_id] if session_id else [],
+        "workspace_root": workspace_root or _default_workspace_root(),
+        "workspace_label": _workspace_label(workspace_root or _default_workspace_root()),
+        "project_status": "active",
+        "active_session_id": session_id,
+        "last_activity_at": _iso_now(),
     }
     projects.append(proj)
     save_projects(user_id, projects)
-    return proj
+    return _normalize_project(proj)
 
 
-def assign_session(user_id: str, project_id: str, session_id: str) -> None:
+def assign_session(
+    user_id: str,
+    project_id: str,
+    session_id: str,
+    *,
+    workspace_root: str | None = None,
+) -> None:
+    touched = False
     projects = load_projects(user_id)
     for p in projects:
         if p["id"] == project_id:
-            if session_id not in p.get("session_ids", []):
-                p.setdefault("session_ids", []).append(session_id)
-    save_projects(user_id, projects)
+            session_ids = list(p.get("session_ids", []))
+            if session_id in session_ids:
+                session_ids = [sid for sid in session_ids if sid != session_id]
+            session_ids.append(session_id)
+            p["session_ids"] = session_ids
+            p["active_session_id"] = session_id
+            p["last_activity_at"] = _iso_now()
+            if workspace_root and not p.get("workspace_root"):
+                p["workspace_root"] = workspace_root
+                p["workspace_label"] = _workspace_label(workspace_root)
+            touched = True
+            break
+    if touched:
+        save_projects(user_id, projects)
+
+
+def touch_project_activity(
+    user_id: str,
+    project_id: str,
+    *,
+    session_id: str | None = None,
+    ts: str | None = None,
+) -> bool:
+    projects = load_projects(user_id)
+    changed = False
+    for p in projects:
+        if p["id"] != project_id:
+            continue
+        if session_id:
+            session_ids = [sid for sid in p.get("session_ids", []) if sid != session_id]
+            session_ids.append(session_id)
+            p["session_ids"] = session_ids
+            p["active_session_id"] = session_id
+        p["last_activity_at"] = ts or _iso_now()
+        changed = True
+        break
+    if changed:
+        save_projects(user_id, projects)
+    return changed
 
 
 def rename_project(user_id: str, project_id: str, new_name: str) -> bool:
@@ -109,6 +210,7 @@ async def detect_project(user_id: str, session_id: str, tasks: list[str]) -> str
     """
     existing = get_session_project(user_id, session_id)
     if existing:
+        touch_project_activity(user_id, existing, session_id=session_id)
         return existing
 
     if not tasks:

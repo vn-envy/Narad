@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{SUBJECT|You're Invited}}</title>
+<style>
+  body{margin:0;padding:0;background:#f0fdf4;font-family:'Helvetica Neue',Arial,sans-serif;color:#14532d;}
+  .wrapper{max-width:600px;margin:32px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 16px rgba(0,0,0,.07);}
+  .banner{background:{{ACCENT_COLOR|#16a34a}};padding:8px 40px;text-align:center;}
+  .banner span{font-size:11px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:rgba(255,255,255,.8);}
+  .hero{padding:44px 40px 32px;text-align:center;border-bottom:1px solid #dcfce7;}
+  .hero h1{font-size:30px;font-weight:800;color:#14532d;line-height:1.2;margin:0 0 10px;}
+  .hero .subtitle{font-size:16px;color:#15803d;margin:0 0 28px;}
+  .event-card{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:20px 24px;display:inline-block;text-align:left;margin-bottom:20px;}
+  .event-row{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+  .event-row:last-child{margin-bottom:0;}
+  .ev-icon{font-size:18px;width:28px;text-align:center;}
+  .ev-label{font-size:11px;color:#15803d;font-weight:600;letter-spacing:.1em;text-transform:uppercase;margin-bottom:2px;}
+  .ev-value{font-size:15px;font-weight:600;color:#14532d;}
+  .rsvp-area{padding:0 40px 36px;text-align:center;}
+  .rsvp-area p{font-size:15px;color:#3f3f46;line-height:1.6;margin:0 0 20px;}
+  .rsvp-btn{display:inline-block;padding:14px 36px;background:{{ACCENT_COLOR|#16a34a}};color:#fff;font-size:15px;font-weight:700;border-radius:100px;text-decoration:none;margin-right:8px;}
+  .decline-btn{display:inline-block;padding:14px 28px;background:transparent;color:#6b7280;font-size:14px;font-weight:600;border-radius:100px;text-decoration:none;border:1px solid #e4e4e7;}
+  .body{padding:0 40px 32px;}
+  .body p{font-size:15px;line-height:1.65;color:#3f3f46;margin:0 0 14px;}
+  .footer{background:#f0fdf4;padding:20px 40px;text-align:center;}
+  .footer p{font-size:12px;color:#86efac;margin:0;}
+</style>
+</head>
+<body>
+<div class="wrapper">
+  <div class="banner"><span>{{BANNER_LABEL|You're Invited}}</span></div>
+  <div class="hero">
+    <h1>{{EVENT_NAME|Event Name Here}}</h1>
+    <p class="subtitle">{{EVENT_TAGLINE|A brief tagline or theme for this event.}}</p>
+    <div class="event-card">
+      <div class="event-row">
+        <span class="ev-icon">📅</span>
+        <div>
+          <div class="ev-label">Date</div>
+          <div class="ev-value">{{EVENT_DATE|Saturday, 14 June 2026}}</div>
+        </div>
+      </div>
+      <div class="event-row">
+        <span class="ev-icon">🕐</span>
+        <div>
+          <div class="ev-label">Time</div>
+          <div class="ev-value">{{EVENT_TIME|3:00 PM – 6:00 PM IST}}</div>
+        </div>
+      </div>
+      <div class="event-row">
+        <span class="ev-icon">📍</span>
+        <div>
+          <div class="ev-label">Location</div>
+          <div class="ev-value">{{EVENT_LOCATION|Venue Name, City}}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="rsvp-area">
+    <p>{{RSVP_BLURB|Please let us know if you can make it — we'd love to see you there. RSVP by {{RSVP_DEADLINE|7 June 2026}}.}}</p>
+    <a class="rsvp-btn" href="{{RSVP_URL|#}}">{{RSVP_YES_LABEL|I'll Be There}}</a>
+    <a class="decline-btn" href="{{DECLINE_URL|#}}">Can't Make It</a>
+  </div>
+  <div class="body">
+    <p>Hi {{GREETING_NAME|there}},</p>
+    <p>{{BODY_PARA|Add context about the event here — what it's about, who's attending, why it'll be worth their time. Keep it warm and personal.}}</p>
+    <p>{{LOGISTICS_PARA|Any additional logistics (dress code, what to bring, parking info, virtual link) go here.}}</p>
+    <p>{{CLOSING_LINE|Looking forward to seeing you there!}}</p>
+    <p>{{SIGN_OFF|With warmth,}}<br><strong>{{SENDER_NAME|Your Name}}</strong></p>
+  </div>
+  <div class="footer">
+    <p>{{ORG_NAME|Organisation}} · Questions? Reply to this email.</p>
+  </div>
+</div>
+</body>
+</html>

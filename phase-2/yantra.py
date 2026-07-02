@@ -23,18 +23,22 @@ Trace schema (one JSON object per line):
     "total_ms":        int | null,        # session_done only
     "phase":           str | null,        # phase_transition only
     "avatars_invoked": list | null,       # routing_decision only
+    "discipline":      str | null,
+    "degraded_capabilities": list | null,
     "error":           str | null,
+    "error_type":      "tool_not_found" | "import_failed" | "timeout" | "model_error"
+                       | "json_parse" | "event_loop" | "notion_sync" | null,
   }
 
 Usage:
   tracer = Tracer(session_id, user_id)
   tracer.session_start(query)
-  with tracer.avatar_span("Narasimha", task) as span:
+  with tracer.avatar_span("Parashurama", task) as span:
       # inside the run loop, call span.record_usage(usage_metadata) each LLM event
       result = await run_avatar(...)
       span.finish(result, trajectory=traj)   # traj is a Trajectory instance or None
-  tracer.log_event("phase_transition", avatar="Narasimha", phase="assess")
-  tracer.log_event("routing_decision", avatars_invoked=["Narasimha"], query_preview="...")
+  tracer.log_event("phase_transition", avatar="Parashurama", phase="assess")
+  tracer.log_event("routing_decision", avatars_invoked=["Parashurama"], query_preview="...")
   tracer.session_done()
 """
 
@@ -57,6 +61,23 @@ if TYPE_CHECKING:
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _classify_error(exc: Exception) -> str:
+    msg = str(exc).lower()
+    if "not found" in msg and "tool" in msg:
+        return "tool_not_found"
+    if "importerror" in msg or "modulenotfounderror" in msg or "cannot import" in msg:
+        return "import_failed"
+    if "timeout" in msg or "timed out" in msg:
+        return "timeout"
+    if "json" in msg and ("parse" in msg or "decode" in msg or "unterminated" in msg):
+        return "json_parse"
+    if "event loop" in msg or "asyncio" in msg:
+        return "event_loop"
+    if "notion" in msg:
+        return "notion_sync"
+    return "model_error"
 
 
 def _write(path: Path, record: dict) -> None:
@@ -93,10 +114,19 @@ class _TokenMeter:
 
 
 class _AvatarSpan:
-    def __init__(self, tracer: "Tracer", avatar: str, task: str) -> None:
+    def __init__(
+        self,
+        tracer: "Tracer",
+        avatar: str,
+        task: str,
+        discipline: str | None = None,
+        degraded_capabilities: list[str] | None = None,
+    ) -> None:
         self._tracer = tracer
         self._avatar = avatar
         self._task = task
+        self._discipline = discipline
+        self._degraded_capabilities = degraded_capabilities or []
         self._start = time.monotonic()
         self.meter = _TokenMeter()
 
@@ -126,8 +156,10 @@ class _AvatarSpan:
             event="avatar_done",
             avatar=self._avatar,
             task=self._task,
+            discipline=self._discipline,
             result_len=len(result),
             latency_ms=latency_ms,
+            degraded_capabilities=self._degraded_capabilities or None,
             **extra,
         )
 
@@ -149,7 +181,8 @@ class Tracer:
         # Standard fields
         for key in ("avatar", "task", "result_len", "result_digest", "usage",
                     "trajectory", "latency_ms", "total_ms", "phase",
-                    "avatars_invoked", "error"):
+                    "discipline", "degraded_capabilities",
+                    "avatars_invoked", "error", "error_type"):
             val = kwargs.get(key)
             if val is not None:
                 record[key] = val
@@ -166,13 +199,25 @@ class Tracer:
         self._write_event(event="session_start", task=query)
 
     @contextmanager
-    def avatar_span(self, avatar: str, task: str) -> Generator[_AvatarSpan, None, None]:
-        self._write_event(event="avatar_start", avatar=avatar, task=task)
-        span = _AvatarSpan(self, avatar, task)
+    def avatar_span(
+        self,
+        avatar: str,
+        task: str,
+        discipline: str | None = None,
+        degraded_capabilities: list[str] | None = None,
+    ) -> Generator[_AvatarSpan, None, None]:
+        self._write_event(
+            event="avatar_start",
+            avatar=avatar,
+            task=task,
+            discipline=discipline,
+            degraded_capabilities=degraded_capabilities or None,
+        )
+        span = _AvatarSpan(self, avatar, task, discipline, degraded_capabilities)
         try:
             yield span
         except Exception as exc:
-            self._write_event(event="error", avatar=avatar, error=str(exc))
+            self._write_event(event="error", avatar=avatar, error=str(exc), error_type=_classify_error(exc))
             raise
 
     def session_done(self) -> None:

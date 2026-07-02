@@ -3,3 +3,4 @@
 google-adk[extensions]>=1.32.0
 fastapi[standard]>=0.136.0
 sse-starlette>=3.4.0
+turbovec>=0.7.0

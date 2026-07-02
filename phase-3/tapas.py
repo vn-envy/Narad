@@ -2,7 +2,7 @@
 Tapas — Avatara's self-evolution layer.
 
 After every session, Tapas:
-  1. Scores the output (Buddha as independent judge, 0.0–1.0)
+  1. Scores the output with an independent judge model (0.0–1.0)
   2. Deduplicates against existing sutras (cosine similarity gate)
   3. Promotes high-scoring outputs to sutras.jsonl
   4. Flags low-scoring sessions to weak_sessions.jsonl for prompt revision
@@ -27,13 +27,12 @@ Thresholds (tunable via env vars):
   TAPAS_SUTRA_TTL_DAYS      int,   default 90
 
 Judge model (independent from the avatar models):
-  TAPAS_JUDGE_MODEL         str    model string for LiteLLM (default: DS_CHAT_MODEL)
+  TAPAS_JUDGE_MODEL         str    model string for LiteLLM (default: deepseek/deepseek-v4-pro)
   TAPAS_JUDGE_API_BASE      str    custom API base URL (e.g. for MiMo, local vLLM)
   TAPAS_JUDGE_API_KEY       str    API key if different from the default provider key
 
-  Recommended: set TAPAS_JUDGE_MODEL to a reasoning/critique model (MiMo 2.5, DeepSeek R1,
-  QwQ-32B) so the judge is genuinely independent of the models being evaluated.
-  Reasoning model output (<think>...</think> blocks) is stripped automatically.
+  Recommended: keep TAPAS_JUDGE_MODEL on a stable critique-capable model that your provider
+  actually supports. For the current DeepSeek endpoint, v4-pro is the safest default.
 """
 
 from __future__ import annotations
@@ -41,6 +40,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -55,14 +55,13 @@ FLAG_THRESHOLD    = float(os.environ.get("TAPAS_FLAG_THRESHOLD",    "0.45"))
 SIM_THRESHOLD     = float(os.environ.get("TAPAS_SIM_THRESHOLD",     "0.92"))
 SUTRA_TTL_DAYS    = int(os.environ.get("TAPAS_SUTRA_TTL_DAYS",      "90"))
 
-# Judge model — DeepSeek R1 is independent of the avatar models being graded
-# (different training objective, chain-of-thought reasoning, same API provider).
-_JUDGE_MODEL    = os.environ.get("TAPAS_JUDGE_MODEL",    "deepseek/deepseek-r1")
+# Judge model — default to a provider-supported DeepSeek model unless explicitly overridden.
+_JUDGE_MODEL    = os.environ.get("TAPAS_JUDGE_MODEL",    "deepseek/deepseek-v4-pro")
 _JUDGE_API_BASE = os.environ.get("TAPAS_JUDGE_API_BASE") or None
 _JUDGE_API_KEY  = os.environ.get("TAPAS_JUDGE_API_KEY")  or None
 
 
-# ── Scoring (Buddha as judge) ─────────────────────────────────────────────────
+# ── Scoring (independent judge) ───────────────────────────────────────────────
 
 _SCORE_PROMPT_BASE = """\
 You are an impartial quality judge for an AI assistant called Avatara.
@@ -103,27 +102,26 @@ No markdown fences, no prose outside the JSON.
 
 _AVATAR_RUBRIC = {
     "Parashurama": (
-        "Avatar-specific rubric for Parashurama (code):\n"
+        "Avatar-specific rubric for Parashurama (engineering, debugging, automation):\n"
         "  Code completeness matters most — working runnable code beats pseudocode.\n"
+        "  Reward concrete root-cause diagnosis before a fix when debugging.\n"
         "  Penalise heavily for: skeletons with TODO placeholders, missing imports,\n"
-        "  security vulnerabilities, or unhandled edge cases.\n"
-        "  Reward: correct language/runtime version, inline comments only where non-obvious."
-    ),
-    "Narasimha": (
-        "Avatar-specific rubric for Narasimha (debugging):\n"
-        "  Root cause identification is the primary value — vague 'check your config'\n"
-        "  answers score no higher than 0.4. Reward concrete fix steps.\n"
-        "  Penalise for jumping to a fix without diagnosing the cause first."
+        "  security vulnerabilities, unsafe shell guidance, or unhandled edge cases.\n"
+        "  Reward: correct language/runtime version, explicit automation boundaries,\n"
+        "  and inline comments only where non-obvious."
     ),
     "Matsya": (
-        "Avatar-specific rubric for Matsya (research):\n"
-        "  Specific sourced facts score higher than vague summaries.\n"
-        "  URLs cited score higher than uncited claims.\n"
-        "  Penalise for: fabricated sources, stale information stated as current."
+        "Avatar-specific rubric for Matsya (retrieval, documents, analysis):\n"
+        "  Specific sourced facts and faithful document extraction score higher than vague summaries.\n"
+        "  Reward exact quotes or clearly flagged inferences when summarizing documents.\n"
+        "  Penalise for: fabricated sources, stale information stated as current,\n"
+        "  or analysis presented as direct evidence without support."
     ),
     "Rama": (
-        "Avatar-specific rubric for Rama (planning):\n"
+        "Avatar-specific rubric for Rama (planning, calendar, finance, health logging):\n"
         "  Numbered, executable steps score higher than aspirational prose.\n"
+        "  Reward clear time sequencing, safe previews before side effects, and realistic scheduling.\n"
+        "  For finance or health support, penalise overconfident advice and missing caveats.\n"
         "  Penalise for: vague steps like 'think about X', missing done-criteria,\n"
         "  plans with more than 15 steps that aren't grouped into phases."
     ),
@@ -145,23 +143,9 @@ _AVATAR_RUBRIC = {
         "  Penalise for: [PLACEHOLDER] text, skeleton templates, wrong tone for audience.\n"
         "  Reward: active voice, appropriate format for the medium (email/Slack/LinkedIn).\n"
         "\n"
-        "FINANCE ADVISORY MODE (query involves investment thesis, capital allocation, M&A,\n"
-        "  FP&A, budget strategy, 'should I invest in', 'what is my financial plan'):\n"
-        "  +0.20 if the response includes the mandatory disclaimer about not being investment advice\n"
-        "  -0.30 if the response recommends a specific security for purchase or sale\n"
-        "  -0.20 if the response makes a definitive future price prediction\n"
-        "  Penalise for: missing disclaimer, presenting analysis as personal recommendation."
-    ),
-    "Buddha": (
-        "Avatar-specific rubric for Buddha (analysis):\n"
-        "  Steelmanning before critiquing is required — missing it caps score at 0.6.\n"
-        "  Specific quantified weaknesses score higher than vague 'this could be better'.\n"
-        "  Reward: a clear verdict with stated reasoning and conditions for changing it."
-    ),
-    "Varaha": (
-        "Avatar-specific rubric for Varaha (document analysis):\n"
-        "  Direct quotes from the document score higher than paraphrasing.\n"
-        "  Penalise for: inferences presented as document statements without flagging them."
+        "MEDIA / WELLNESS MODE (multimedia generation, learner support, gentle triage):\n"
+        "  Reward outputs that stay supportive, bounded, and medium-appropriate.\n"
+        "  Penalise for unsafe reassurance, overclaiming expertise, or ignoring the requested format."
     ),
 }
 
@@ -196,6 +180,22 @@ def _extract_judge_json(raw: str) -> dict:
     return json.loads(raw)
 
 
+def _litellm_with_retry(litellm_module: Any, kwargs: dict, max_retries: int = 2) -> Any:
+    """Call litellm.completion with exponential backoff on transient errors.
+
+    Raises the final exception if all retries are exhausted.
+    """
+    delay = 1.0
+    for attempt in range(max_retries + 1):
+        try:
+            return litellm_module.completion(**kwargs)
+        except Exception:
+            if attempt == max_retries:
+                raise
+            time.sleep(delay)
+            delay *= 2
+
+
 def score_session(query: str, avatar: str, result: str) -> tuple[float, str, bool, bool]:
     """Score an avatar response using the configured judge model.
 
@@ -223,7 +223,7 @@ def score_session(query: str, avatar: str, result: str) -> tuple[float, str, boo
         if _JUDGE_API_KEY:
             kwargs["api_key"] = _JUDGE_API_KEY
 
-        response = litellm.completion(**kwargs)
+        response = _litellm_with_retry(litellm, kwargs)
         raw = response.choices[0].message.content.strip()
         data              = _extract_judge_json(raw)
         score             = float(data.get("score", 0.5))
@@ -283,7 +283,7 @@ def _cai_critique(avatar: str, task: str, result: str) -> tuple[bool, str]:
             kwargs["api_base"] = _JUDGE_API_BASE
         if _JUDGE_API_KEY:
             kwargs["api_key"] = _JUDGE_API_KEY
-        response = litellm.completion(**kwargs)
+        response = _litellm_with_retry(litellm, kwargs)
         raw  = response.choices[0].message.content.strip()
         data = _extract_judge_json(raw)
         return bool(data.get("pass", True)), str(data.get("concerns", ""))
@@ -388,6 +388,17 @@ def process_session(
     """
     score, reason, hallucination_free, sequence_correct = score_session(query, avatar, result)
     now = datetime.now(timezone.utc).isoformat()
+
+    if reason.startswith("scoring unavailable:"):
+        try:
+            import sys as _sys
+            _sys.path.insert(0, str(Path(__file__).parent.parent / "phase-5"))
+            from karma_log import log_karma
+            log_karma("tapas_skipped", "n/a", avatar, reason[:200],
+                      triggered_by=session_id, tapas_score=None)
+        except Exception:
+            pass
+        return {"score": score, "reason": reason, "action": "tapas_skipped"}
 
     # Hallucination hard gate — blocks regardless of other scores (P3-1)
     if not hallucination_free:

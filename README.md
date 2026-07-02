@@ -2,7 +2,7 @@
 
 > *"We didn't invent multi-agent AI. We remembered it."*
 
-Eight avatāras. One sage who plays them. Local-first, private, yours forever.
+Four canonical agents. One sage who plays them. Cloud now, local later, yours forever.
 
 ---
 
@@ -12,22 +12,18 @@ Eight avatāras. One sage who plays them. Local-first, private, yours forever.
 
 **Avatāra** (अवतार) is the concept — what Silicon Valley now calls "agents." A form that descends with purpose, completes its mission, and releases. The Bhagavad Gita described this API specification three thousand years ago.
 
-The Mahati has eight strings. Each string is an avatāra. Narad summons them.
+The Mahati now has four canonical strings in the shipped build. Narad summons the right one for the work at hand.
 
 ---
 
-## The eight avatāras
+## The four canonical agents
 
 | Avatāra | Sanskrit | Domain |
 |---|---|---|
-| Matsya | मत्स्य | Web search, live retrieval, API calls, form interaction |
-| Varaha | वराह | Deep document extraction (PDF, DOCX, PPTX) |
-| Narasimha | नरसिंह | Debugging, root-cause diagnosis, system failures |
-| Rama | राम | Structured planning, SOPs, calendar management |
-| Krishna | कृष्ण | Communication drafting, email composition and sending |
-| Buddha | बुद्ध | Critical analysis, red-teaming, tradeoff evaluation |
-| Parashurama | परशुराम | Code, shell execution, media generation, document output |
-| Vamana | वामन | Local filesystem — clean, organise, disk analysis |
+| Matsya | मत्स्य | Web search, document understanding, research synthesis, local information access |
+| Rama | राम | Structured planning, calendar management, finance workflows, health logging |
+| Krishna | कृष्ण | Communication drafting, email, education, media generation, wellness guidance |
+| Parashurama | परशुराम | Code, shell execution, SQL, automation, document output |
 
 **Narad** routes. **Smriti** remembers. **Tapas** learns. **Sankalpa** adapts. **Yantra** observes. **Karma** records. **Sutras** compound.
 
@@ -51,57 +47,74 @@ Full technical architecture: [ARCHITECTURE.md](./ARCHITECTURE.md)
 ## Repository layout
 
 ```
-phase-1/        FastAPI SSE server · Narad router · 8 avatar agents
-  server.py         POST /chat SSE stream, /trace, /sutras, /karma, /sankalpa
-  narad_agent.py    Narad supervisor (DeepSeek V3)
-  avatar_agents.py  8 LlmAgent specialists + _make_avatar_tool wrapper
-  model_config.py   Per-avatar model assignments
+phase-1/        FastAPI SSE server · Narad router · canonical 4-agent build · Six Sigma · Notion sync
+  server.py             POST /chat SSE stream + all endpoints (kanban, andon, 5s, quality, notion)
+  narad_agent.py        Narad supervisor (DeepSeek V3)
+  avatar_agents.py      4 LlmAgent specialists + _make_avatar_tool (Smriti/Sutra/Sankalpa/AndonGate/Kanban)
+  model_config.py       Per-avatar model assignments (LiteLLM strings)
+  plan_models.py        PlanStep/Plan dataclasses + levels() topological sort
+  kanban.py             KanbanBoard — SQLite step lifecycle tracker (Phase 13)
+  andon.py              AndonGate quality gate + diagnostic fire-and-forget (Phase 13)
+  narad_5s.py           NaradShuddhi 5S filesystem health (Phase 13)
+  notion_sync.py        NotionSync bidirectional push to 5 Notion databases (Phase 14)
 
 phase-2/        Memory · Search · Observability
-  smriti.py         LanceDB vector memory (recall/remember)
-  matsya_search.py  Tavily web search
-  yantra.py         JSONL session tracer
-  browser_skill.py  Playwright read-only browser
-  http_skill.py     REST API / webhook client
+  smriti.py             LanceDB vector memory + FTS5; @lru_cache on _embed(); fallback logging
+  matsya_search.py      Tavily web search
+  yantra.py             JSONL session tracer; error_type classification
+  yantra_models.py      Trajectory/TurnRecord/ToolCall typed dataclasses
 
 phase-3/        Self-evolution
-  tapas.py          Quality scoring + sutra promotion
+  tapas.py              Quality scoring + sutra promotion; 2-retry backoff; tapas_skipped event
 
 phase-4/        Frontend
   frontend/src/
-    hooks/useAvatara.ts       SSE state machine
-    components/ChatPanel.tsx  Conversation interface
-    components/DarshanPanel.tsx  Live octagonal call graph
-    components/SutraPanel.tsx    Learned patterns UI
-    components/KarmaSheet.tsx    Audit trail sheet
-    components/ParashuramTerminal.tsx  Dev terminal overlay
+    hooks/useAvatara.ts            SSE state machine; clearSession(); bounded stepEvents
+    lib/avatara-constants.ts       Single source of truth — AVATAR_COLOURS, AVATAR_RGB, DEVA
+    lib/format-time.ts             Canonical relativeTime() utility
+    components/ChatPanel.tsx       Conversation interface + clear button
+    components/AwarenessBar.tsx    72 px right strip — pills + token counter (Phase 13)
+    components/DarshanDashboard.tsx 5-tab full-screen drawer (Phase 13)
+    components/DarshanPanel.tsx    Live four-agent call graph
+    components/SutraPanel.tsx      Learned patterns — revert confirmation + bulk accept
+    components/KarmaSheet.tsx      Audit trail sheet
+    components/KanbanBoardView.tsx 4-column Kanban board (Phase 13)
+    components/OpsView.tsx         Andon + 5S + DMAIC ops panel (Phase 13)
+    components/ParashuramTerminal.tsx Dev terminal overlay
 
 phase-5/        Sutra engine · Karma log
-  sutra_engine.py   Sutra lifecycle (pending → active → reverted)
-  karma_log.py      Append-only mutation audit trail
+  sutra_engine.py       Sutra lifecycle (pending → active → reverted); injection sanitization
+  karma_log.py          Append-only mutation audit trail
 
 phase-6/        Sankalpa engine
-  sankalpa.py       Per-user style and intent modeling
+  sankalpa.py           Per-user style and intent modeling
 
 phase-7/        Code executor · Media generation
-  executor.py       Sandboxed Python subprocess runner
+  executor.py           Sandboxed Python subprocess runner
   skills/
-    video_skill.py  create_video() — moviepy + Pillow
-    audio_skill.py  create_audio() — numpy + scipy
+    video_skill.py      create_video() — moviepy + Pillow
+    audio_skill.py      create_audio() — numpy + scipy
 
-phase-8/        Tier 1 skills (all avatāras fully tooled)
-  local_skill.py    scan_directory, move_to_trash, organize_by_type (Vamana)
-  shell_skill.py    run_shell — sandboxed shell commands (Parashurama)
-  sql_skill.py      query_database — read-only SQL (Parashurama)
-  email_skill.py    compose_email, send_email via SMTP (Krishna)
-  calendar_skill.py get/create CalDAV events (Rama)
-  docling_skill.py  extract_document — PDF/DOCX/PPTX (Varaha)
-  browser_skill.py  browse_url — JS-rendered pages (Matsya)
-  document_skill.py create_document() — DOCX via python-docx (Parashurama)
+phase-8/        Tier 1 skills (all core domains fully tooled)
+  local_skill.py        scan_directory, move_to_trash, organize_by_type (Matsya/Parashurama support)
+  shell_skill.py        run_shell — sandboxed shell commands (Parashurama)
+  sql_skill.py          query_database — read-only SQL (Parashurama)
+  email_skill.py        compose_email, send_email via SMTP (Krishna)
+  calendar_skill.py     get/create CalDAV events (Rama)
+  docling_skill.py      extract_document — PDF/DOCX/PPTX (Matsya discipline)
+  browser_skill.py      browse_url — JS-rendered pages (Matsya)
+  document_skill.py     create_document() — DOCX via python-docx (Parashurama)
   browser_act_skill.py  browser_screenshot, browser_fill, browser_upload_and_submit (Matsya)
+  finance_skill.py      import_csv, sync_gmail, budgets, goals, get_spend_patterns (Rama discipline)
+  health_skill.py       log_symptom, set_medication_reminder, get_health_log (Rama/Krishna discipline)
 
-phase-0a/       Spike: routing accuracy on local 4B model
-phase-0b/       Spike: ADK + SSE PoC
+phase-9/        Project system · Smriti v2
+  scribe.py             Post-session wiki compiler
+  smriti_v2.py          Project-scoped Markdown wiki + get_project_context()
+
+narad_config.py         Canonical path constants (NARAD_HOME, TRACE_DIR, ARTIFACTS_DIR, CONFIG_DIR)
+phase-0a/               Spike: routing accuracy on local 4B model
+phase-0b/               Spike: ADK + SSE PoC
 ```
 
 ---
@@ -109,21 +122,25 @@ phase-0b/       Spike: ADK + SSE PoC
 ## Quick start (backend)
 
 ```bash
-# From phase-1/
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+# From repo root
+python3.12 -m venv .venv
+.venv/bin/pip install -r phase-1/requirements.txt \
+                      -r phase-2/requirements.txt \
+                      -r phase-3/requirements.txt
 
 # Required env vars (minimum)
-export DEEPSEEK_API_KEY=sk-...
-export TAVILY_API_KEY=tvly-...
-export OPENAI_API_KEY=sk-...       # for Smriti embeddings
+export GEMINI_API_KEY=...          # Smriti embeddings + Veo video
+export DEEPSEEK_API_KEY=sk-...     # router + avatāras + Tapas judge
 
-# Optional (unlock Krishna email + Rama calendar)
+# Optional (unlock full feature set)
+export TAVILY_API_KEY=tvly-...     # Matsya web search
+export OPENAI_API_KEY=sk-...       # Smriti fallback embeddings
+export NOTION_API_TOKEN=secret_... # Phase 14 Notion sync
 export EMAIL_ADDRESS=you@gmail.com
 export EMAIL_APP_PASSWORD=xxxx
 export CALDAV_URL=https://...
 
-uvicorn server:app --port 8000 --reload
+cd phase-1 && ../.venv/bin/python3.12 -m uvicorn server:app --host 0.0.0.0 --port 8000
 ```
 
 ## Quick start (frontend)
@@ -142,16 +159,21 @@ npm run dev        # → http://localhost:5173
 |---|---|---|
 | 0a | Model evaluation spike — routing accuracy on local 4B model | ✅ Done |
 | 0b | ADK + SSE PoC — architecture validated | ✅ Done |
-| 1 | Live LLM agents — Narad + 8 avatāras on DeepSeek, ADK runner | ✅ Done |
+| 1 | Live LLM agents — Narad + canonical 4-agent build on DeepSeek, ADK runner | ✅ Done |
 | 2 | Memory + Search + Observability — Smriti, Matsya search, Yantra | ✅ Done |
 | 3 | Tapas — quality scoring, sutra promotion, avatar rubrics | ✅ Done |
 | 4 | Frontend — React SSE UI, DarshanPanel call graph | ✅ Done |
 | 5 | Sutra engine + Karma log — learned pattern lifecycle | ✅ Done |
 | 6 | Sankalpa engine — per-user style modeling | ✅ Done |
 | 7 | Code executor + media generation — video, audio via Parashurama | ✅ Done |
-| 8 | Tier 1 skills — all 8 avatāras fully tooled | ✅ Done |
+| 8 | Tier 1 skills — all 4 canonical agents fully tooled | ✅ Done |
 | 9 | Resume tailoring + job application — DOCX output + interactive browser | ✅ Done |
-| 10 | Electron desktop packaging — local Gemma 4 E4B, signed installer | 🔨 Next |
+| 10 | Observability v2 + memory refinements + Dharma guardrails | ✅ Done |
+| 11 | Project detection, Scribe wiki compiler, left-panel UX | ✅ Done |
+| 12 | AssetOpsBench integration, typed traces, Markov spend patterns, health anomaly detection | ✅ Done |
+| 13 | Six Sigma quality layer — Kanban, Andon, 5S, DMAIC + Darshan Dashboard overhaul | ✅ Done |
+| 14 | Notion sync bridge — bidirectional push of memories, kanban, andon, sutras, sankalpas | ✅ Done |
+| 15 | Electron desktop packaging — local Gemma 4 E4B, offline-first, signed installer | 🔨 Next |
 
 ---
 

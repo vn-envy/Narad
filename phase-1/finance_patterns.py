@@ -1,5 +1,5 @@
 """
-Markov spend-pattern analysis for Vamana.
+Markov spend-pattern analysis for Rama.
 
 Builds a category → next-category transition probability matrix from
 transaction history, then predicts the most likely next spending category.

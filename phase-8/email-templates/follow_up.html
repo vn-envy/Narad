@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{SUBJECT|Following up}}</title>
+<style>
+  body{margin:0;padding:0;background:#fafafa;font-family:'Helvetica Neue',Arial,sans-serif;color:#18181b;}
+  .wrapper{max-width:580px;margin:32px auto;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 1px 10px rgba(0,0,0,.06);}
+  .thread-bar{background:#f4f4f5;padding:10px 32px;font-size:12px;color:#71717a;}
+  .thread-bar span{font-weight:600;color:#18181b;}
+  .body{padding:36px 32px 28px;}
+  .body p{font-size:15px;line-height:1.7;color:#3f3f46;margin:0 0 16px;}
+  .context-block{background:#f9fafb;border-left:3px solid {{ACCENT_COLOR|#4f46e5}};padding:14px 18px;margin:20px 0;border-radius:0 6px 6px 0;}
+  .context-block p{font-size:13px;color:#71717a;margin:0;line-height:1.55;}
+  .context-label{font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:{{ACCENT_COLOR|#4f46e5}};margin-bottom:6px;}
+  .cta-line{margin:24px 0 4px;}
+  .cta-btn{display:inline-block;padding:12px 28px;background:{{ACCENT_COLOR|#4f46e5}};color:#fff;font-size:14px;font-weight:600;border-radius:8px;text-decoration:none;}
+  .sig{margin-top:24px;padding-top:20px;border-top:1px solid #e4e4e7;}
+  .sig .name{font-size:15px;font-weight:700;color:#18181b;margin-bottom:2px;}
+  .sig .role{font-size:13px;color:#71717a;}
+  .sig .contact{font-size:13px;color:{{ACCENT_COLOR|#4f46e5}};text-decoration:none;}
+</style>
+</head>
+<body>
+<div class="wrapper">
+  <div class="thread-bar">Re: <span>{{THREAD_SUBJECT|previous subject line}}</span> &nbsp;·&nbsp; {{THREAD_DATE|original date}}</div>
+  <div class="body">
+    <p>Hi {{RECIPIENT_NAME|[Name]}},</p>
+    <p>{{OPENING_LINE|I wanted to follow up on my earlier note about [topic]. I haven't heard back and wanted to make sure it didn't slip through.}}</p>
+
+    <div class="context-block">
+      <div class="context-label">Context</div>
+      <p>{{CONTEXT_RECAP|Brief recap of what the original message was about, what was asked, and any key date or decision that's relevant now.}}</p>
+    </div>
+
+    <p>{{MAIN_PARA|Add any new information, updated timeline, or changed circumstances since the original message. Be direct about what you need from the recipient.}}</p>
+    <p>{{ASK_LINE|Could you let me know by [date] whether [specific ask]? Even a quick "still interested / not right now" is super helpful.}}</p>
+
+    <div class="cta-line">
+      <a class="cta-btn" href="{{CTA_URL|#}}">{{CTA_LABEL|Reply or Book 15 min}}</a>
+    </div>
+
+    <div class="sig">
+      <div class="name">{{SENDER_NAME|Your Name}}</div>
+      <div class="role">{{SENDER_ROLE|Title · Organisation}}</div>
+      <a class="contact" href="mailto:{{SENDER_EMAIL|you@example.com}}">{{SENDER_EMAIL|you@example.com}}</a>
+    </div>
+  </div>
+</div>
+</body>
+</html>

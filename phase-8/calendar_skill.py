@@ -255,7 +255,8 @@ def create_event(
     if location:
         ical += f"LOCATION:{location}\r\n"
     if description:
-        ical += f"DESCRIPTION:{description.replace(chr(10), '\\n')}\r\n"
+        description_escaped = description.replace("\n", "\\n")
+        ical += f"DESCRIPTION:{description_escaped}\r\n"
     ical += "END:VEVENT\r\nEND:VCALENDAR\r\n"
 
     try:

@@ -1,8 +1,9 @@
 import { useState, useCallback, useRef } from 'react'
 import { toast } from 'sonner'
+import { apiPath } from '@/lib/api'
 
-export type TTSAvatar = 'Krishna' | 'Buddha' | 'Rama'
-export const VOICE_AVATARS: TTSAvatar[] = ['Krishna', 'Buddha', 'Rama']
+export type TTSAvatar = 'Krishna' | 'Rama' | 'Parashurama'
+export const VOICE_AVATARS: TTSAvatar[] = ['Krishna', 'Rama', 'Parashurama']
 
 export type TTSState = 'idle' | 'loading' | 'playing' | 'error'
 
@@ -77,7 +78,7 @@ export function useTTS() {
     }
 
     try {
-      const res = await fetch('/tts', {
+      const res = await fetch(apiPath('/tts'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: speakText, avatar, lang }),

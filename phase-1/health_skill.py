@@ -1,5 +1,5 @@
 """
-Health data tools for Vamana and Matsya.
+Health data tools for Rama and Matsya.
 
 Storage: SQLite at ~/.narad/health.db (same pattern as finance.db)
 Drug info: RxNorm free REST API (no auth required)
