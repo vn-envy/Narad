@@ -1,7 +1,12 @@
+/**
+ * AwarenessBar — the right-edge presence rail.
+ * Each avatāra appears as its Devanagari initial over its Mahati string
+ * position (1–4). Active avatars breathe in their canonical colour.
+ */
 import { useState } from 'react'
 import type { AvatarName, AvatarStatus } from '../hooks/useAvatara'
 
-import { AVATAR_NAMES, AVATAR_COLOURS, AVATAR_ABBREV } from '@/lib/avatara-constants'
+import { AVATAR_NAMES, AVATAR_COLOURS, AVATAR_RGB, DEVA } from '@/lib/avatara-constants'
 
 interface Props {
   avatars: Record<AvatarName, AvatarStatus>
@@ -25,13 +30,15 @@ export function AwarenessBar({
         borderLeft: '1px solid rgba(252,250,242,0.06)',
       }}
     >
-      {/* Avatar dots */}
-      <div className="flex flex-col items-center gap-2 flex-1">
-        {AVATAR_NAMES.map(name => {
+      {/* Avatar strings */}
+      <div className="flex flex-col items-center gap-2.5 flex-1">
+        {AVATAR_NAMES.map((name, i) => {
           const st = avatars[name]
           const active = st?.state === 'active'
           const done   = st?.state === 'done'
           const colour = AVATAR_COLOURS[name]
+          const rgb    = AVATAR_RGB[name]
+          const deva   = DEVA[name]?.charAt(0) ?? name.charAt(0)
 
           return (
             <div
@@ -40,51 +47,79 @@ export function AwarenessBar({
               onMouseEnter={() => setHoveredAvatar(name)}
               onMouseLeave={() => setHoveredAvatar(null)}
             >
-              {/* Pulse ring when active */}
+              {/* Breath halo when active */}
               {active && (
                 <span
-                  className="absolute inset-0 rounded-full animate-ping"
-                  style={{ backgroundColor: colour, opacity: 0.35 }}
+                  className="absolute inset-[-4px] rounded-full pointer-events-none"
+                  style={{
+                    background: `radial-gradient(circle, rgba(${rgb},0.45) 0%, transparent 70%)`,
+                    animation: 'breath 1.4s ease-in-out infinite',
+                  }}
                 />
               )}
               <div
-                className="flex items-center justify-center rounded-full text-[8px] font-bold transition-all"
+                className="relative flex items-center justify-center rounded-full transition-all duration-200"
                 style={{
-                  width: 28,
-                  height: 28,
+                  width: 32,
+                  height: 32,
+                  fontFamily: 'var(--font-deva)',
+                  fontSize: 15,
+                  lineHeight: 1,
                   backgroundColor: active
                     ? colour
                     : done
-                    ? `${colour}66`
-                    : 'rgba(252,250,242,0.07)',
-                  color: active || done ? '#fcfaf2' : 'rgba(252,250,242,0.35)',
-                  border: active ? `1.5px solid ${colour}` : '1.5px solid transparent',
-                  letterSpacing: '0.04em',
+                    ? `rgba(${rgb}, 0.30)`
+                    : 'rgba(252,250,242,0.06)',
+                  color: active
+                    ? '#fcfaf2'
+                    : done
+                    ? 'rgba(252,250,242,0.85)'
+                    : 'rgba(252,250,242,0.40)',
+                  border: active
+                    ? `1.5px solid rgba(252,250,242,0.35)`
+                    : `1.5px solid rgba(${rgb}, ${done ? 0.4 : 0.28})`,
                 }}
               >
-                {AVATAR_ABBREV[name]}
+                {deva}
               </div>
+              {/* Mahati string position */}
+              <span
+                className="font-mono"
+                style={{
+                  fontSize: 7,
+                  marginTop: 2,
+                  letterSpacing: '0.08em',
+                  color: active ? colour : 'rgba(252,250,242,0.22)',
+                }}
+              >
+                {i + 1}
+              </span>
 
               {/* Tooltip */}
               {hoveredAvatar === name && (
                 <div
-                  className="absolute left-full ml-2 z-50 px-2 py-1 rounded text-[10px] whitespace-nowrap pointer-events-none"
+                  className="absolute right-full mr-2 z-50 px-2.5 py-1.5 rounded whitespace-nowrap pointer-events-none"
                   style={{
                     background: 'var(--kajal)',
-                    border: '1px solid rgba(252,250,242,0.15)',
-                    color: 'rgba(252,250,242,0.85)',
+                    border: `1px solid rgba(${rgb}, 0.45)`,
+                    color: 'rgba(252,250,242,0.9)',
                     top: '50%',
                     transform: 'translateY(-50%)',
+                    boxShadow: '0 4px 16px rgba(0,0,0,0.35)',
                   }}
                 >
-                  <span className="font-semibold">{name}</span>
+                  <span className="flex items-baseline gap-1.5">
+                    <span style={{ fontFamily: 'var(--font-deva)', color: colour, fontSize: 12 }}>{DEVA[name]}</span>
+                    <span className="font-semibold text-[10px]">{name}</span>
+                    <span className="font-mono text-[8px] opacity-45">string {i + 1}</span>
+                  </span>
                   {st?.discipline && (
-                    <span className="block text-[9px] opacity-60">
+                    <span className="block text-[9px] opacity-60 mt-0.5">
                       {st.discipline}
                     </span>
                   )}
                   {st?.task && (
-                    <span className="block text-[9px] opacity-60 max-w-[140px] truncate">
+                    <span className="block text-[9px] opacity-60 max-w-[160px] truncate">
                       {st.task}
                     </span>
                   )}
@@ -99,7 +134,7 @@ export function AwarenessBar({
       {activeSteps > 0 && (
         <div
           className="text-center font-mono"
-          style={{ color: '#FFC837', fontSize: 9, lineHeight: '1.2' }}
+          style={{ color: 'var(--haldi)', fontSize: 9, lineHeight: '1.2' }}
         >
           <div style={{ fontSize: 11, fontWeight: 700 }}>{activeSteps}</div>
           <div style={{ opacity: 0.7 }}>steps</div>
@@ -110,8 +145,7 @@ export function AwarenessBar({
       <button
         onClick={onOpenDarshan}
         title="Open Narad Dashboard (Traces, Memory, Tasks, Karma)"
-        className="flex flex-col items-center gap-0.5 group transition-opacity"
-        style={{ opacity: 0.6 }}
+        className="flex flex-col items-center gap-0.5 group transition-opacity opacity-60 hover:opacity-100"
       >
         <span
           className="flex items-center justify-center rounded"
@@ -130,7 +164,7 @@ export function AwarenessBar({
           className="font-mono uppercase tracking-widest"
           style={{ fontSize: 7, color: 'rgba(252,250,242,0.4)', letterSpacing: '0.12em' }}
         >
-          Dashboard
+          Darshan
         </span>
       </button>
     </div>

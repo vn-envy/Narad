@@ -5,45 +5,60 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* ── Madhubani Design Tokens ─────────────────────────────────────────────────
-   Warm folk-art palette: cream paper, kajal ink, marigold accent.
-   Replaces the previous dark glassmorphism system.
+/* ── Narad Design Tokens ─────────────────────────────────────────────────────
+   Manuscript / Madhubani palette. One honest value per name:
+     paper     palm-leaf cream ground
+     kajal     lamp-black ink
+     nila      deep indigo (manuscript night — dark-mode ground)
+     sindoor   vermilion (Narad's accent, actions, focus)
+     haldi     turmeric (light chip amber; haldi-deep for text)
+     tulsi     basil green (success/health — NOT an avatar colour)
+   Avatar identity comes from contracts/agent-contracts.json and is mirrored
+   here as --avatar-* tokens. Five distinct hues:
+     Matsya samudra lapis · Rama surya gold · Krishna morpankh teal ·
+     Parashurama rakta crimson · Narad sindoor vermilion
    ─────────────────────────────────────────────────────────────────────────── */
 
 :root {
-  /* ── Raw Madhubani palette ── */
-  --paper:    #fcfaf2;
-  --speckle:  #f3efe1;
-  --kajal:    #2d2a26;
-  --marigold: #c2410c;
-  --kesari:   #9a3412;
-  --nila:     #2d2a26;
-  --gulab:    #c2410c;
-  --mor:      #065f46;
-  --haldi:    #fcd34d;
-  --tulsi:    #065f46;
-  --sindoor:  #c2410c;
-  --gagan:    #2D6CDF;
-  --loha:     #57534e;
+  /* ── Raw palette ── */
+  --paper:      #fcfaf2;
+  --speckle:    #f3efe1;
+  --kajal:      #2d2a26;
+  --nila:       #1e2447;
+  --sindoor:    #c2410c;
+  --marigold:   #c2410c;   /* legacy alias of sindoor */
+  --kesari:     #9a3412;
+  --haldi:      #fcd34d;
+  --haldi-deep: #92610a;
+  --tulsi:      #065f46;
+  --mor:        #0f766e;
+  --gulab:      #b0316b;
+  --gagan:      #2d6cdf;
+  --loha:       #57534e;
 
-  /* ── Avatar canonical colours (website palette) ── */
-  --avatar-matsya:      #065f46;
-  --avatar-rama:        #2d2a26;
-  --avatar-krishna:     #065f46;
-  --avatar-parashurama: #57534e;
-  --avatar-narad:       #c2410c;
+  /* ── Avatar canonical colours (mirror of contracts/agent-contracts.json) ── */
+  --avatar-matsya:      #2450a4;   /* samudra lapis — fish of the deep */
+  --avatar-rama:        #a16207;   /* surya gold — solar line, order */
+  --avatar-krishna:     #0f766e;   /* morpankh teal — peacock feather */
+  --avatar-parashurama: #9f1239;   /* rakta crimson — the axe-bearer */
+  --avatar-narad:       #c2410c;   /* sindoor — the messenger */
 
   /* ── RGB triplets for rgba() usage ── */
-  --rgb-nila:      45,42,38;
-  --rgb-kesari:    154,52,18;
-  --rgb-sindoor:   194,65,12;
-  --rgb-tulsi:     6,95,70;
-  --rgb-mor:       6,95,70;
-  --rgb-haldi:     252,211,77;
-  --rgb-loha:      87,83,78;
-  --rgb-marigold:  194,65,12;
-  --rgb-kajal:     45,42,38;
-  --rgb-paper:     252,250,242;
+  --rgb-paper:       252,250,242;
+  --rgb-kajal:       45,42,38;
+  --rgb-nila:        30,36,71;
+  --rgb-sindoor:     194,65,12;
+  --rgb-marigold:    194,65,12;
+  --rgb-kesari:      154,52,18;
+  --rgb-haldi:       252,211,77;
+  --rgb-tulsi:       6,95,70;
+  --rgb-mor:         15,118,110;
+  --rgb-loha:        87,83,78;
+  --rgb-matsya:      36,80,164;
+  --rgb-rama:        161,98,7;
+  --rgb-krishna:     15,118,110;
+  --rgb-parashurama: 159,18,57;
+  --rgb-narad:       194,65,12;
 
   /* ── Typography ── */
   --font-hero: 'Playfair Display', serif;
@@ -51,58 +66,104 @@
   --font-mono: 'JetBrains Mono', monospace;
   --font-deva: 'Tiro Devanagari Sanskrit', serif;
 
-  /* ── Folk art layer system (replaces glass) ── */
-  --folk-border: 1px solid color-mix(in srgb, var(--kajal) 10%, transparent);
+  /* ── Ink / surface derivations (theme-aware; prefer over rgba(45,42,38,…)) ── */
+  --ink:        var(--kajal);
+  --ink-70:     color-mix(in srgb, var(--ink) 70%, transparent);
+  --ink-55:     color-mix(in srgb, var(--ink) 55%, transparent);
+  --ink-40:     color-mix(in srgb, var(--ink) 40%, transparent);
+  --ink-12:     color-mix(in srgb, var(--ink) 12%, transparent);
+  --ink-08:     color-mix(in srgb, var(--ink) 8%, transparent);
+  --surface:    var(--paper);
+  --surface-2:  var(--speckle);
+
+  /* ── Folk art layer system ── */
+  --folk-border: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
   --folk-radius: 4px;
-  --folk-shadow: 0 16px 40px -10px color-mix(in srgb, var(--kajal) 8%, transparent);
+  --folk-shadow: 0 16px 40px -10px color-mix(in srgb, var(--ink) 8%, transparent);
 
   /* ── shadcn semantic tokens — warm paper base ── */
-  --background:             #fcfaf2;
-  --foreground:             #2d2a26;
+  --background:             var(--paper);
+  --foreground:             var(--kajal);
 
-  --card:                   #fcfaf2;
-  --card-foreground:        #2d2a26;
+  --card:                   var(--paper);
+  --card-foreground:        var(--kajal);
 
-  --popover:                #fcfaf2;
-  --popover-foreground:     #2d2a26;
+  --popover:                var(--paper);
+  --popover-foreground:     var(--kajal);
 
-  --primary:                #2d2a26;
-  --primary-foreground:     #fcfaf2;
+  --primary:                var(--kajal);
+  --primary-foreground:     var(--paper);
 
-  --secondary:              #f3efe1;
-  --secondary-foreground:   #2d2a26;
+  --secondary:              var(--speckle);
+  --secondary-foreground:   var(--kajal);
 
-  --muted:                  #f3efe1;
+  --muted:                  var(--speckle);
   --muted-foreground:       #6b6560;
 
-  --accent:                 #c2410c;
-  --accent-foreground:      #fcfaf2;
+  --accent:                 var(--sindoor);
+  --accent-foreground:      var(--paper);
 
-  --destructive:            #c2410c;
-  --destructive-foreground: #fcfaf2;
+  --destructive:            var(--sindoor);
+  --destructive-foreground: var(--paper);
 
-  --border:                 color-mix(in srgb, #2d2a26 10%, transparent);
-  --input:                  #f3efe1;
-  --ring:                   #c2410c;
+  --border:                 color-mix(in srgb, var(--kajal) 10%, transparent);
+  --input:                  var(--speckle);
+  --ring:                   var(--sindoor);
 
   --radius: 0.5rem;
 
-  /* ── Avatar chart colours ── */
-  --chart-1: #065f46;
-  --chart-2: #c2410c;
-  --chart-3: #2d2a26;
-  --chart-4: #fcd34d;
-  --chart-5: #78716c;
+  /* ── Chart colours — one per avatar + Narad ── */
+  --chart-1: var(--avatar-matsya);
+  --chart-2: var(--avatar-rama);
+  --chart-3: var(--avatar-krishna);
+  --chart-4: var(--avatar-parashurama);
+  --chart-5: var(--avatar-narad);
 
   /* ── Sidebar ── */
-  --sidebar:                    #f3efe1;
-  --sidebar-foreground:         #2d2a26;
-  --sidebar-primary:            #2d2a26;
-  --sidebar-primary-foreground: #fcfaf2;
-  --sidebar-accent:             #c2410c;
-  --sidebar-accent-foreground:  #fcfaf2;
-  --sidebar-border:             color-mix(in srgb, #2d2a26 10%, transparent);
-  --sidebar-ring:               #c2410c;
+  --sidebar:                    var(--speckle);
+  --sidebar-foreground:         var(--kajal);
+  --sidebar-primary:            var(--kajal);
+  --sidebar-primary-foreground: var(--paper);
+  --sidebar-accent:             var(--sindoor);
+  --sidebar-accent-foreground:  var(--paper);
+  --sidebar-border:             color-mix(in srgb, var(--kajal) 10%, transparent);
+  --sidebar-ring:               var(--sindoor);
+}
+
+/* ── Lamp-lit night — nila manuscript ground, warm lamp accents.
+     Foundation tokens; component sweep tracked in LAUNCH_CHECKLIST backlog. ── */
+.dark {
+  --paper:    #171c38;
+  --speckle:  #1e2447;
+  --kajal:    #f0e9d8;
+  --nila:     #11152b;
+
+  --ink:      #f0e9d8;
+  --surface:  #171c38;
+  --surface-2:#1e2447;
+
+  --background:             #12162e;
+  --foreground:             #f0e9d8;
+  --card:                   #1e2447;
+  --card-foreground:        #f0e9d8;
+  --popover:                #1e2447;
+  --popover-foreground:     #f0e9d8;
+  --primary:                #f0e9d8;
+  --primary-foreground:     #171c38;
+  --secondary:              #262d59;
+  --secondary-foreground:   #f0e9d8;
+  --muted:                  #262d59;
+  --muted-foreground:       #a8a08a;
+  --accent:                 #e05a2b;
+  --accent-foreground:      #171c38;
+  --destructive:            #e05a2b;
+  --destructive-foreground: #171c38;
+  --border:                 color-mix(in srgb, #f0e9d8 12%, transparent);
+  --input:                  #262d59;
+  --ring:                   #e05a2b;
+
+  --sindoor:  #e05a2b;
+  --marigold: #e05a2b;
 }
 
 /* ── @theme: expose CSS vars as Tailwind utilities ── */
@@ -142,19 +203,20 @@
   --color-avatar-parashurama: var(--avatar-parashurama);
   --color-avatar-narad:       var(--avatar-narad);
 
-  --color-paper:    var(--paper);
-  --color-speckle:  var(--speckle);
-  --color-kajal:    var(--kajal);
-  --color-marigold: var(--marigold);
-  --color-kesari:   var(--kesari);
-  --color-nila:     var(--nila);
-  --color-gulab:    var(--gulab);
-  --color-mor:      var(--mor);
-  --color-haldi:    var(--haldi);
-  --color-tulsi:    var(--tulsi);
-  --color-sindoor:  var(--sindoor);
-  --color-gagan:    var(--gagan);
-  --color-loha:     var(--loha);
+  --color-paper:      var(--paper);
+  --color-speckle:    var(--speckle);
+  --color-kajal:      var(--kajal);
+  --color-marigold:   var(--marigold);
+  --color-kesari:     var(--kesari);
+  --color-nila:       var(--nila);
+  --color-gulab:      var(--gulab);
+  --color-mor:        var(--mor);
+  --color-haldi:      var(--haldi);
+  --color-haldi-deep: var(--haldi-deep);
+  --color-tulsi:      var(--tulsi);
+  --color-sindoor:    var(--sindoor);
+  --color-gagan:      var(--gagan);
+  --color-loha:       var(--loha);
 
   --radius-sm:  calc(var(--radius) * 0.6);
   --radius-md:  calc(var(--radius) * 0.8);
@@ -183,10 +245,10 @@
   }
 
   body {
-    background-color: var(--paper);
+    background-color: var(--background);
     font-family: var(--font-body);
     -webkit-font-smoothing: antialiased;
-    color: var(--kajal);
+    color: var(--foreground);
   }
 
   #root {
@@ -218,6 +280,37 @@
     from { transform: rotate(0deg); }
     to   { transform: rotate(360deg); }
   }
+
+  /* String-pluck — damped lateral vibration, like a struck veena string. */
+  @keyframes string-pluck {
+    0%   { transform: translateX(0); }
+    12%  { transform: translateX(2.2px); }
+    28%  { transform: translateX(-1.8px); }
+    46%  { transform: translateX(1.2px); }
+    64%  { transform: translateX(-0.7px); }
+    82%  { transform: translateX(0.3px); }
+    100% { transform: translateX(0); }
+  }
+
+  /* Breath — slow luminous swell for "avatar is working". */
+  @keyframes breath {
+    0%, 100% { opacity: 0.55; transform: scale(1); }
+    50%      { opacity: 1;    transform: scale(1.06); }
+  }
+
+  /* Shimmer — skeleton loading sweep. */
+  @keyframes shimmer {
+    0%   { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
 }
 
 /* ── Madhubani utilities ── */
@@ -233,19 +326,18 @@
     z-index: 0;
     opacity: 0.05;
     background-image:
-      url("data:image/svg+xml,%3Csvg width='40' height='40' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M 40 0 L 0 0 0 40' fill='none' stroke='%232d2a26' stroke-width='1'/%3E%3C/svg%3E"),
       url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
   }
 
   /* Organic hand-drawn border */
   .organic-border {
-    border: 1px solid color-mix(in srgb, var(--kajal) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
     border-radius: 4px;
   }
 
   /* Warm folk art drop shadow */
   .folk-shadow {
-    box-shadow: 0 16px 40px -10px color-mix(in srgb, var(--kajal) 8%, transparent);
+    box-shadow: var(--folk-shadow);
   }
 
   /* Tight italic heading style */
@@ -257,17 +349,17 @@
 
   /* Warm card: paper bg + organic border + folk shadow */
   .folk-card {
-    background: var(--paper);
-    border: 1px solid color-mix(in srgb, var(--kajal) 10%, transparent);
-    border-radius: 4px;
-    box-shadow: 0 16px 40px -10px color-mix(in srgb, var(--kajal) 8%, transparent);
+    background: var(--surface);
+    border: var(--folk-border);
+    border-radius: var(--folk-radius);
+    box-shadow: var(--folk-shadow);
   }
 
   /* Speckle card: slightly warmer bg */
   .speckle-card {
-    background: var(--speckle);
-    border: 1px solid color-mix(in srgb, var(--kajal) 10%, transparent);
-    border-radius: 4px;
+    background: var(--surface-2);
+    border: var(--folk-border);
+    border-radius: var(--folk-radius);
   }
 
   /* Dark kajal section header */
@@ -278,15 +370,15 @@
 
   /* Legacy glass aliases — keep existing classes working with new warm look */
   .glass-panel {
-    background: var(--paper);
-    border: 1px solid color-mix(in srgb, var(--kajal) 10%, transparent);
-    box-shadow: 0 16px 40px -10px color-mix(in srgb, var(--kajal) 8%, transparent);
+    background: var(--surface);
+    border: var(--folk-border);
+    box-shadow: var(--folk-shadow);
   }
 
   .glass-card {
-    background: var(--paper);
-    border: 1px solid color-mix(in srgb, var(--kajal) 10%, transparent);
-    box-shadow: 0 8px 24px -6px color-mix(in srgb, var(--kajal) 6%, transparent);
+    background: var(--surface);
+    border: var(--folk-border);
+    box-shadow: 0 8px 24px -6px color-mix(in srgb, var(--ink) 6%, transparent);
   }
 
   .glass-dark {
@@ -295,26 +387,39 @@
   }
 
   /* Per-avatar warm tinting (paper bg + left accent border) */
-  .avatar-glass-matsya      { background: rgba(6,95,70,0.04) !important;    border-left: 3px solid rgba(6,95,70,0.35) !important; }
-  .avatar-glass-rama        { background: rgba(45,42,38,0.04) !important;   border-left: 3px solid rgba(45,42,38,0.30) !important; }
-  .avatar-glass-krishna     { background: rgba(6,95,70,0.04) !important;    border-left: 3px solid rgba(6,95,70,0.35) !important; }
-  .avatar-glass-parashurama { background: rgba(87,83,78,0.04) !important;   border-left: 3px solid rgba(87,83,78,0.30) !important; }
-  .avatar-glass-narad       { background: rgba(194,65,12,0.05) !important;  border-left: 3px solid rgba(194,65,12,0.35) !important; }
+  .avatar-glass-matsya      { background: rgba(var(--rgb-matsya), 0.045) !important;      border-left: 3px solid rgba(var(--rgb-matsya), 0.40) !important; }
+  .avatar-glass-rama        { background: rgba(var(--rgb-rama), 0.05) !important;         border-left: 3px solid rgba(var(--rgb-rama), 0.45) !important; }
+  .avatar-glass-krishna     { background: rgba(var(--rgb-krishna), 0.045) !important;     border-left: 3px solid rgba(var(--rgb-krishna), 0.40) !important; }
+  .avatar-glass-parashurama { background: rgba(var(--rgb-parashurama), 0.04) !important;  border-left: 3px solid rgba(var(--rgb-parashurama), 0.38) !important; }
+  .avatar-glass-narad       { background: rgba(var(--rgb-narad), 0.05) !important;        border-left: 3px solid rgba(var(--rgb-narad), 0.40) !important; }
+
+  /* Skeleton loading block — pair with width/height utilities */
+  .skeleton {
+    border-radius: 4px;
+    background: linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--ink) 6%, transparent) 25%,
+      color-mix(in srgb, var(--ink) 11%, transparent) 50%,
+      color-mix(in srgb, var(--ink) 6%, transparent) 75%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.4s ease-in-out infinite;
+  }
 
   /* Scrollable panel with visible thin scrollbar */
   .panel-scroll {
     overflow-y: auto;
     scrollbar-width: thin;
-    scrollbar-color: color-mix(in srgb, var(--kajal) 22%, transparent) transparent;
+    scrollbar-color: color-mix(in srgb, var(--ink) 22%, transparent) transparent;
   }
   .panel-scroll::-webkit-scrollbar { width: 4px; }
   .panel-scroll::-webkit-scrollbar-track { background: transparent; }
   .panel-scroll::-webkit-scrollbar-thumb {
-    background: color-mix(in srgb, var(--kajal) 22%, transparent);
+    background: color-mix(in srgb, var(--ink) 22%, transparent);
     border-radius: 2px;
   }
   .panel-scroll::-webkit-scrollbar-thumb:hover {
-    background: color-mix(in srgb, var(--kajal) 38%, transparent);
+    background: color-mix(in srgb, var(--ink) 38%, transparent);
   }
 
   /* Terminal stays dark */
@@ -326,7 +431,7 @@
 
   /* Typography helpers */
   .label-section  { font-family: var(--font-mono);   font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; opacity: 0.45; }
-  .label-deva     { font-family: var(--font-deva);   color: var(--marigold); }
+  .label-deva     { font-family: var(--font-deva);   color: var(--sindoor); }
   .label-hero     { font-family: var(--font-hero);   letter-spacing: -0.01em; font-style: italic; }
   .text-body-sm   { font-family: var(--font-body);   font-size: 13px; line-height: 1.6; }
   .text-chip      { font-family: var(--font-mono);   font-size: 9px;  letter-spacing: 0.06em; }

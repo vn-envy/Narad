@@ -240,7 +240,13 @@ export function MemoryTab({ userId }: Props) {
             </div>
 
             <div style={{ display: 'grid', gap: 10, marginTop: 14 }}>
-              {loading && <div style={{ color: 'rgba(26,24,21,0.45)', fontSize: 12 }}>Loading commitments…</div>}
+              {loading && (
+                <div style={{ display: 'grid', gap: 8 }} aria-label="Loading commitments">
+                  <div className="skeleton" style={{ height: 44 }} />
+                  <div className="skeleton" style={{ height: 44, opacity: 0.7 }} />
+                  <div className="skeleton" style={{ height: 44, opacity: 0.45 }} />
+                </div>
+              )}
               {!loading && commitments.length === 0 && (
                 <div style={{ color: 'rgba(26,24,21,0.45)', fontSize: 12 }}>
                   No commitments recorded yet.
@@ -363,7 +369,13 @@ export function MemoryTab({ userId }: Props) {
           </div>
 
           <div style={{ display: 'grid', gap: 10, marginTop: 14 }}>
-            {loading && <div style={{ color: 'rgba(26,24,21,0.45)', fontSize: 12 }}>Loading memories…</div>}
+            {loading && (
+              <div style={{ display: 'grid', gap: 8 }} aria-label="Loading memories">
+                <div className="skeleton" style={{ height: 56 }} />
+                <div className="skeleton" style={{ height: 56, opacity: 0.7 }} />
+                <div className="skeleton" style={{ height: 56, opacity: 0.45 }} />
+              </div>
+            )}
             {!loading && filteredMemories.length === 0 && (
               <div style={{ color: 'rgba(26,24,21,0.45)', fontSize: 12 }}>
                 No memories match this filter.

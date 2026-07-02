@@ -36,10 +36,10 @@
 
 *Structure stays (Chat + AwarenessBar + Darshan). The fix: a coherent visual language derived from the tradition, and craft.*
 
-- [ ] **D1 — Design tokens.** One palette in `index.css` drawn from manuscript/Madhubani tradition: nila (deep indigo) ground, palm-leaf cream surfaces, sindoor (vermilion), haldi (turmeric), lamp-black ink; dark mode as "lamp-lit night." Type scale: Geist for UI, a display serif for headings/wordmark, Devanagari avatar glyphs rendered properly.
-- [ ] **D2 — Avatar identity system.** Each avatāra = fixed color + Devanagari initial + its string position on the Mahati. `MahatiLogo`, `Motifs`, `MadhubaniBorder` redrawn to one consistent stroke/geometry language (no clip-art feel).
-- [ ] **D3 — Motion & streaming states.** String-pluck animation on avatar activation; breathing pulse while streaming; skeleton states for panels; sub-200ms transitions via `motion`.
-- [ ] **D4 — Polish pass** on ChatPanel, AwarenessBar, NaradDashboard: spacing rhythm, markdown rendering, empty states, error states.
+- [x] **D1 — Design tokens.** One palette in `index.css` drawn from manuscript/Madhubani tradition: nila (deep indigo) ground, palm-leaf cream surfaces, sindoor (vermilion), haldi (turmeric), lamp-black ink; dark mode as "lamp-lit night." *(done: token foundation in `.dark` block; full component sweep + toggle tracked in post-launch backlog)* Type scale: Geist for UI, a display serif for headings/wordmark, Devanagari avatar glyphs rendered properly.
+- [x] **D2 — Avatar identity system.** Each avatāra = fixed color + Devanagari initial + its string position on the Mahati. `MahatiLogo`, `Motifs`, `MadhubaniBorder` redrawn to one consistent stroke/geometry language (no clip-art feel).
+- [x] **D3 — Motion & streaming states.** String-pluck animation on avatar activation; breathing pulse while streaming; skeleton states for panels; sub-200ms transitions via `motion`.
+- [x] **D4 — Polish pass** on ChatPanel, AwarenessBar, NaradDashboard: spacing rhythm, markdown rendering, empty states, error states.
       *Accept: `tsc --noEmit` clean; visual review by Neekhil.*
 
 ## E. One truth (M3)

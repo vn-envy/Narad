@@ -8,7 +8,14 @@ import { cn } from '@/lib/utils'
 import { Pencil, RotateCcw, Square, Copy, Check, Volume2, VolumeX, Loader, Paperclip, X } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { AVATAR_COLOURS, AVATAR_RGB } from '@/lib/avatara-constants'
+import { AVATAR_COLOURS, AVATAR_RGB, DEVA, isAvatarName } from '@/lib/avatara-constants'
+
+const SUGGESTIONS: Array<{ label: string; prompt: string }> = [
+  { label: 'Plan my week',        prompt: 'Plan my week from my calendar and open tasks.' },
+  { label: 'Research a topic',    prompt: 'Research the latest on ' },
+  { label: 'Draft an email',      prompt: 'Draft an email to ' },
+  { label: 'Automate something',  prompt: 'Write a script that ' },
+]
 
 const MEDIA_RE = /https?:\/\/\S+\/media\/[^\s"')]+\.(mp4|wav|mp3)/gi
 
@@ -370,9 +377,32 @@ export function ChatPanel({
       {/* Messages */}
       <div className="flex-1 min-h-0 overflow-y-auto px-4 py-5 flex flex-col gap-2.5" style={{ background: 'var(--paper)' }}>
         {messages.length === 0 && (
-          <div className="flex flex-col items-center justify-center gap-2 opacity-40 mt-[30%]">
-            <p className="text-[36px] leading-none" style={{ fontFamily: 'var(--font-deva)', color: 'var(--marigold)' }}>नमस्ते</p>
-            <p className="text-body-sm text-kajal">Ask anything. Narad will route it.</p>
+          <div className="flex flex-col items-center justify-center gap-3 mt-[22%]">
+            <div style={{ opacity: 0.85 }}>
+              <MahatiLogo size={56} />
+            </div>
+            <p className="text-[34px] leading-none" style={{ fontFamily: 'var(--font-deva)', color: 'var(--sindoor)', opacity: 0.8 }}>नमस्ते</p>
+            <p className="label-hero text-[15px]" style={{ color: 'var(--ink-55)' }}>
+              Ask anything — Narad plucks the right string.
+            </p>
+            <div className="flex flex-wrap justify-center gap-2 mt-2 max-w-[420px]">
+              {SUGGESTIONS.map(s => (
+                <button
+                  key={s.label}
+                  onClick={() => handleEdit(s.prompt)}
+                  className="text-chip px-3 py-1.5 rounded-full cursor-pointer transition-all duration-150 hover:scale-[1.03] active:scale-95"
+                  style={{
+                    fontSize: 11,
+                    color: 'var(--ink-70)',
+                    background: 'var(--surface)',
+                    border: '1px solid var(--ink-12)',
+                    boxShadow: '0 2px 8px -2px var(--ink-08)',
+                  }}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
           </div>
         )}
 
@@ -414,13 +444,18 @@ export function ChatPanel({
                     {msg.avatarsInvolved.map(a => (
                       <span
                         key={a}
-                        className="text-chip px-2 py-px rounded organic-border"
+                        className="text-chip px-2 py-px rounded organic-border inline-flex items-baseline gap-1"
                         style={{
                           color: AVATAR_COLOURS[a],
                           borderColor: `rgba(${AVATAR_RGB[a]}, 0.30)`,
                           background: `rgba(${AVATAR_RGB[a]}, 0.08)`,
                         }}
                       >
+                        {isAvatarName(a) && (
+                          <span style={{ fontFamily: 'var(--font-deva)', fontSize: 10 }}>
+                            {DEVA[a]?.charAt(0)}
+                          </span>
+                        )}
                         {a}
                       </span>
                     ))}
@@ -533,67 +568,81 @@ export function ChatPanel({
           )
         })}
 
-        {/* Streaming indicator */}
-        {streaming && (
-          <div className="flex flex-col gap-2 max-w-[82%]">
+        {/* Streaming indicator — breathes in the active avatar's colour */}
+        {streaming && (() => {
+          const activeName = activeAvatar?.name
+          const streamColour = activeName && isAvatarName(activeName)
+            ? AVATAR_COLOURS[activeName]
+            : 'var(--sindoor)'
+          const streamRgb = activeName && isAvatarName(activeName)
+            ? AVATAR_RGB[activeName]
+            : 'var(--rgb-sindoor)'
+          return (
+            <div className="flex flex-col gap-2 max-w-[82%]">
 
-            {/* Active avatar label + task */}
-            {activeAvatar && (
-              <div className="flex items-center gap-2 px-1">
-                <span
-                  className="font-mono text-[11px] font-medium"
-                  style={{ color: `rgba(${AVATAR_RGB[activeAvatar.name as AvatarName]}, 0.85)` }}
-                >
-                  {activeAvatar.name}
-                </span>
-                {activeAvatar.task && (
-                  <span className="font-mono text-[11px] opacity-35 truncate flex-1" style={{ color: 'var(--kajal)' }}>
-                    {activeAvatar.task}
-                  </span>
-                )}
-              </div>
-            )}
-
-            {/* Progress bar */}
-            <div
-              className="h-[2px] rounded-full overflow-hidden mx-1"
-              style={{ background: 'rgba(45,42,38,0.08)' }}
-            >
-              <div
-                className="h-full w-[35%] rounded-full"
-                style={{
-                  background: 'var(--marigold)',
-                  animation: 'progress-sweep 1.6s ease-in-out infinite',
-                }}
-              />
-            </div>
-
-            {/* Dots + stop button */}
-            <div className="flex items-center gap-2.5">
-              <div className="folk-card flex items-center gap-1.5 px-4 py-3.5 rounded w-fit">
-                {[0, 200, 400].map(delay => (
+              {/* Active avatar label + task */}
+              {activeAvatar && (
+                <div className="flex items-center gap-2 px-1">
+                  {activeName && isAvatarName(activeName) && (
+                    <span style={{ fontFamily: 'var(--font-deva)', fontSize: 12, color: streamColour }}>
+                      {DEVA[activeName]?.charAt(0)}
+                    </span>
+                  )}
                   <span
-                    key={delay}
-                    className="inline-block w-[7px] h-[7px] rounded-full"
-                    style={{
-                      background: 'var(--marigold)',
-                      animation: `bounce 1.2s ease-in-out ${delay}ms infinite`,
-                    }}
-                  />
-                ))}
-              </div>
-              <button
-                className={cn(ACTION_BTN, 'border-sindoor/25 text-sindoor/50 hover:text-sindoor/80 hover:border-sindoor/40')}
-                onClick={stop}
-                title="Stop generation"
-              >
-                <Square size={10} />
-                stop
-              </button>
-            </div>
+                    className="font-mono text-[11px] font-medium"
+                    style={{ color: streamColour }}
+                  >
+                    {activeAvatar.name}
+                  </span>
+                  {activeAvatar.task && (
+                    <span className="font-mono text-[11px] opacity-35 truncate flex-1" style={{ color: 'var(--ink)' }}>
+                      {activeAvatar.task}
+                    </span>
+                  )}
+                </div>
+              )}
 
-          </div>
-        )}
+              {/* Progress bar */}
+              <div
+                className="h-[2px] rounded-full overflow-hidden mx-1"
+                style={{ background: 'var(--ink-08)' }}
+              >
+                <div
+                  className="h-full w-[35%] rounded-full"
+                  style={{
+                    background: streamColour,
+                    animation: 'progress-sweep 1.6s ease-in-out infinite',
+                  }}
+                />
+              </div>
+
+              {/* Breathing dots + stop button */}
+              <div className="flex items-center gap-2.5">
+                <div className="folk-card flex items-center gap-1.5 px-4 py-3.5 rounded w-fit">
+                  {[0, 200, 400].map(delay => (
+                    <span
+                      key={delay}
+                      className="inline-block w-[7px] h-[7px] rounded-full"
+                      style={{
+                        background: `rgba(${streamRgb}, 0.9)`,
+                        animation: `breath 1.2s ease-in-out ${delay}ms infinite`,
+                      }}
+                    />
+                  ))}
+                </div>
+                <button
+                  className={cn(ACTION_BTN, 'border-sindoor/25 text-sindoor/50 hover:text-sindoor/80 hover:border-sindoor/40')}
+                  onClick={stop}
+                  title="Stop generation"
+                >
+                  <Square size={10} />
+                  stop
+                </button>
+              </div>
+
+            </div>
+          )
+        })()}
 
         {error && (
           <div

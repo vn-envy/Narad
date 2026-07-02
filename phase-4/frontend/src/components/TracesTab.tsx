@@ -53,14 +53,14 @@ interface Props {
   userId: string
 }
 
-// ── Avatar accent colours (matches avatara-constants, softer tones) ────────
+// ── Avatar accent colours — canonical identity tokens ──────────────────────
 
 const AVATAR_COLOR: Record<string, string> = {
-  Matsya:       'var(--nila)',
-  Rama:         'var(--tulsi)',
-  Krishna:      'var(--mor)',
-  Parashurama:  'var(--loha)',
-  __narad__:    'var(--marigold)',
+  Matsya:       'var(--avatar-matsya)',
+  Rama:         'var(--avatar-rama)',
+  Krishna:      'var(--avatar-krishna)',
+  Parashurama:  'var(--avatar-parashurama)',
+  __narad__:    'var(--avatar-narad)',
 }
 
 function avatarColor(name: string | null | undefined): string {

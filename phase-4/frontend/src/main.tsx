@@ -13,9 +13,9 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
     if (this.state.error) {
       const err = this.state.error as Error
       return (
-        <div style={{ padding: 32, fontFamily: 'monospace', background: '#1A1815', color: '#F5EBD7', minHeight: '100vh' }}>
-          <h2 style={{ color: '#C0392B', marginBottom: 16 }}>⚠ Runtime Error</h2>
-          <pre style={{ color: '#F28E1C', whiteSpace: 'pre-wrap', marginBottom: 16 }}>{err.message}</pre>
+        <div style={{ padding: 32, fontFamily: 'monospace', background: '#2d2a26', color: '#fcfaf2', minHeight: '100vh' }}>
+          <h2 style={{ color: '#e05a2b', marginBottom: 16 }}>⚠ Runtime Error</h2>
+          <pre style={{ color: '#fcd34d', whiteSpace: 'pre-wrap', marginBottom: 16 }}>{err.message}</pre>
           <pre style={{ color: '#A0A49A', fontSize: 11, whiteSpace: 'pre-wrap' }}>{err.stack}</pre>
         </div>
       )

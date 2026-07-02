@@ -207,8 +207,8 @@ export function NaradDashboard({
           overflow: 'hidden',
         }}
       >
-        <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--marigold)', letterSpacing: -0.4, whiteSpace: 'nowrap', fontFamily: 'var(--font-deva)' }}>
-          नारद <span style={{ color: 'rgba(245,235,215,0.45)', fontWeight: 400, fontFamily: 'var(--font-body)' }}>/ Dashboard</span>
+        <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--sindoor)', letterSpacing: -0.4, whiteSpace: 'nowrap', fontFamily: 'var(--font-deva)' }}>
+          नारद <span style={{ color: 'rgba(252,250,242,0.45)', fontWeight: 400, fontFamily: 'var(--font-body)' }}>/ Dashboard</span>
         </div>
 
         <div style={{ flex: 1, minWidth: 280, maxWidth: 560 }}>
@@ -240,9 +240,9 @@ export function NaradDashboard({
                   borderRadius: 999,
                   fontSize: 11,
                   fontWeight: 600,
-                  border: `1px solid ${active ? `${colour}80` : 'rgba(245,235,215,0.15)'}`,
-                  background: active ? `${colour}22` : 'rgba(245,235,215,0.06)',
-                  color: active ? colour : 'rgba(245,235,215,0.45)',
+                  border: `1px solid ${active ? `${colour}80` : 'rgba(252,250,242,0.15)'}`,
+                  background: active ? `${colour}22` : 'rgba(252,250,242,0.06)',
+                  color: active ? colour : 'rgba(252,250,242,0.45)',
                 }}
               >
                 <span style={{ fontFamily: 'var(--font-deva)' }}>{DEVA[name]}</span>
@@ -256,10 +256,10 @@ export function NaradDashboard({
           onClick={onClose}
           aria-label="Close dashboard"
           style={{
-            background: 'rgba(245,235,215,0.08)',
-            border: '1px solid rgba(245,235,215,0.15)',
+            background: 'rgba(252,250,242,0.08)',
+            border: '1px solid rgba(252,250,242,0.15)',
             borderRadius: 8,
-            color: 'rgba(245,235,215,0.6)',
+            color: 'rgba(252,250,242,0.6)',
             fontSize: 16,
             width: 30,
             height: 30,
@@ -277,20 +277,20 @@ export function NaradDashboard({
       <div
         style={{
           padding: '8px 16px',
-          borderBottom: '1px solid rgba(26,24,21,0.08)',
+          borderBottom: '1px solid rgba(45,42,38,0.08)',
           background: 'linear-gradient(180deg, rgba(252,250,242,0.98), rgba(247,242,230,0.92))',
           flexShrink: 0,
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <span style={{ fontFamily: 'var(--font-deva)', fontSize: 13, color: 'var(--marigold)' }}>{activeMeta.sanskrit}</span>
-            <span style={{ fontSize: 12.5, color: 'rgba(26,24,21,0.58)', fontWeight: 600 }}>{activeMeta.label}</span>
+            <span style={{ fontFamily: 'var(--font-deva)', fontSize: 13, color: 'var(--sindoor)' }}>{activeMeta.sanskrit}</span>
+            <span style={{ fontSize: 12.5, color: 'rgba(45,42,38,0.58)', fontWeight: 600 }}>{activeMeta.label}</span>
           </div>
-          <div style={{ fontSize: 12, color: 'rgba(26,24,21,0.5)', lineHeight: 1.5 }}>
+          <div style={{ fontSize: 12, color: 'rgba(45,42,38,0.5)', lineHeight: 1.5 }}>
             {headerSummary(activeTab)}
           </div>
-          <div style={{ marginLeft: 'auto', fontSize: 11.5, color: 'rgba(26,24,21,0.45)' }}>
+          <div style={{ marginLeft: 'auto', fontSize: 11.5, color: 'rgba(45,42,38,0.45)' }}>
             {capabilities ? `${capabilities.build.runtime_mode} mode · ${capabilities.issue_count} issue${capabilities.issue_count === 1 ? '' : 's'}` : 'Runtime contract pending'}
           </div>
         </div>
@@ -317,8 +317,8 @@ export function NaradDashboard({
                 fontSize: 12.5,
                 fontWeight: 600,
                 cursor: 'pointer',
-                color: isActive ? 'var(--marigold)' : 'rgba(26,24,21,0.48)',
-                borderBottom: `2px solid ${isActive ? 'var(--marigold)' : 'transparent'}`,
+                color: isActive ? 'var(--sindoor)' : 'rgba(45,42,38,0.48)',
+                borderBottom: `2px solid ${isActive ? 'var(--sindoor)' : 'transparent'}`,
                 display: 'flex',
                 alignItems: 'center',
                 gap: 6,
@@ -335,8 +335,8 @@ export function NaradDashboard({
                     height: 16,
                     padding: '0 4px',
                     borderRadius: 999,
-                    background: isActive ? 'rgba(242,142,28,0.18)' : 'rgba(26,24,21,0.08)',
-                    color: isActive ? 'var(--marigold)' : 'rgba(26,24,21,0.42)',
+                    background: isActive ? 'rgba(194,65,12,0.14)' : 'rgba(45,42,38,0.08)',
+                    color: isActive ? 'var(--sindoor)' : 'rgba(45,42,38,0.42)',
                     fontSize: 10,
                     display: 'inline-flex',
                     alignItems: 'center',
@@ -372,14 +372,14 @@ export function NaradDashboard({
             padding: '10px 16px',
             background: 'rgba(229,90,31,0.08)',
             borderTop: '1px solid rgba(229,90,31,0.18)',
-            color: 'rgba(26,24,21,0.7)',
+            color: 'rgba(45,42,38,0.7)',
             fontSize: 12.5,
           }}
         >
           <strong style={{ color: 'var(--kesari)' }}>Andon alert · {andonAlert.avatar}</strong>
           <span style={{ marginLeft: 8 }}>{andonAlert.trigger}</span>
           {andonAlert.task_preview && (
-            <span style={{ marginLeft: 8, color: 'rgba(26,24,21,0.5)' }}>
+            <span style={{ marginLeft: 8, color: 'rgba(45,42,38,0.5)' }}>
               — {andonAlert.task_preview.slice(0, 90)}
             </span>
           )}

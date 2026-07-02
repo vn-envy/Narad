@@ -1,15 +1,17 @@
 /**
- * Mahati Veena logo — geometric reduction per the design brief.
+ * Mahati Veena logo — Narad's instrument, drawn in the manuscript stroke language.
  *
- * Proportions (from brief):
- *   Top gourd : bottom gourd diameter = 0.7 : 1.0
- *   Stem width : bottom gourd diameter = 0.25 : 1.0
- *   Stem height : total = 0.40
- *   Top gourd height : total = 0.28
- *   Bottom gourd height : total = 0.32
+ * Anatomy (viewBox 0 0 100 160):
+ *   pegbox scroll → top gourd (0.7×) → dandi (stem) → bottom gourd (1.0×) → bridge
  *
- * Each string maps to one live agent. When that agent is active,
- * the string picks up the avatar's canonical colour briefly.
+ * The four strings run the full length of the dandi — one per avatāra, in
+ * canonical order (string 1 = Matsya … string 4 = Parashurama). An active
+ * avatar's string takes its canonical colour and plucks (damped lateral
+ * vibration). The sindoor bindu in the bottom gourd is Narad himself; it
+ * breathes while Narad is orchestrating.
+ *
+ * All colours come from design tokens, so the mark sits correctly on both
+ * the kajal header and paper surfaces (and in lamp-lit night mode).
  */
 
 import type { AvatarState } from '../hooks/useAvatara'
@@ -21,115 +23,148 @@ interface Props {
   size?: number
 }
 
+const VB_W = 100
+const VB_H = 160
+
 export function MahatiLogo({ avatarStates = {}, naradActive = false, size = 80 }: Props) {
   const W = size
-  const H = size * 1.6   // aspect ratio from brief proportions
+  const H = size * (VB_H / VB_W)  // 1.6 aspect, as before
 
-  // Proportions
-  const bottomR  = (W * 0.5)             // bottom gourd radius
-  const topR     = bottomR * 0.7         // top gourd = 70% of bottom
-  const stemW    = bottomR * 0.5         // stem width
-  const bottomCY = H - bottomR           // bottom gourd centre Y
-  const topCY    = topR                  // top gourd centre Y
-  const stemTop  = topCY + topR
-  const stemBot  = bottomCY - bottomR
-  const cx       = W / 2
+  const cx = 50
 
-  // One string per avatar, evenly spaced across stem width
+  // Strings: evenly spaced across the dandi, full length pegbox → bridge.
+  const stringSpread = 9
   const stringXs = Array.from({ length: AVATAR_NAMES.length }, (_, i) => {
-    const left  = cx - stemW / 2 + 2
-    const right = cx + stemW / 2 - 2
-    return left + (i / (AVATAR_NAMES.length - 1)) * (right - left)
+    if (AVATAR_NAMES.length === 1) return cx
+    return cx - stringSpread / 2 + (i / (AVATAR_NAMES.length - 1)) * stringSpread
   })
+  const stringTop = 10
+  const stringBottom = 138
 
   return (
     <svg
       width={W}
       height={H}
-      viewBox={`0 0 ${W} ${H}`}
+      viewBox={`0 0 ${VB_W} ${VB_H}`}
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
+      aria-label="Mahati veena — Narad"
     >
-      {/* Bottom gourd — tumba */}
+      {/* Sindoor halo around the resonating gourd */}
       <ellipse
-        cx={cx} cy={bottomCY}
-        rx={bottomR - 1} ry={bottomR * 0.85}
-        fill="#F5EBD7"
-        stroke="#1A1815" strokeWidth="2.5"
+        cx={cx} cy={130}
+        rx={27} ry={24}
+        fill="none"
+        stroke="var(--sindoor)"
+        strokeWidth="1"
+        strokeDasharray="3 5"
+        opacity="0.45"
       />
 
-      {/* Top gourd — daanda */}
-      <ellipse
-        cx={cx} cy={topCY}
-        rx={topR - 1} ry={topR * 0.85}
-        fill="#F5EBD7"
-        stroke="#1A1815" strokeWidth="2.5"
+      {/* Bottom gourd — tumba (pear-shaped resonator) */}
+      <path
+        d={`M ${cx} 106
+            C 66 106, 74 118, 74 131
+            C 74 145, 63 152, ${cx} 152
+            C 37 152, 26 145, 26 131
+            C 26 118, 34 106, ${cx} 106 Z`}
+        fill="var(--paper)"
+        stroke="var(--kajal)"
+        strokeWidth="2.5"
+        strokeLinejoin="round"
       />
 
-      {/* Stem body */}
-      <rect
-        x={cx - stemW / 2} y={stemTop}
-        width={stemW} height={stemBot - stemTop}
-        fill="#F5EBD7"
-        stroke="#1A1815" strokeWidth="1.5"
+      {/* Top gourd — smaller resonator (0.7×) */}
+      <path
+        d={`M ${cx} 16
+            C 61 16, 67 24, 67 33
+            C 67 43, 59 48, ${cx} 48
+            C 41 48, 33 43, 33 33
+            C 33 24, 39 16, ${cx} 16 Z`}
+        fill="var(--paper)"
+        stroke="var(--kajal)"
+        strokeWidth="2.2"
+        strokeLinejoin="round"
       />
 
-      {/* 7 strings */}
+      {/* Dandi — stem joining the gourds */}
+      <path
+        d={`M ${cx - 6.5} 44 L ${cx - 5.5} 110 L ${cx + 5.5} 110 L ${cx + 6.5} 44 Z`}
+        fill="var(--paper)"
+        stroke="var(--kajal)"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+
+      {/* Pegbox scroll */}
+      <path
+        d={`M ${cx - 5} 16 C ${cx - 5} 8, ${cx - 2} 4, ${cx + 3} 5 C ${cx + 7} 6, ${cx + 6} 12, ${cx + 2} 12`}
+        fill="none"
+        stroke="var(--kajal)"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+
+      {/* Gourd ornament rings — manuscript detail */}
+      <path
+        d={`M 32 124 C 38 120, 62 120, 68 124`}
+        fill="none" stroke="var(--sindoor)" strokeWidth="1" opacity="0.5"
+      />
+      <path
+        d={`M 38 27 C 43 24.5, 57 24.5, 62 27`}
+        fill="none" stroke="var(--sindoor)" strokeWidth="0.9" opacity="0.5"
+      />
+
+      {/* Bridge on the bottom gourd */}
+      <line
+        x1={cx - 8} y1={stringBottom + 2}
+        x2={cx + 8} y2={stringBottom + 2}
+        stroke="var(--kajal)"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+
+      {/* Four strings — one per avatāra, full length */}
       {AVATAR_NAMES.map((name, i) => {
         const state = avatarStates[name]
         const isActive = state === 'active'
         const isDone   = state === 'done'
-        const colour   = isActive || isDone ? AVATAR_COLOURS[name] : '#1E2A5E'
-        const opacity  = isDone ? 0.5 : 1
+        const colour = isActive || isDone
+          ? AVATAR_COLOURS[name]
+          : 'color-mix(in srgb, var(--kajal) 45%, transparent)'
         return (
           <line
             key={name}
-            x1={stringXs[i]} y1={stemTop + 2}
-            x2={stringXs[i]} y2={stemBot - 2}
+            x1={stringXs[i]} y1={stringTop}
+            x2={stringXs[i]} y2={stringBottom}
             stroke={colour}
-            strokeWidth={isActive ? 2 : 1.2}
-            opacity={opacity}
-            style={isActive ? { filter: `drop-shadow(0 0 3px ${colour})` } : undefined}
-          >
-            {isActive && (
-              <animate
-                attributeName="strokeWidth"
-                values="1.2;2.5;1.2"
-                dur="0.6s"
-                repeatCount="indefinite"
-              />
-            )}
-          </line>
+            strokeWidth={isActive ? 2 : 1.1}
+            opacity={isDone ? 0.55 : 1}
+            style={
+              isActive
+                ? {
+                    filter: `drop-shadow(0 0 3px ${AVATAR_COLOURS[name]})`,
+                    animation: 'string-pluck 0.55s ease-out infinite',
+                    transformBox: 'fill-box',
+                  }
+                : undefined
+            }
+          />
         )
       })}
 
-      {/* Bindu — Narad's presence in the bottom gourd */}
+      {/* Bindu — Narad's presence in the resonating gourd */}
       <circle
         cx={cx}
-        cy={bottomCY}
-        r={bottomR * 0.1}
-        fill="#F28E1C"
+        cy={130}
+        r={5}
+        fill="var(--sindoor)"
         opacity={naradActive ? 1 : 0.7}
-      >
-        {naradActive && (
-          <animate
-            attributeName="r"
-            values={`${bottomR * 0.08};${bottomR * 0.14};${bottomR * 0.08}`}
-            dur="0.9s"
-            repeatCount="indefinite"
-          />
-        )}
-      </circle>
-
-      {/* Kesari gourd halo accent */}
-      <ellipse
-        cx={cx} cy={bottomCY}
-        rx={bottomR + 4} ry={bottomR * 0.85 + 3}
-        fill="none"
-        stroke="#E55A1F"
-        strokeWidth="1"
-        strokeDasharray="4 6"
-        opacity="0.5"
+        style={
+          naradActive
+            ? { animation: 'breath 1.4s ease-in-out infinite', transformBox: 'fill-box', transformOrigin: 'center' }
+            : undefined
+        }
       />
     </svg>
   )
