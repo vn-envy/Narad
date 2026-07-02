@@ -31,11 +31,14 @@ from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.adk.tools import FunctionTool
 from google.genai import types as genai_types
-
 from model_config import AVATAR_MODELS, DS_PRO
 from runtime_contract import (
     agent_runtime_status as _agent_runtime_status,
+)
+from runtime_contract import (
     canonical_tool_name_map as _canonical_tool_name_map,
+)
+from runtime_contract import (
     primary_discipline as _primary_discipline,
 )
 
@@ -238,18 +241,20 @@ def _make_avatar_tool(agent: LlmAgent, user_id: str = "default") -> FunctionTool
     from tool_result import is_tool_envelope as _is_tool_envelope
 
     async def _run(task: str, _session_id: str = "") -> dict:
-        from context_governor import RuntimeEpoch, choose_model_and_plan, should_rollover_epoch
-        from model_registry import get_model_profile
-        from smriti_core import capture_episode, recall_context
-        from yantra import Tracer
+        import logging as _vlog
 
         # Model routing — simplified:
         #   1. Images attached → MiMo 2.5 vision model (multimodal input)
         #   2. Visual output task (UI/PPT/slides, no images) → DeepSeek V4 Pro
         #   3. Everything else → avatar's assigned DeepSeek model
         import os as _os
-        import logging as _vlog
+
+        from context_governor import RuntimeEpoch, choose_model_and_plan, should_rollover_epoch
         from model_config import get_vision_model, is_visual_output_task
+        from model_registry import get_model_profile
+        from yantra import Tracer
+
+        from smriti_core import capture_episode, recall_context
         images = _images_ctx.get([])
         external_session_id = _session_id or _http_session_id_ctx.get("")
         use_vision = bool(images)                                                  # MiMo: images attached
@@ -488,7 +493,9 @@ def _make_avatar_tool(agent: LlmAgent, user_id: str = "default") -> FunctionTool
         )
 
         # Trajectory building — collect all tool calls for the avatar_done trace event.
-        from yantra_models import ToolCall as _ToolCall, TurnRecord as _TurnRecord, Trajectory as _Trajectory
+        from yantra_models import ToolCall as _ToolCall
+        from yantra_models import Trajectory as _Trajectory
+        from yantra_models import TurnRecord as _TurnRecord
         _traj = _Trajectory(avatar=agent.name, model=_model_id, task_preview=task[:80])
         _turn = _TurnRecord(turn=1)
         _traj.turns.append(_turn)
@@ -554,7 +561,8 @@ def _make_avatar_tool(agent: LlmAgent, user_id: str = "default") -> FunctionTool
 
         # Kanban: mark matching plan step as in_progress at span start
         try:
-            from kanban import KanbanBoard as _KanbanBoard, StepStatus as _StepStatus
+            from kanban import KanbanBoard as _KanbanBoard
+            from kanban import StepStatus as _StepStatus
             _kb = _KanbanBoard()
             _kb_step_id = _kb.find_step_for_avatar(_trace_session_id, agent.name)
             if _kb_step_id is not None:
@@ -790,8 +798,12 @@ def _make_avatar_tool(agent: LlmAgent, user_id: str = "default") -> FunctionTool
         try:
             from andon import (
                 AndonGate as _AndonGate,
-                log_andon as _log_andon,
+            )
+            from andon import (
                 _run_andon_diagnostic as _diag,
+            )
+            from andon import (
+                log_andon as _log_andon,
             )
             _gate = _AndonGate()
             _fired, _reason = _gate.check(
@@ -942,7 +954,7 @@ def _make_avatar_tool(agent: LlmAgent, user_id: str = "default") -> FunctionTool
 
         # Audit trail — log every avatar invocation + soft scope check
         try:
-            from audit_trail import log_invocation, check_scope, log_scope_warning
+            from audit_trail import check_scope, log_invocation, log_scope_warning
             log_invocation(agent.name, task[:200], user_id)
             _scope_hits = check_scope(agent.name, task)
             if _scope_hits:
@@ -1048,26 +1060,39 @@ def _narad_shuddhi(dry_run: bool = True) -> dict:
 
 # ── Matsya ────────────────────────────────────────────────────────────────────
 
-from matsya_search import web_search as _web_search              # noqa: E402
-from browser_skill import browse_url_sync as _browse_url         # noqa: E402
-from browser_act_skill import (                                  # noqa: E402
-    browser_screenshot         as _browser_screenshot,
-    browser_fill               as _browser_fill,
-    browser_upload_and_submit  as _browser_upload_and_submit,
+from browser_act_skill import (
+    browser_fill as _browser_fill,
 )
-from http_skill import http_request as _http_request, search_last30days as _search_last30days  # noqa: E402
+from browser_act_skill import (  # noqa: E402
+    browser_screenshot as _browser_screenshot,
+)
+from browser_act_skill import (
+    browser_upload_and_submit as _browser_upload_and_submit,
+)
+from browser_skill import browse_url_sync as _browse_url  # noqa: E402
 from docling_skill import extract_document as _extract_document  # noqa: E402
-from webwright_skill import web_task as _web_task               # noqa: E402
+from http_skill import http_request as _http_request  # noqa: E402
+from http_skill import search_last30days as _search_last30days
+from matsya_search import web_search as _web_search  # noqa: E402
 from ml_intern_skill import run_ml_experiment as _run_ml_experiment  # noqa: E402
+from webwright_skill import web_task as _web_task  # noqa: E402
 
 # ── Research tools (phase-2) — graceful fallback if unavailable ───────────────
 try:
-    from research_tools import (                                   # noqa: E402
-        search_arxiv      as _search_arxiv,
-        search_papers     as _search_papers,
-        search_hf_papers  as _search_hf_papers,
-        search_hf_models  as _search_hf_models,
-        query_deepwiki    as _query_deepwiki,
+    from research_tools import (
+        query_deepwiki as _query_deepwiki,
+    )
+    from research_tools import (  # noqa: E402
+        search_arxiv as _search_arxiv,
+    )
+    from research_tools import (
+        search_hf_models as _search_hf_models,
+    )
+    from research_tools import (
+        search_hf_papers as _search_hf_papers,
+    )
+    from research_tools import (
+        search_papers as _search_papers,
     )
 except Exception as _rt_err:
     import logging as _logging_rt
@@ -1077,17 +1102,27 @@ except Exception as _rt_err:
     def _search_hf_papers(*a, **kw): return {"error": "search_hf_papers unavailable"}  # type: ignore
     def _search_hf_models(*a, **kw): return {"error": "search_hf_models unavailable"}  # type: ignore
     def _query_deepwiki(*a, **kw): return {"error": "query_deepwiki unavailable"}    # type: ignore
-from sql_skill import query_database as _query_database          # noqa: E402
+from sql_skill import query_database as _query_database  # noqa: E402
 
 # ── Shell tools (phase-8) — graceful fallback if unavailable ─────────────────
 try:
-    from shell_skill import (                                    # noqa: E402
-        read_file         as _read_file,
-        run_shell         as _run_shell,
-        write_script      as _write_script,
-        schedule_cron     as _schedule_cron,
-        list_cron_jobs    as _list_cron_jobs,
-        remove_cron_job   as _remove_cron_job,
+    from shell_skill import (
+        list_cron_jobs as _list_cron_jobs,
+    )
+    from shell_skill import (  # noqa: E402
+        read_file as _read_file,
+    )
+    from shell_skill import (
+        remove_cron_job as _remove_cron_job,
+    )
+    from shell_skill import (
+        run_shell as _run_shell,
+    )
+    from shell_skill import (
+        schedule_cron as _schedule_cron,
+    )
+    from shell_skill import (
+        write_script as _write_script,
     )
 except Exception as _ss_err:
     import logging as _logging_ss
@@ -1098,18 +1133,30 @@ except Exception as _ss_err:
     def _schedule_cron(*a, **kw): return {"error": "shell_skill unavailable — check phase-8 install"}  # type: ignore
     def _list_cron_jobs(*a, **kw): return {"error": "shell_skill unavailable — check phase-8 install"}  # type: ignore
     def _remove_cron_job(*a, **kw): return {"error": "shell_skill unavailable — check phase-8 install"}  # type: ignore
-from ui_skill import (                                           # noqa: E402
-    list_shadcn_components  as _list_shadcn_components,
-    fetch_shadcn_component  as _fetch_shadcn_component,
+from calendar_skill import create_event as _create_event
+from calendar_skill import get_upcoming_events as _get_upcoming_events  # noqa: E402
+from email_skill import compose_email as _compose_email
+from email_skill import compose_rich_email as _compose_rich_email
+from email_skill import send_email as _send_email  # noqa: E402
+from ui_skill import (
+    fetch_shadcn_component as _fetch_shadcn_component,
 )
-from email_skill import send_email as _send_email, compose_email as _compose_email, compose_rich_email as _compose_rich_email  # noqa: E402
-from calendar_skill import get_upcoming_events as _get_upcoming_events, create_event as _create_event  # noqa: E402
+from ui_skill import (  # noqa: E402
+    list_shadcn_components as _list_shadcn_components,
+)
+
 try:
-    from health_skill import (                                       # noqa: E402
-        log_symptom              as _log_symptom,
-        set_medication_reminder  as _set_medication_reminder,
-        get_health_log           as _get_health_log,
-        query_rxnorm             as _query_rxnorm,
+    from health_skill import (
+        get_health_log as _get_health_log,
+    )
+    from health_skill import (  # noqa: E402
+        log_symptom as _log_symptom,
+    )
+    from health_skill import (
+        query_rxnorm as _query_rxnorm,
+    )
+    from health_skill import (
+        set_medication_reminder as _set_medication_reminder,
     )
 except Exception as _hs_err:
     import logging as _logging_hs
@@ -1118,31 +1165,65 @@ except Exception as _hs_err:
     def _set_medication_reminder(*a, **kw): return {"error": "health_skill unavailable"}  # type: ignore
     def _get_health_log(*a, **kw): return {"error": "health_skill unavailable"}        # type: ignore
     def _query_rxnorm(*a, **kw): return {"error": "health_skill unavailable"}          # type: ignore
-from local_skill import (                                        # noqa: E402
-    scan_directory    as _scan_directory,
-    move_to_trash     as _move_to_trash,
-    organize_by_type  as _organize_by_type,
-    find_large_files  as _find_large_files,
-    get_disk_info     as _get_disk_info,
-)
-from finance_skill import (                                      # noqa: E402
-    import_csv              as _import_csv,
-    sync_gmail              as _sync_gmail_finance,
-    get_spending            as _get_spending,
-    get_budget_status       as _get_budget_status,
-    get_financial_context   as _get_financial_context,
-    get_recurring_expenses  as _get_recurring_expenses,
-    get_net_worth           as _get_net_worth,
-    get_goals               as _get_goals,
-    set_budget              as _set_budget,
-    add_goal                as _add_goal,
-    update_goal_progress    as _update_goal_progress,
-    add_balance_snapshot    as _add_balance_snapshot,
-    categorize_transaction  as _categorize_transaction,
-    get_spend_patterns      as _get_spend_patterns,
-)
-
 import re as _re
+
+from finance_skill import (
+    add_balance_snapshot as _add_balance_snapshot,
+)
+from finance_skill import (
+    add_goal as _add_goal,
+)
+from finance_skill import (
+    categorize_transaction as _categorize_transaction,
+)
+from finance_skill import (
+    get_budget_status as _get_budget_status,
+)
+from finance_skill import (
+    get_financial_context as _get_financial_context,
+)
+from finance_skill import (
+    get_goals as _get_goals,
+)
+from finance_skill import (
+    get_net_worth as _get_net_worth,
+)
+from finance_skill import (
+    get_recurring_expenses as _get_recurring_expenses,
+)
+from finance_skill import (
+    get_spend_patterns as _get_spend_patterns,
+)
+from finance_skill import (
+    get_spending as _get_spending,
+)
+from finance_skill import (  # noqa: E402
+    import_csv as _import_csv,
+)
+from finance_skill import (
+    set_budget as _set_budget,
+)
+from finance_skill import (
+    sync_gmail as _sync_gmail_finance,
+)
+from finance_skill import (
+    update_goal_progress as _update_goal_progress,
+)
+from local_skill import (
+    find_large_files as _find_large_files,
+)
+from local_skill import (
+    get_disk_info as _get_disk_info,
+)
+from local_skill import (
+    move_to_trash as _move_to_trash,
+)
+from local_skill import (
+    organize_by_type as _organize_by_type,
+)
+from local_skill import (  # noqa: E402
+    scan_directory as _scan_directory,
+)
 
 
 def _escape_for_adk(text: str) -> str:
@@ -2221,7 +2302,7 @@ def _rank_ui_templates(
         avoid: Aesthetic/style to avoid (heavily penalised in ranking)
     """
     try:
-        from template_selector import rank, format_candidates  # noqa: E402
+        from template_selector import format_candidates, rank  # noqa: E402
         matches = rank(mood=mood, tone=tone, formality=formality, scheme=scheme, avoid=avoid)
         return format_candidates(matches)
     except Exception as exc:
@@ -2233,16 +2314,15 @@ def _rank_ui_templates(
 
 # ── Phase-7 / Phase-8 skill imports (paths registered by narad_paths) ────────
 
-from webpage_skill  import create_webpage        as _create_webpage         # noqa: E402
-from video_skill    import create_video          as _create_video           # noqa: E402
-from audio_skill    import create_audio          as _create_audio           # noqa: E402
-from imagen_skill   import generate_image        as _generate_image         # noqa: E402
+from audio_skill import create_audio as _create_audio  # noqa: E402
+from document_skill import create_document as _create_document  # noqa: E402
 from hyperframes_skill import create_video_hyperframes as _create_video_hyperframes  # noqa: E402
-from document_skill import create_document       as _create_document        # noqa: E402
-from ui_skill       import list_shadcn_components  as _list_shadcn_components  # noqa: E402
-from ui_skill       import fetch_shadcn_component  as _fetch_shadcn_component  # noqa: E402
+from imagen_skill import generate_image as _generate_image  # noqa: E402
+from video_skill import create_video as _create_video  # noqa: E402
+from webpage_skill import create_webpage as _create_webpage  # noqa: E402
+
 try:
-    from veo_skill import generate_video_clip as _generate_video_clip      # noqa: E402
+    from veo_skill import generate_video_clip as _generate_video_clip  # noqa: E402
 except Exception:
     def _generate_video_clip(prompt: str, duration_seconds: int = 5) -> dict:  # type: ignore[misc]
         return {"status": "unavailable", "error": "GEMINI_API_KEY not set — Veo unavailable"}

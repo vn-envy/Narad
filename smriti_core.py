@@ -24,10 +24,10 @@ from typing import Any
 
 _ROOT = Path(__file__).parent
 
+from runtime_contract import primary_discipline
+
 from dharma import (
-    DharmaVerdict,
     validate_memory_write,
-    validate_retrieval_policy_change,
     validate_sutra_candidate,
     validate_swapna_plan,
 )
@@ -40,7 +40,6 @@ from narad_config import (
     SWAPNA_INBOX_DIR,
     TRACE_DIR,
 )
-from runtime_contract import primary_discipline
 from smriti_indexer import index_episode_record
 from smriti_recall_ranker import build_semantic_memory_context
 from smriti_vector_store import memory_tier_diagnostics as _vector_memory_tier_diagnostics

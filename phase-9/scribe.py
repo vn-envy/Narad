@@ -13,7 +13,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -91,8 +90,8 @@ async def compile_session(session_id: str, user_id: str) -> None:
     Fire-and-forget: never raises, never blocks the response.
     """
     try:
-        from smriti_v2 import add_episode, WIKI_DIR
         from project_manager import detect_project
+        from smriti_v2 import WIKI_DIR, add_episode
 
         events = _load_trace(session_id)
         if not events:

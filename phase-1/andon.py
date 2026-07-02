@@ -81,6 +81,7 @@ def log_andon(
         import os as _os
         if _os.environ.get("NOTION_API_TOKEN"):
             import asyncio as _ao
+
             from notion_sync import NotionSync as _NS  # type: ignore
             _ns = _NS()
             _ao.get_event_loop().call_soon(lambda _e=event:
@@ -141,7 +142,6 @@ async def _run_andon_diagnostic(
     Fire-and-forget coroutine — invokes Parashurama in ANDON_DIAGNOSTIC mode.
     Emits andon_diagnosis SSE event with Parashurama's structured output.
     """
-    import asyncio
     import logging
     _log = logging.getLogger("narad.andon")
 

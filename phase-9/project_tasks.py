@@ -4,12 +4,12 @@ import json
 import sqlite3
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from plan_models import Plan
+
 from narad_config import NARAD_HOME
-from plan_models import Plan, PlanStep
 
 TASK_DB = NARAD_HOME / "tasks.db"
 

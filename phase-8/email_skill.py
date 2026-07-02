@@ -156,6 +156,23 @@ def send_email(
             "preview": preview,
         }
 
+    # Mandatory Dharma gate on the real send — verdict lands in the Karma
+    # ledger. Fail closed: no policy layer, no outbound email.
+    try:
+        from dharma import gate_action
+
+        _verdict = gate_action(
+            "email_send",
+            avatar="Krishna",
+            detail=f"to={', '.join(to_list)[:120]} subject={subject[:80]}",
+            metadata={"recipients": len(to_list) + len(cc_list)},
+        )
+        _gate_err = None if _verdict.allowed else "; ".join(_verdict.reasons)
+    except Exception as _exc:
+        _gate_err = f"Dharma gate unavailable ({_exc}) — refusing to send."
+    if _gate_err:
+        return {"status": "blocked", "message": _gate_err, "preview": preview}
+
     # Validate configuration
     app_password = os.environ.get("EMAIL_APP_PASSWORD", "")
     smtp_host    = os.environ.get("EMAIL_SMTP_HOST", "smtp.gmail.com")

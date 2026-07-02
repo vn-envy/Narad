@@ -20,6 +20,7 @@ Eval result (phase-0a, 2026-05-02):
   DeepSeek beats GPT-4o by 9pp with 0 parse errors → single-API consolidation confirmed.
 """
 from __future__ import annotations
+
 import os
 
 DS_PRO   = os.environ.get("DS_PRO_MODEL",   "deepseek/deepseek-v4-pro")

@@ -7,15 +7,15 @@ so Smriti memory is isolated per user across sessions.
 
 from __future__ import annotations
 
-import sys
-
+from avatar_agents import (  # noqa: E402
+    _make_avatar_tool,
+    krishna,
+    matsya,
+    parashurama,
+    rama,
+)
 from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
-
-from avatar_agents import (  # noqa: E402
-    matsya, rama, krishna, parashurama,
-    _make_avatar_tool,
-)
 from model_config import AVATAR_MODELS  # noqa: E402
 
 _NARAD_INSTRUCTION = """\

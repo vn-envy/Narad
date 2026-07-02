@@ -22,7 +22,6 @@ import re
 import socket
 import time
 from collections import Counter
-from pathlib import Path
 from urllib.parse import urlparse
 
 from tool_result import citation, envelope, ui_panel
@@ -238,8 +237,8 @@ def http_request(
 
     # Fallback: urllib (stdlib)
     try:
-        import urllib.request
         import urllib.error
+        import urllib.request
 
         req_obj = urllib.request.Request(url, data=body_bytes, headers=headers, method=method)
         with urllib.request.urlopen(req_obj, timeout=timeout_s) as resp:

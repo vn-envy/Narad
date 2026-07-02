@@ -33,11 +33,10 @@ import hashlib
 import json
 import uuid
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
-from narad_config import KARMA_PATH as _KARMA_PATH
 from narad_config import KARMA_MUTATIONS_PATH as _KARMA_MUTATIONS_PATH
+from narad_config import KARMA_PATH as _KARMA_PATH
 
 
 def log_karma(

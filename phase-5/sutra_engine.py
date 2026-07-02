@@ -17,11 +17,11 @@ Key functions:
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone, timedelta
-from pathlib import Path
+from datetime import datetime, timedelta, timezone
 from typing import Literal
 
-from narad_config import SUTRAS_PATH as _SUTRAS_PATH, SUTRA_OVERRIDES_PATH as _OVERRIDES_PATH
+from narad_config import SUTRA_OVERRIDES_PATH as _OVERRIDES_PATH
+from narad_config import SUTRAS_PATH as _SUTRAS_PATH
 
 COOLDOWN_HOURS = int(__import__("os").environ.get("SUTRA_COOLDOWN_HOURS", "24"))
 MAX_ACTIVE_PER_AVATAR = int(__import__("os").environ.get("SUTRA_MAX_ACTIVE", "5"))

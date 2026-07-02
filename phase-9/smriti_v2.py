@@ -14,8 +14,6 @@ Usage:
 
 from __future__ import annotations
 
-import asyncio
-import hashlib
 import json
 import os
 import re
@@ -24,10 +22,10 @@ from pathlib import Path
 from typing import Any
 
 # ── Storage ────────────────────────────────────────────────────────────────────
-
 from narad_config import WIKI_DIR
 from smriti_indexer import ensure_project_wiki_indexed
 from smriti_recall_ranker import build_project_memory_context
+
 try:
     from context_governor import compact_text_block, count_text_tokens
 except Exception:
@@ -319,8 +317,9 @@ def extract_l1_facts(
     Scores each sentence by: lexical density + keyword signal words + length.
     Returns the top-N sentences as Fact objects, stored to ~/.narad/project-memory/_l1_facts/.
     """
-    from memory_schema import Fact
     import uuid as _uuid
+
+    from memory_schema import Fact
 
     if not session_trace.strip():
         return []

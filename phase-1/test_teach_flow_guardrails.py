@@ -6,16 +6,18 @@ from pathlib import Path
 
 _r = next(p for p in Path(__file__).resolve().parents if (p / "narad_paths.py").exists())
 sys.path[:0] = [str(_r)]  # narad root hop
-import narad_paths  # noqa: F401
+import narad_paths  # noqa: F401  — registers all phase dirs; must precede phase imports
 
-from learning_workspace import is_learning_query
+# isort: split
 from server import (
     _clean_optional_text,
     _extract_learning_artifact_request,
-    _is_explicit_learning_artifact_request,
     _is_explicit_learning_artifact_edit,
+    _is_explicit_learning_artifact_request,
     _learning_artifact_offer_pending,
 )
+
+from learning_workspace import is_learning_query
 
 
 class TeachFlowGuardrailsTest(unittest.TestCase):

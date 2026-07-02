@@ -9,10 +9,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-
 _r = next(p for p in Path(__file__).resolve().parents if (p / "narad_paths.py").exists())
 sys.path[:0] = [str(_r)]  # narad root hop
-import narad_paths  # noqa: F401
+import narad_paths  # noqa: F401  — registers all phase dirs; must precede phase imports
+
+# isort: split
 
 
 class CulturalCoreTests(unittest.TestCase):
@@ -27,9 +28,9 @@ class CulturalCoreTests(unittest.TestCase):
             "swapna",
         ]:
             sys.modules.pop(name, None)
-        import narad_config  # noqa: WPS433
         import conversation_memory  # noqa: WPS433
         import dharma  # noqa: WPS433
+        import narad_config  # noqa: WPS433
         import smriti_core  # noqa: WPS433
         import swapna  # noqa: WPS433
 

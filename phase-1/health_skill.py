@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
-import urllib.request
 import urllib.parse
+import urllib.request
 from datetime import datetime
 from pathlib import Path
 

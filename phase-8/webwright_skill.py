@@ -16,7 +16,6 @@ import os
 import shlex
 import shutil
 import subprocess
-from pathlib import Path
 
 from tool_result import (
     artifact,

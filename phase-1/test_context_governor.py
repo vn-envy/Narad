@@ -10,11 +10,13 @@ from unittest.mock import patch
 
 _r = next(p for p in Path(__file__).resolve().parents if (p / "narad_paths.py").exists())
 sys.path[:0] = [str(_r)]  # narad root hop
-import narad_paths  # noqa: F401
+import narad_paths  # noqa: F401  — registers all phase dirs; must precede phase imports
 
+# isort: split
 from context_governor import RuntimeEpoch, build_context_plan, count_text_tokens, should_rollover_epoch
-import conversation_memory
 from model_registry import get_model_profile, select_escalation
+
+import conversation_memory
 from smriti_core import recall_context
 
 

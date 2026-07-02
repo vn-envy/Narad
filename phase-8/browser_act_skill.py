@@ -28,6 +28,22 @@ _BLOCKED_SUBMIT_DOMAINS = {
 }
 
 
+def _dharma_gate_submit(url: str) -> str | None:
+    """Mandatory Dharma gate for form submission. Returns an error string when
+    blocked, else None. Fail closed: no policy layer, no submit."""
+    try:
+        from dharma import gate_action
+
+        verdict = gate_action(
+            "browser_submit",
+            avatar="Matsya",
+            detail=f"submit {url[:150]}",
+        )
+        return None if verdict.allowed else "; ".join(verdict.reasons)
+    except Exception as exc:
+        return f"Dharma gate unavailable ({exc}) — refusing to submit."
+
+
 def _run(coro):
     """Run an async coroutine from sync context."""
     try:
@@ -308,7 +324,7 @@ async def _browser_upload_submit_async(url: str, fields: dict, file_uploads: dic
                     errors.append(f"Upload {selector!r}: {exc}")
 
             before_bytes = await page.screenshot(full_page=False)
-            before_path = _save_screenshot(before_bytes, run_id, "before_submit.png")
+            _save_screenshot(before_bytes, run_id, "before_submit.png")  # kept on disk for audit
 
             # Submit
             submit_btn = None
@@ -393,6 +409,10 @@ def browser_fill(url: str, fields: dict, dry_run: bool = True) -> dict:
     Returns:
         status, dry_run flag, fields_filled, errors, screenshot_b64, message.
     """
+    if not dry_run:
+        gate_err = _dharma_gate_submit(url)
+        if gate_err:
+            return {"status": "blocked", "dry_run": dry_run, "message": gate_err}
     return _run(_browser_fill_async(url, fields, dry_run))
 
 
@@ -413,4 +433,7 @@ def browser_upload_and_submit(url: str, fields: dict, file_uploads: dict) -> dic
     Returns:
         status, fields_filled, files_uploaded, errors, after_screenshot_b64, message.
     """
+    gate_err = _dharma_gate_submit(url)
+    if gate_err:
+        return {"status": "blocked", "message": gate_err}
     return _run(_browser_upload_submit_async(url, fields, file_uploads))

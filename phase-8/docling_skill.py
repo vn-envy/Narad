@@ -12,7 +12,6 @@ Falls back gracefully to basic text extraction if Docling is not installed.
 """
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 
@@ -73,7 +72,6 @@ def extract_document(file_path: str) -> dict:
         markdown = doc_result.document.export_to_markdown()
 
         # Count tables (markdown tables start with a line containing |)
-        table_lines = [ln for ln in markdown.splitlines() if ln.strip().startswith("|")]
         table_count = sum(
             1 for i, ln in enumerate(markdown.splitlines())
             if ln.strip().startswith("|") and (

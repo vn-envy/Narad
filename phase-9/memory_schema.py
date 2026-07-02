@@ -18,7 +18,6 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional
 
-
 # ── L1: Atomic fact ────────────────────────────────────────────────────────────
 
 @dataclass

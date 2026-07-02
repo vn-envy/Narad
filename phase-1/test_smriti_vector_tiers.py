@@ -10,7 +10,9 @@ from pathlib import Path
 
 _r = next(p for p in Path(__file__).resolve().parents if (p / "narad_paths.py").exists())
 sys.path[:0] = [str(_r)]  # narad root hop
-import narad_paths  # noqa: F401
+import narad_paths  # noqa: F401  — registers all phase dirs; must precede phase imports
+
+# isort: split
 
 
 class SmritiVectorTierTests(unittest.TestCase):
@@ -27,10 +29,11 @@ class SmritiVectorTierTests(unittest.TestCase):
             "turbovec_policy",
         ]:
             sys.modules.pop(name, None)
+        import smriti_v2  # noqa: WPS433
+
         import narad_config  # noqa: WPS433
         import smriti_core  # noqa: WPS433
         import smriti_recall_ranker  # noqa: WPS433
-        import smriti_v2  # noqa: WPS433
 
         self.narad_config = importlib.reload(narad_config)
         self.smriti_core = importlib.reload(smriti_core)

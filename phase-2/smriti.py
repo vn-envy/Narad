@@ -36,6 +36,7 @@ import lancedb
 import pyarrow as pa
 
 from narad_config import SMRITI_DB as _DB_PATH
+
 _TABLE = "memories"
 def _select_embed_provider() -> str:
     configured = os.environ.get("SMRITI_EMBEDDING_MODEL", "").strip().lower()
@@ -336,6 +337,7 @@ def remember(task: str, result: str, avatar: str, user_id: str) -> None:
         try:
             if os.environ.get("NOTION_API_TOKEN"):
                 import asyncio as _ao
+
                 from notion_sync import NotionSync as _NSynth  # type: ignore
                 _ns_inst = _NSynth()
                 _ao.get_event_loop().call_soon(lambda _r=row_id, _u=user_id, _a=avatar, _m=memory_text, _c=created_at:

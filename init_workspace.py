@@ -17,13 +17,22 @@ from pathlib import Path
 _HERE = Path(__file__).parent
 _r = next(p for p in Path(__file__).resolve().parents if (p / "narad_paths.py").exists())
 sys.path[:0] = [str(_r)]  # narad root hop
-import narad_paths  # noqa: F401
+import narad_paths  # noqa: F401  — registers all phase dirs; must precede phase imports
 
+# isort: split
 from narad_config import (
-    NARAD_HOME, TRACE_DIR, SMRITI_DB, WIKI_DIR, ARTIFACTS_DIR, CONFIG_DIR,
-    SUTRAS_PATH, WEAK_SESSIONS_PATH, KARMA_PATH,
-    SUTRA_OVERRIDES_PATH, SANKALPAS_PATH,
-    SANKALPA_OVERRIDES_PATH, SANKALPA_SESSION_LOG_PATH,
+    ARTIFACTS_DIR,
+    KARMA_PATH,
+    NARAD_HOME,
+    SANKALPA_OVERRIDES_PATH,
+    SANKALPA_SESSION_LOG_PATH,
+    SANKALPAS_PATH,
+    SMRITI_DB,
+    SUTRA_OVERRIDES_PATH,
+    SUTRAS_PATH,
+    TRACE_DIR,
+    WEAK_SESSIONS_PATH,
+    WIKI_DIR,
 )
 
 
@@ -66,7 +75,7 @@ def _copy_dir_contents(src: Path, dst: Path) -> list[str]:
 
 
 def main() -> None:
-    print(f"\nNarad Workspace Init")
+    print("\nNarad Workspace Init")
     print(f"Home: {NARAD_HOME}\n")
 
     # ── Sessions (Yantra traces) ───────────────────────────────────────────────
@@ -107,7 +116,7 @@ def main() -> None:
         print(_copy_file(src, dst))
 
     # ── Summary ───────────────────────────────────────────────────────────────
-    print(f"\nWorkspace structure:")
+    print("\nWorkspace structure:")
     for item in sorted(NARAD_HOME.iterdir()):
         if item.is_dir():
             count = sum(1 for _ in item.rglob("*") if _.is_file())
@@ -115,7 +124,7 @@ def main() -> None:
         else:
             print(f"  {item.name}")
 
-    print(f"\nDone. Old phase-X/ data is untouched — verify then delete manually.\n")
+    print("\nDone. Old phase-X/ data is untouched — verify then delete manually.\n")
 
 
 if __name__ == "__main__":

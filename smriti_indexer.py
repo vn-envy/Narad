@@ -5,9 +5,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from turbovec_policy import select_memory_tier
+
 from narad_config import EPISODE_DIR, WIKI_DIR
 from smriti_vector_store import VectorMemoryRecord, embed_text, sync_records, upsert_record
-from turbovec_policy import select_memory_tier
 
 
 def _file_mtime_iso(path: Path) -> str:

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from context_governor import compact_text_block, count_text_tokens
+
 from smriti_indexer import ensure_project_wiki_indexed, ensure_user_episode_index
 from smriti_vector_store import VectorMemoryRecord, memory_tier_diagnostics, search_records
 

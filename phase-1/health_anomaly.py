@@ -83,11 +83,10 @@ def _compute_trend(series: list[dict]) -> str:
 def _tsad_anomalies(series: list[dict]) -> list[dict[str, Any]] | None:
     """Granite TTM zero-shot anomaly detection. Returns None if tsfm not available."""
     try:
+        import pandas as _pd
         import pandas as pd  # noqa: F401 — presence check
         from tsfm_public import TimeSeriesForecastingPipeline  # type: ignore  # noqa
         from tsfm_public.models.tinytimemixer import TinyTimeMixerForPrediction  # type: ignore  # noqa
-
-        import pandas as _pd
         df = _pd.DataFrame(series)
         df["date"] = _pd.to_datetime(df["date"])
         df = df.sort_values("date").set_index("date")

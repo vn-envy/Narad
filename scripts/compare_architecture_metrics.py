@@ -8,8 +8,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 _r = next(p for p in Path(__file__).resolve().parents if (p / "narad_paths.py").exists())
 sys.path[:0] = [str(_r)]  # narad root hop
-import narad_paths  # noqa: F401
+import narad_paths  # noqa: F401  — registers all phase dirs; must precede phase imports
 
+# isort: split
 from smriti_core import architecture_scorecard
 
 

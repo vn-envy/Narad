@@ -4,12 +4,11 @@ from types import SimpleNamespace
 from typing import Optional
 from unittest.mock import patch
 
-from fastapi.testclient import TestClient
-
-import server
+import learning_workspace_api
 import project_execution_api
 import project_wiki_api
-import learning_workspace_api
+import server
+from fastapi.testclient import TestClient
 from project_tasks import ProjectTask
 
 

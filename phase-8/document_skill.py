@@ -18,7 +18,6 @@ All code must:
 from __future__ import annotations
 
 import os
-import uuid
 from pathlib import Path
 
 from executor import execute_code

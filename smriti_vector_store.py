@@ -8,8 +8,9 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from narad_config import SMRITI_MANIFEST_DIR, SMRITI_VECTOR_DIR
 from turbovec_policy import memory_tier_policy_payload
+
+from narad_config import SMRITI_MANIFEST_DIR, SMRITI_VECTOR_DIR
 
 try:
     import numpy as np

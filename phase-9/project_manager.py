@@ -17,6 +17,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from narad_config import WIKI_DIR as _WIKI_DIR
+
 _MODEL = os.environ.get("NARAD_CLASSIFY_MODEL", "deepseek/deepseek-chat")
 _DEFAULT_WORKSPACE_ROOT = str((Path(__file__).parent.parent).resolve())
 

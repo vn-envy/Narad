@@ -10,13 +10,16 @@ from pathlib import Path
 
 _r = next(p for p in Path(__file__).resolve().parents if (p / "narad_paths.py").exists())
 sys.path[:0] = [str(_r)]  # narad root hop
-import narad_paths  # noqa: F401
+import narad_paths  # noqa: F401  — registers all phase dirs; must precede phase imports
+
+# isort: split
 
 
 def main() -> int:
     with tempfile.TemporaryDirectory() as tmpdir:
         os.environ["NARAD_HOME"] = tmpdir
         import importlib
+
         import narad_config
         import smriti_core
         import swapna

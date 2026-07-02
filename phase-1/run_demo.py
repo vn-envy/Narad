@@ -9,7 +9,6 @@ Usage:
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import sys
 import uuid
@@ -76,7 +75,7 @@ def _print_event(event) -> None:
             print(f"     {result_str[:200]}")
 
         elif part.text and event.is_final_response():
-            print(f"\n  📝 NARAD SYNTHESIS:\n")
+            print("\n  📝 NARAD SYNTHESIS:\n")
             text = part.text
             for i in range(0, len(text), 100):
                 print(f"  {text[i:i+100]}")

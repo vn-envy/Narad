@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import os
 import uuid
-from pathlib import Path
 
 from narad_config import ARTIFACTS_DIR
 
@@ -39,8 +38,8 @@ def _generate_image_mimo(prompt: str) -> dict:
         try:
             import httpx as _httpx
         except ImportError:
-            import urllib.request as _ur
             import json as _json
+            import urllib.request as _ur
             req_data = _json.dumps({
                 "model": os.environ.get("MIMO_IMAGE_MODEL", "mimo-2.5-pro"),
                 "prompt": prompt,

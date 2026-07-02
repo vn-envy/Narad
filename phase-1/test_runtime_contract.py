@@ -6,8 +6,9 @@ from pathlib import Path
 
 _r = next(p for p in Path(__file__).resolve().parents if (p / "narad_paths.py").exists())
 sys.path[:0] = [str(_r)]  # narad root hop
-import narad_paths  # noqa: F401
+import narad_paths  # noqa: F401  — registers all phase dirs; must precede phase imports
 
+# isort: split
 from runtime_contract import canonical_agent_names, collect_runtime_contract, health_payload
 
 

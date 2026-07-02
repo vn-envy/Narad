@@ -23,15 +23,12 @@ Sessions endpoints:
 
 from __future__ import annotations
 
-import json
-
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import PlainTextResponse
-from pydantic import BaseModel
-
-from smriti_v2 import get_wiki_pages, get_wiki_page, put_wiki_page, add_episode, WIKI_DIR
 from project_manager import load_projects, rename_project
 from project_session_info import session_info as _fast_session_info
+from pydantic import BaseModel
+from smriti_v2 import WIKI_DIR, add_episode, get_wiki_page, get_wiki_pages, put_wiki_page
 
 wiki_router     = APIRouter(prefix="/wiki",     tags=["wiki"])
 projects_router = APIRouter(prefix="/projects", tags=["projects"])

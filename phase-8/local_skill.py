@@ -9,7 +9,6 @@ Files are NEVER permanently deleted — always sent to macOS/OS Trash via send2t
 """
 from __future__ import annotations
 
-import os
 import shutil
 import time
 from datetime import datetime

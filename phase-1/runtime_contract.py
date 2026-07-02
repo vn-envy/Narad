@@ -21,8 +21,9 @@ from typing import Any
 
 _ROOT = Path(__file__).parent.parent
 
-from narad_config import ARTIFACTS_DIR, CONFIG_DIR, NARAD_HOME, TRACE_DIR, WIKI_DIR
 from turbovec_policy import memory_tier_policy_payload
+
+from narad_config import ARTIFACTS_DIR, CONFIG_DIR, NARAD_HOME, TRACE_DIR, WIKI_DIR
 
 try:
     from model_config import AVATAR_MODELS

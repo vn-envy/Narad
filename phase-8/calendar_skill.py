@@ -22,8 +22,7 @@ Safety model:
 from __future__ import annotations
 
 import os
-from datetime import datetime, timedelta, date
-from typing import Optional
+from datetime import date, datetime, timedelta
 
 
 def _get_creds() -> tuple[str, str, str]:
@@ -85,7 +84,6 @@ def get_upcoming_events(days_ahead: int = 7, max_events: int = 50) -> dict:
 
     try:
         import caldav
-        from caldav.elements import dav
     except ImportError:
         return {
             "status":  "error",

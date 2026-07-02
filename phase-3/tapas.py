@@ -46,7 +46,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from narad_config import SUTRAS_PATH as _SUTRAS_PATH, WEAK_SESSIONS_PATH as _WEAK_PATH
+from narad_config import SUTRAS_PATH as _SUTRAS_PATH
+from narad_config import WEAK_SESSIONS_PATH as _WEAK_PATH
 
 PROMOTE_THRESHOLD = float(os.environ.get("TAPAS_PROMOTE_THRESHOLD", "0.80"))  # raised from 0.75
 FLAG_THRESHOLD    = float(os.environ.get("TAPAS_FLAG_THRESHOLD",    "0.45"))

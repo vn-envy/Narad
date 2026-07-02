@@ -16,8 +16,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from narad_config import NARAD_HOME
 from plan_models import PlanStep, StepStatus
+
+from narad_config import NARAD_HOME
 
 KANBAN_DB: Path = NARAD_HOME / "kanban.db"
 
@@ -108,6 +109,7 @@ class KanbanBoard:
             import os as _os
             if _os.environ.get("NOTION_API_TOKEN"):
                 import asyncio as _ao
+
                 from notion_sync import NotionSync as _NS  # type: ignore
                 _ns = _NS()
                 _ao.get_event_loop().call_soon(lambda _sid=session_id, _stid=step_id, _ns2=_ns:

@@ -29,6 +29,7 @@ jobs:
           python phase-9/test_learning_workspace.py
           python phase-1/test_teach_flow_guardrails.py
           python phase-9/test_skills.py
+          python phase-7/test_executor_sandbox.py
 
       - name: Full suite (pytest, best-effort while deps stabilise)
         continue-on-error: true

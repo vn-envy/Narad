@@ -15,8 +15,8 @@ from learning_workspace import (
     load_artifact,
     load_workspace,
     merge_resources,
-    update_learning_artifact,
     update_glossary_terms,
+    update_learning_artifact,
 )
 
 learning_router = APIRouter(prefix="/learning", tags=["learning"])

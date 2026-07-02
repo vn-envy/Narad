@@ -3,11 +3,17 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-
 from project_manager import get_project
 from project_session_info import session_info as _fast_session_info
-from project_tasks import create_task, get_task, get_task_workspace_root, list_tasks, task_summary, update_task
+from project_tasks import (
+    create_task,
+    get_task,
+    get_task_workspace_root,
+    list_tasks,
+    task_summary,
+    update_task,
+)
+from pydantic import BaseModel
 from smriti_v2 import get_wiki_pages
 
 project_execution_router = APIRouter(prefix="/projects", tags=["project-execution"])

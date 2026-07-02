@@ -18,14 +18,14 @@ from __future__ import annotations
 import json
 import os
 import time
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from narad_config import (
-    NARAD_HOME,
-    TRACE_DIR,
     ARTIFACTS_DIR,
     CONFIG_DIR,
+    NARAD_HOME,
+    TRACE_DIR,
     WEAK_SESSIONS_PATH,
 )
 
@@ -72,8 +72,6 @@ class NaradShuddhi:
 
     def sort(self) -> dict:
         """Identify stale sessions, orphaned artifacts, and oversized config files."""
-        now = time.time()
-
         # Session files
         session_files = list(TRACE_DIR.glob("*.jsonl")) if TRACE_DIR.exists() else []
         stale_sessions = [
@@ -238,7 +236,9 @@ class NaradShuddhi:
         std_result   = self.standardize()
 
         try:
-            from phase_2_yantra import tracer  # TODO: dead path — module name never existed; wire to yantra tracer properly
+            from phase_2_yantra import (
+                tracer,  # TODO: dead path — module name never existed; wire to yantra tracer properly
+            )
             tracer.log_event("shuddhi_run", freed_mb=shine_result["freed_mb"])
         except Exception:
             pass

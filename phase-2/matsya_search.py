@@ -10,7 +10,6 @@ If neither key is set, or both calls fail, returns a graceful unavailable respon
 from __future__ import annotations
 
 import os
-from typing import Any
 
 
 def web_search(query: str, max_results: int = 5) -> dict:

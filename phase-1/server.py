@@ -21,6 +21,7 @@ import sys
 import traceback
 import uuid
 
+
 # ── SSL: combined CA bundle for corporate networks with SSL inspection ─────────
 # Cisco Umbrella (and similar proxies) re-sign HTTPS traffic with their own CA.
 # That CA is in the macOS system keychain but NOT in certifi, so Python fails.
@@ -28,9 +29,10 @@ import uuid
 # then patch all three SSL layers so every HTTP library picks it up.
 def _build_ca_bundle() -> str:
     """Return path to combined CA bundle, building it once if needed."""
-    import subprocess as _sp
-    import certifi as _certifi
     import pathlib as _pl
+    import subprocess as _sp
+
+    import certifi as _certifi
 
     certifi_dir = _pl.Path(_certifi.where()).parent
     combined    = certifi_dir / "narad_cacert.pem"
@@ -94,11 +96,14 @@ _log = logging.getLogger("narad.json_patch")
 
 # Load .env from the project root before any other imports that read env vars.
 from dotenv import load_dotenv
+
 load_dotenv(Path(__file__).parent.parent / ".env")
 
 _r = next(p for p in Path(__file__).resolve().parents if (p / "narad_paths.py").exists())
 sys.path[:0] = [str(_r)]  # narad root hop
-import narad_paths  # noqa: F401
+import narad_paths  # noqa: F401  — registers all phase dirs; must precede phase imports
+
+# isort: split
 
 # ── JSON robustness patch ────────────────────────────────────────────────────
 # DeepSeek V3 emits literal unescaped control characters (not just \n/\r/\t
@@ -194,9 +199,9 @@ from sse_starlette.sse import EventSourceResponse
 
 _ADK_IMPORT_ERROR: str | None = None
 try:
+    from google.adk.events import Event
     from google.adk.runners import Runner
     from google.adk.sessions import InMemorySessionService
-    from google.adk.events import Event
 except Exception as _adk_exc:
     Runner = Any  # type: ignore[assignment]
     InMemorySessionService = None  # type: ignore[assignment]
@@ -205,62 +210,124 @@ except Exception as _adk_exc:
 
 _AGENT_RUNTIME_IMPORT_ERROR: str | None = None
 try:
-    from narad_agent import build_narad_agent
     from avatar_agents import AGENT_TOOL_NAMES, _images_ctx
+    from narad_agent import build_narad_agent
 except Exception as _agent_exc:
     build_narad_agent = None  # type: ignore[assignment]
     AGENT_TOOL_NAMES: dict[str, str] = {}
     _images_ctx = contextvars.ContextVar("_images_ctx", default=[])
     _AGENT_RUNTIME_IMPORT_ERROR = f"agent runtime unavailable: {_agent_exc}"
+from context_governor import RuntimeEpoch, choose_model_and_plan, should_rollover_epoch
+from model_config import AVATAR_MODELS
 from runtime_contract import (
     agent_contract_map as _agent_contract_map,
+)
+from runtime_contract import (
     canonical_tool_name_map as _canonical_tool_name_map,
+)
+from runtime_contract import (
     collect_runtime_contract,
     health_payload,
+)
+from runtime_contract import (
     primary_discipline as _primary_discipline,
 )
-from model_config import AVATAR_MODELS
-from model_registry import get_model_profile
-from context_governor import RuntimeEpoch, choose_model_and_plan, should_rollover_epoch
 from yantra import Tracer
+
 from conversation_memory import (
     append_turn as _append_thread_turn,
+)
+from conversation_memory import (
     build_recent_thread_context as _build_recent_thread_context,
+)
+from conversation_memory import (
     build_rehydration_query as _build_rehydration_query,
+)
+from conversation_memory import (
     clear_thread as _clear_thread,
+)
+from conversation_memory import (
     load_thread as _load_thread,
+)
+from conversation_memory import (
     load_working_state as _load_working_state,
+)
+from conversation_memory import (
     recent_threads as _recent_threads,
+)
+from conversation_memory import (
     save_working_state as _save_working_state,
+)
+from conversation_memory import (
     summarize_thread as _summarize_thread,
 )
 from harness_contract import (
     archive_session as _archive_harness_session,
+)
+from harness_contract import (
     build_context_bundle as _build_harness_context_bundle,
+)
+from harness_contract import (
     compact_session as _compact_harness_session,
+)
+from harness_contract import (
     delete_session_record as _delete_harness_session_record,
+)
+from harness_contract import (
     fork_session as _fork_harness_session,
+)
+from harness_contract import (
     get_session_record as _get_harness_session_record,
+)
+from harness_contract import (
     harness_overview as _harness_overview,
+)
+from harness_contract import (
     list_session_records as _list_harness_sessions,
+)
+from harness_contract import (
     record_session_state as _record_harness_session_state,
+)
+from harness_contract import (
     recover_session as _recover_harness_session,
 )
 from learning_workspace import (
     append_learning_record as _append_learning_record,
+)
+from learning_workspace import (
     build_workspace_packet as _build_learning_workspace_packet,
+)
+from learning_workspace import (
     create_learning_artifact as _create_learning_artifact,
+)
+from learning_workspace import (
     ensure_workspace as _ensure_learning_workspace,
+)
+from learning_workspace import (
     extract_learning_topic as _extract_learning_topic,
+)
+from learning_workspace import (
     is_learning_query as _is_learning_query,
+)
+from learning_workspace import (
     load_artifact as _load_learning_artifact,
+)
+from learning_workspace import (
     load_workspace as _load_learning_workspace,
-    list_artifacts as _list_learning_artifacts,
+)
+from learning_workspace import (
     merge_resources as _merge_learning_resources,
+)
+from learning_workspace import (
     suggest_glossary_entries as _suggest_learning_glossary_entries,
-    update_learning_artifact as _update_learning_artifact,
+)
+from learning_workspace import (
     update_glossary_terms as _update_learning_glossary_terms,
 )
+from learning_workspace import (
+    update_learning_artifact as _update_learning_artifact,
+)
+
 
 # ── Structured JSON logging ───────────────────────────────────────────────────
 class _JsonFormatter(logging.Formatter):
@@ -283,9 +350,9 @@ app = FastAPI(title="Narad API", version="0.15.0-pre15")
 
 # ── Phase 11: Project Wiki + Projects + Sessions API ──────────────────────────
 try:
-    from project_wiki_api import wiki_router, projects_router, sessions_router
-    from project_execution_api import project_execution_router, tasks_router
     from learning_workspace_api import learning_router
+    from project_execution_api import project_execution_router, tasks_router
+    from project_wiki_api import projects_router, sessions_router, wiki_router
     app.include_router(wiki_router)
     app.include_router(projects_router)
     app.include_router(sessions_router)
@@ -302,15 +369,88 @@ try:
 except Exception as _tts_err:
     logging.getLogger("narad.server").warning("TTS router unavailable: %s", _tts_err)
 
+# ── Security floor: bearer auth + pinned CORS ─────────────────────────────────
+#
+# Auth modes (NARAD_AUTH env):
+#   local  (default) — requests from 127.0.0.1/::1 pass; anything else needs
+#                      "Authorization: Bearer <token>". Pairs with the default
+#                      127.0.0.1 bind: remote access requires BOTH a rebind and
+#                      the token.
+#   strict           — every request needs the bearer token (except exempt paths)
+#   off              — no auth (tests / trusted networks only)
+#
+# The token is auto-generated on first startup at ~/.narad/config/api_token
+# (chmod 600). Exempt: /health (probes), /media/* (<video>/<img> tags cannot
+# send Authorization headers).
+
+from fastapi.responses import JSONResponse as _AuthJSONResponse
+
+from narad_config import CONFIG_DIR as _CONFIG_DIR
+
+_AUTH_MODE = os.environ.get("NARAD_AUTH", "local").strip().lower()
+_API_TOKEN_PATH = _CONFIG_DIR / "api_token"
+_LOCAL_CLIENTS = {"127.0.0.1", "::1", "localhost", "testclient"}
+
+
+def _load_or_create_api_token() -> str:
+    try:
+        if _API_TOKEN_PATH.exists():
+            token = _API_TOKEN_PATH.read_text().strip()
+            if token:
+                return token
+        import secrets as _secrets
+
+        token = _secrets.token_urlsafe(32)
+        _API_TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _API_TOKEN_PATH.write_text(token + "\n")
+        _API_TOKEN_PATH.chmod(0o600)
+        logging.getLogger("narad.server").info("API token created at %s", _API_TOKEN_PATH)
+        return token
+    except Exception as exc:
+        logging.getLogger("narad.server").warning("API token unavailable: %s", exc)
+        return ""
+
+
+_API_TOKEN = _load_or_create_api_token() if _AUTH_MODE != "off" else ""
+
+
+@app.middleware("http")
+async def _bearer_auth(request, call_next):
+    if _AUTH_MODE == "off" or request.method == "OPTIONS":
+        return await call_next(request)
+    path = request.url.path
+    if path == "/health" or path.startswith("/media/"):
+        return await call_next(request)
+    client_host = request.client.host if request.client else ""
+    if _AUTH_MODE == "local" and client_host in _LOCAL_CLIENTS:
+        return await call_next(request)
+    supplied = request.headers.get("authorization", "")
+    if _API_TOKEN and supplied == f"Bearer {_API_TOKEN}":
+        return await call_next(request)
+    return _AuthJSONResponse({"detail": "Unauthorized"}, status_code=401)
+
+
+# CORS pinned to the frontend dev origins; extend via NARAD_ALLOWED_ORIGINS
+# (comma-separated). Added after the auth middleware so preflight OPTIONS is
+# answered by CORS before auth runs.
+_ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get(
+        "NARAD_ALLOWED_ORIGINS",
+        "http://localhost:5173,http://127.0.0.1:5173",
+    ).split(",")
+    if origin.strip()
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_ALLOWED_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # Serve generated media files (video + audio from Parashurama)
 from narad_config import ARTIFACTS_DIR as _MEDIA_DIR
+
 app.mount("/media", StaticFiles(directory=_MEDIA_DIR), name="media")
 
 
@@ -320,6 +460,7 @@ async def _startup_runtime_contract() -> None:
 
 # ── Dharma Gate — input-level topic blocking ──────────────────────────────────
 import re as _re_gate
+
 _HARD_BLOCKS: list[tuple] = [
     (r"(?i)IGNORE\s+ALL\s+PREVIOUS\s+INSTRUCTIONS?", "Prompt injection detected."),
     (r"(?i)\[INST\]", "Prompt injection detected."),
@@ -336,6 +477,7 @@ def _dharma_gate(query: str) -> str | None:
 
 # ── Rate limiting — token bucket per user_id ──────────────────────────────────
 import time as _time_rl
+
 _rate_buckets: dict[str, tuple[float, float]] = {}  # user_id → (last_check_ts, tokens)
 _RATE_LIMIT  = float(os.environ.get("NARAD_RATE_LIMIT", "10"))  # requests per minute
 _RATE_WINDOW = 60.0
@@ -1046,7 +1188,7 @@ async def _run_agent_task(
         )
 
         # Share the SSE queue, images, and HTTP session_id with avatar tool execution
-        from avatar_agents import _step_queue_ctx, _http_session_id_ctx
+        from avatar_agents import _http_session_id_ctx, _step_queue_ctx
         _step_queue_ctx.set(queue)
         _images_ctx.set(req.images)
         _http_session_id_ctx.set(session_id)
@@ -1462,10 +1604,8 @@ async def get_plan(session_id: str):
 
 @app.get("/sutras")
 async def get_sutras():
-    from sutra_engine import get_all_sutras
-    from tapas import sutra_summary
-    from sutra_engine import COOLDOWN_HOURS
-    from tapas import PROMOTE_THRESHOLD
+    from sutra_engine import COOLDOWN_HOURS, get_all_sutras
+    from tapas import PROMOTE_THRESHOLD, sutra_summary
     return {
         "summary": sutra_summary(),
         "settings": {
@@ -1510,6 +1650,7 @@ async def get_karma_mutations(limit: int = 100):
 @app.get("/sankalpa")
 async def get_sankalpa(user_id: str = "default"):
     from sankalpa import get_all_sankalpas, sankalpa_summary
+
     from smriti_core import load_commitments
     return {
         "summary":    sankalpa_summary(user_id),
@@ -1598,8 +1739,6 @@ async def generate_quality_report(user_id: str = "default"):
     }
 
     try:
-        from phase_2_yantra import tracer
-        from phase_3_tapas import TapasScorer
         sessions = list((Path.home() / ".narad" / "sessions").glob("*.jsonl"))
         metrics_packet["session_count_7d"] = len(sessions)
     except Exception:
@@ -1737,7 +1876,7 @@ async def query_memory(
     q: Optional[str] = None,
 ):
     """Query Smriti memories with optional filters."""
-    from datetime import timedelta
+    from datetime import datetime, timedelta
     try:
         from smriti import _get_table  # type: ignore
         table = _get_table()
@@ -2142,6 +2281,7 @@ def _resolve_avatar(tool_name: str) -> str:
 
 
 import re as _re
+
 
 def _extract_artifact_meta(task: str) -> tuple[str, str]:
     """Return (topic, artifact_type) from a legacy artifact task string."""

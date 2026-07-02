@@ -19,8 +19,6 @@ from typing import Any
 
 from narad_config import DHARMA_POLICY_PATH
 
-from runtime_contract import agent_contract_map
-
 
 @dataclass(frozen=True)
 class DharmaVerdict:
@@ -52,6 +50,14 @@ _DEFAULT_POLICY: dict[str, Any] = {
             "query_decomposition",
         ],
     },
+    # Side-effect actions. Every gated action is consulted here and the verdict
+    # is written to the Karma ledger — allowed AND denied. Disable an action by
+    # setting enabled=false in ~/.narad/config/dharma_policy.json.
+    "actions": {
+        "executor":       {"enabled": True},
+        "email_send":     {"enabled": True, "max_recipients": 10},
+        "browser_submit": {"enabled": True},
+    },
 }
 
 
@@ -66,10 +72,16 @@ def _ensure_policy_file() -> dict[str, Any]:
 
 
 def load_policy() -> dict[str, Any]:
-    return _ensure_policy_file()
+    # Overlay the on-disk policy onto defaults so installs created before a
+    # policy section existed (e.g. 'actions') still get sane fallbacks.
+    return {**_DEFAULT_POLICY, **_ensure_policy_file()}
 
 
 def allowed_tool_families(avatar: str) -> set[str]:
+    # Lazy import: keeps `import dharma` dependency-light so action gates work
+    # from any phase without phase-1 on the path.
+    from runtime_contract import agent_contract_map
+
     agent = agent_contract_map().get(avatar, {})
     return set(agent.get("allowed_tool_families", []))
 
@@ -126,6 +138,57 @@ def validate_retrieval_policy_change(changes: dict[str, Any]) -> DharmaVerdict:
     if illegal:
         return DharmaVerdict(False, [f"Illegal retrieval-policy key(s): {', '.join(illegal)}"])
     return DharmaVerdict(True, [])
+
+
+def gate_action(
+    action: str,
+    *,
+    avatar: str = "system",
+    detail: str = "",
+    metadata: dict[str, Any] | None = None,
+) -> DharmaVerdict:
+    """Mandatory gate for side-effect actions (executor, email_send, browser_submit).
+
+    Consults the 'actions' policy and writes the verdict — allowed or denied —
+    to the Karma ledger. Unknown actions are DENIED: every new side-effect
+    channel must be registered in policy before it can fire.
+    """
+    policy = load_policy().get("actions", {})
+    rules = policy.get(action)
+    reasons: list[str] = []
+
+    if rules is None:
+        reasons.append(f"Action '{action}' is not registered in Dharma policy.")
+    elif not bool(rules.get("enabled", False)):
+        reasons.append(f"Action '{action}' is disabled by Dharma policy.")
+    else:
+        max_recipients = rules.get("max_recipients")
+        recipients = (metadata or {}).get("recipients")
+        if max_recipients is not None and recipients is not None and int(recipients) > int(max_recipients):
+            reasons.append(
+                f"Action '{action}' exceeds max_recipients "
+                f"({recipients} > {max_recipients})."
+            )
+
+    verdict = DharmaVerdict(not reasons, reasons)
+
+    # Karma ledger — best-effort, never blocks the verdict itself.
+    try:
+        from karma_log import log_karma
+
+        log_karma(
+            action="action_allowed" if verdict.allowed else "action_denied",
+            sutra_id=action,
+            avatar=avatar,
+            detail=detail or action,
+            entity_type="action",
+            policy="dharma.actions",
+            metadata={**(metadata or {}), "reasons": reasons} if (metadata or reasons) else None,
+        )
+    except Exception:
+        pass
+
+    return verdict
 
 
 def validate_memory_write(kind: str, payload: dict[str, Any]) -> DharmaVerdict:

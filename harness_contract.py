@@ -14,6 +14,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from runtime_contract import collect_runtime_contract
+
 from conversation_memory import (
     load_thread,
     load_working_state,
@@ -28,7 +30,6 @@ from narad_config import (
     SESSION_CATALOG_DIR,
     SWAPNA_INBOX_DIR,
 )
-from runtime_contract import collect_runtime_contract
 from smriti_core import architecture_scorecard
 
 
