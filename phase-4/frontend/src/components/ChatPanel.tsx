@@ -267,13 +267,35 @@ export function ChatPanel({
 }: Props) {
   const [input, setInput] = useState('')
   const [pendingImages, setPendingImages] = useState<string[]>([])
-  const bottomRef = useRef<HTMLDivElement>(null)
+  const scrollerRef = useRef<HTMLDivElement>(null)
+  const nearBottomRef = useRef(true)
+  const [showJump, setShowJump] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const tts = useTTS()
 
+  // Stick-near-bottom autoscroll: only follow the stream when the reader is
+  // already at the bottom. Scrolling up to re-read pauses following and shows
+  // a "↓ new" pill instead of yanking the viewport on every chunk.
+  const scrollToBottom = (smooth = false) => {
+    const el = scrollerRef.current
+    if (!el) return
+    el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' })
+    nearBottomRef.current = true
+    setShowJump(false)
+  }
+
+  const handleScroll = () => {
+    const el = scrollerRef.current
+    if (!el) return
+    const near = el.scrollHeight - el.scrollTop - el.clientHeight < 120
+    nearBottomRef.current = near
+    if (near) setShowJump(false)
+  }
+
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (nearBottomRef.current) scrollToBottom()
+    else setShowJump(true)
   }, [messages])
 
   const attachImages = (files: FileList) => {
@@ -294,6 +316,8 @@ export function ChatPanel({
     setInput('')
     setPendingImages([])
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
+    // Sending always re-engages follow mode — jump to your own message.
+    requestAnimationFrame(() => scrollToBottom())
   }
 
   const handleKey = (e: React.KeyboardEvent) => {
@@ -375,7 +399,13 @@ export function ChatPanel({
       </div>
 
       {/* Messages */}
-      <div className="flex-1 min-h-0 overflow-y-auto px-4 py-5 flex flex-col gap-2.5" style={{ background: 'var(--paper)' }}>
+      <div className="relative flex-1 min-h-0">
+      <div
+        ref={scrollerRef}
+        onScroll={handleScroll}
+        className="h-full overflow-y-auto px-4 py-5 flex flex-col gap-2.5"
+        style={{ background: 'var(--paper)' }}
+      >
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center gap-3 mt-[22%]">
             <div style={{ opacity: 0.85 }}>
@@ -656,7 +686,23 @@ export function ChatPanel({
           </div>
         )}
 
-        <div ref={bottomRef} />
+      </div>
+
+      {/* "↓ new" pill — appears when new content arrives while scrolled up */}
+      {showJump && (
+        <button
+          onClick={() => scrollToBottom(true)}
+          className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 flex items-center gap-1.5 px-3 py-1.5 rounded-full font-mono text-[11px] cursor-pointer transition-transform hover:scale-105 active:scale-95"
+          style={{
+            background: 'var(--kajal)',
+            color: 'var(--paper)',
+            border: '1px solid rgba(252,250,242,0.18)',
+            boxShadow: '0 4px 14px rgba(0,0,0,0.25)',
+          }}
+        >
+          ↓ new
+        </button>
+      )}
       </div>
 
       {/* Input area */}

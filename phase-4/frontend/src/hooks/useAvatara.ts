@@ -415,26 +415,13 @@ export function useAvatara(userId = 'default') {
       andonAlert: null,
     }))
 
-    try {
-      abortRef.current = new AbortController()
-      const res = await fetch(apiPath('/chat'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          query,
-          user_id: userId,
-          session_id: convoSessionId.current,
-          images,
-          active_artifact_id: state.activeArtifactSession?.artifactId ?? null,
-          active_artifact_workspace_id: state.activeArtifactSession?.workspaceId ?? null,
-          active_artifact_type: state.activeArtifactSession?.artifactType ?? null,
-        }),
-        signal: abortRef.current.signal,
-      })
+    // Terminal-event flag shared by the initial stream and any re-attached
+    // stream: 'done' and 'error' both mark the turn as finished.
+    let gotTerminal = false
+    const turnSessionId = convoSessionId.current
 
-      if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
-
-      const reader = res.body.getReader()
+    const consumeStream = async (body: ReadableStream<Uint8Array>) => {
+      const reader = body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
 
@@ -693,6 +680,7 @@ export function useAvatara(userId = 'default') {
             }
 
             case 'done': {
+              gotTerminal = true
               emitKarmaRuntimeEvent(evt.type, evt.data)
               const sessionId = evt.data.session_id as string
               const tokenEstimate = Math.ceil(synthRef.current.length / 4)
@@ -837,6 +825,7 @@ export function useAvatara(userId = 'default') {
             }
 
             case 'error': {
+              gotTerminal = true
               // Rotate session ID — the backend deleted the corrupt session,
               // so the old ID is dead. Next message gets a fresh session.
               convoSessionId.current = rotateConvoSessionId()
@@ -854,17 +843,116 @@ export function useAvatara(userId = 'default') {
           }
         }
       }
+    }
+
+    // Recover the finished answer from the persisted thread (used when the
+    // run completed while the phone was locked / the app was backgrounded).
+    const hydrateFromThread = async (): Promise<boolean> => {
+      try {
+        const response = await apiFetch(apiUrl(`/thread/${turnSessionId}`, { user_id: userId }))
+        if (!response.ok) return false
+        const data = await response.json() as {
+          turns?: Array<{ role: 'user' | 'assistant'; text: string }>
+        }
+        const turns = Array.isArray(data.turns) ? data.turns : []
+        const last = turns[turns.length - 1]
+        // Only counts as recovery if the thread ends with an assistant answer
+        // to *this* user turn (our query is the preceding user message).
+        if (!last || last.role !== 'assistant') return false
+        const prevUser = turns[turns.length - 2]
+        if (!prevUser || prevUser.role !== 'user' || prevUser.text.trim() !== query.trim()) return false
+
+        const id = msgIdRef.current
+        setState(s => {
+          const existing = s.messages.find(m => m.id === id)
+          const messages = existing
+            ? s.messages.map(m => m.id === id ? { ...m, text: last.text, sessionId: turnSessionId } : m)
+            : [...s.messages, { id, role: 'assistant' as const, text: last.text, avatarsInvolved: sessionAvatarsRef.current, sessionId: turnSessionId }]
+          return { ...s, messages, streaming: false, naradActive: false }
+        })
+        toast('Answer recovered', {
+          description: 'The run finished while the connection was away.',
+          duration: 3500,
+        })
+        return true
+      } catch {
+        return false
+      }
+    }
+
+    const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
+
+    try {
+      abortRef.current = new AbortController()
+      const res = await fetch(apiPath('/chat'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          query,
+          user_id: userId,
+          session_id: convoSessionId.current,
+          images,
+          active_artifact_id: state.activeArtifactSession?.artifactId ?? null,
+          active_artifact_workspace_id: state.activeArtifactSession?.workspaceId ?? null,
+          active_artifact_type: state.activeArtifactSession?.artifactType ?? null,
+        }),
+        signal: abortRef.current.signal,
+      })
+
+      if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
+      await consumeStream(res.body)
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') {
         setState(s => ({ ...s, streaming: false, naradActive: false, avatars: initialAvatars() }))
         return
       }
+      // fall through to the re-attach loop below
+    }
+
+    if (gotTerminal) return
+
+    // The stream died without a terminal event (screen lock, network blip).
+    // The backend keeps the run alive in _active_tasks — try to re-attach;
+    // if the run already finished, recover the answer from the thread.
+    let lastErr: string | null = null
+    for (let attempt = 0; attempt < 3 && !gotTerminal; attempt++) {
+      if (abortRef.current?.signal.aborted) {
+        setState(s => ({ ...s, streaming: false, naradActive: false, avatars: initialAvatars() }))
+        return
+      }
+      await sleep(800 * (attempt + 1))
+      try {
+        const attach = await fetch(apiPath(`/chat/attach/${turnSessionId}`), {
+          signal: abortRef.current?.signal,
+        })
+        if (attach.ok && attach.body) {
+          await consumeStream(attach.body)
+          continue // stream ended — loop re-checks gotTerminal
+        }
+        if (attach.status === 404) {
+          // No active run: either it finished while we were away, or it never
+          // started. The thread tells us which.
+          if (await hydrateFromThread()) return
+          lastErr = 'Connection lost before the run could finish.'
+          break
+        }
+        lastErr = `Re-attach failed (HTTP ${attach.status})`
+      } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError') {
+          setState(s => ({ ...s, streaming: false, naradActive: false, avatars: initialAvatars() }))
+          return
+        }
+        lastErr = err instanceof Error ? err.message : 'Unknown error'
+      }
+    }
+
+    if (!gotTerminal) {
       setState(s => ({
         ...s,
         streaming: false,
         naradActive: false,
         avatars: initialAvatars(),
-        error: err instanceof Error ? err.message : 'Unknown error',
+        error: lastErr ?? 'Connection lost — check that the server is reachable.',
       }))
     }
   }, [state.streaming, state.activeArtifactSession, userId])

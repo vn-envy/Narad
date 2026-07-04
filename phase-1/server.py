@@ -730,6 +730,22 @@ async def chat(req: ChatRequest):
     return EventSourceResponse(_drain_queue(session_id, queue))
 
 
+@app.get("/chat/attach/{session_id}")
+async def chat_attach(session_id: str):
+    """Re-attach to a still-running background task after a client disconnect
+    (phone screen lock, network blip, tab backgrounding).
+
+    Unlike re-POSTing /chat — which would start a duplicate run if the task
+    already finished — this only ever drains an existing queue. 404 means
+    nothing is running: the client should check /thread/{session_id} for the
+    completed answer instead.
+    """
+    entry = _active_tasks.get(session_id)
+    if entry is None or entry[0].done():
+        raise HTTPException(status_code=404, detail="No active run for this session")
+    return EventSourceResponse(_drain_queue(session_id, entry[1]))
+
+
 async def _run_agent_task(
     req: ChatRequest,
     session_id: str,
