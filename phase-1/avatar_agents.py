@@ -1962,6 +1962,27 @@ VIDEO — MANDATORY CALL SEQUENCE (no exceptions):
 
   Step 3. Return the /media/…/video.mp4 URL to the user.
 
+  render_remotion(template='', props={{}}, component_tsx='')
+    React/HTML video via the Remotion engine — the highest-fidelity programmatic option.
+    Use INSTEAD of create_video when the user asks for "Remotion", or wants HTML/React/CSS
+    motion design, precise typographic animation, data-driven graphics, or a reusable template.
+    Returns a dict with status and url — url is the /media/…/video.mp4 browser link.
+
+    TWO MODES — pick one:
+    • TEMPLATE (safe, fast) — choose a built-in composition and pass props:
+        TitleCard   — props: title, subtitle, bg, accent
+        Slides      — props: slides=[{{title, bullets:[...]}}], secondsPerSlide, bg, accent
+        LowerThird  — props: name, role, accent  (transparent bg, composites over footage)
+        CodeReveal  — props: code, bg, accent
+      e.g. render_remotion(template="Slides", props={{"slides":[{{"title":"Intro","bullets":["a","b"]}}],"secondsPerSlide":3}})
+    • ESCAPE HATCH (full control) — author a raw component as TSX:
+        render_remotion(component_tsx="export const Custom: React.FC = () => {{ ... }}")
+      The TSX MUST export a component named Custom. Import primitives from 'remotion'
+      (AbsoluteFill, useCurrentFrame, interpolate, spring, Sequence, useVideoConfig, Img, Audio).
+
+    Optional universal props (either mode): durationSeconds, fps, width, height —
+    resize/retime without editing the template. First render triggers a one-time engine setup.
+
 NEVER describe the video without calling a video tool to render it (once script is confirmed).
 NEVER use moviepy v1 API — it always fails. Always use v2.x.
 NEVER route video creation to Parashurama."""
@@ -2318,6 +2339,7 @@ from audio_skill import create_audio as _create_audio  # noqa: E402
 from document_skill import create_document as _create_document  # noqa: E402
 from hyperframes_skill import create_video_hyperframes as _create_video_hyperframes  # noqa: E402
 from imagen_skill import generate_image as _generate_image  # noqa: E402
+from remotion_skill import render_remotion as _render_remotion  # noqa: E402
 from video_skill import create_video as _create_video  # noqa: E402
 from webpage_skill import create_webpage as _create_webpage  # noqa: E402
 
@@ -2331,6 +2353,7 @@ except Exception:
 krishna.tools = list(krishna.tools or []) + [
     FunctionTool(_create_webpage),
     FunctionTool(_create_video),
+    FunctionTool(_render_remotion),
     FunctionTool(_generate_video_clip),
     FunctionTool(_create_video_hyperframes),
     FunctionTool(_create_audio),     # moved from Parashurama — Krishna owns all audio/media
