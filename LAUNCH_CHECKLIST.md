@@ -38,13 +38,13 @@
 
 - [x] **D1 — Design tokens.** One palette in `index.css` drawn from manuscript/Madhubani tradition: nila (deep indigo) ground, palm-leaf cream surfaces, sindoor (vermilion), haldi (turmeric), lamp-black ink; dark mode as "lamp-lit night." *(done: token foundation in `.dark` block; full component sweep + toggle tracked in post-launch backlog)* Type scale: Geist for UI, a display serif for headings/wordmark, Devanagari avatar glyphs rendered properly.
 - [x] **D2 — Avatar identity system.** Each avatāra = fixed color + Devanagari initial + its string position on the Mahati. `MahatiLogo`, `Motifs`, `MadhubaniBorder` redrawn to one consistent stroke/geometry language (no clip-art feel).
-- [x] **D3 — Motion & streaming states.** String-pluck animation on avatar activation; breathing pulse while streaming; skeleton states for panels; sub-200ms transitions via `motion`.
+- [x] **D3 — Motion & streaming states.** String-pluck animation on avatar activation; breathing pulse while streaming; skeleton states for panels; sub-200ms transitions via pure CSS (`motion` lib removed in M0 cut).
 - [x] **D4 — Polish pass** on ChatPanel, AwarenessBar, NaradDashboard: spacing rhythm, markdown rendering, empty states, error states.
       *Accept: `tsc --noEmit` clean; visual review by Neekhil.*
 
 ## E. One truth (M3)
 
-- [ ] **E1 —** Reconcile docs: 4 avatars everywhere, single version scheme (drop phase numbers for `v0.x`), fix "bidirectional" Notion claim (it is push-only), "local-first" stated as roadmap not present tense.
+- [x] **E1 —** Reconcile docs: 4 avatars everywhere (AGENTS.md rewritten code-verified; ARCHITECTURE.md, README, WORKFLOWS, docs/, phase-9 skill prompts fixed 2026-07-04). Notion cut entirely rather than re-labelled. *(Remaining: single `v0.x` version scheme — tracked in AUDIT-AND-ROADMAP.md.)*
 - [ ] **E2 —** README rewritten against the new package layout + checklist status.
 
 ## F. Launch verification

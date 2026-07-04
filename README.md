@@ -47,8 +47,8 @@ Full technical architecture: [ARCHITECTURE.md](./ARCHITECTURE.md)
 ## Repository layout
 
 ```
-phase-1/        FastAPI SSE server · Narad router · canonical 4-agent build · Six Sigma · Notion sync
-  server.py             POST /chat SSE stream + all endpoints (kanban, andon, 5s, quality, notion)
+phase-1/        FastAPI SSE server · Narad router · canonical 4-agent build · Six Sigma
+  server.py             POST /chat SSE stream + all endpoints (kanban, andon, 5s, quality)
   narad_agent.py        Narad supervisor (DeepSeek V3)
   avatar_agents.py      4 LlmAgent specialists + _make_avatar_tool (Smriti/Sutra/Sankalpa/AndonGate/Kanban)
   model_config.py       Per-avatar model assignments (LiteLLM strings)
@@ -56,7 +56,6 @@ phase-1/        FastAPI SSE server · Narad router · canonical 4-agent build ·
   kanban.py             KanbanBoard — SQLite step lifecycle tracker (Phase 13)
   andon.py              AndonGate quality gate + diagnostic fire-and-forget (Phase 13)
   narad_5s.py           NaradShuddhi 5S filesystem health (Phase 13)
-  notion_sync.py        NotionSync bidirectional push to 5 Notion databases (Phase 14)
 
 phase-2/        Memory · Search · Observability
   smriti.py             LanceDB vector memory + FTS5; @lru_cache on _embed(); fallback logging
@@ -92,8 +91,7 @@ phase-6/        Sankalpa engine
 phase-7/        Code executor · Media generation
   executor.py           Sandboxed Python subprocess runner
   skills/
-    video_skill.py      create_video() — moviepy + Pillow
-    audio_skill.py      create_audio() — numpy + scipy
+    video_skill.py      create_video() — moviepy + Pillow (fallback after Veo)
 
 phase-8/        Tier 1 skills (all core domains fully tooled)
   local_skill.py        scan_directory, move_to_trash, organize_by_type (Matsya/Parashurama support)
@@ -101,7 +99,7 @@ phase-8/        Tier 1 skills (all core domains fully tooled)
   sql_skill.py          query_database — read-only SQL (Parashurama)
   email_skill.py        compose_email, send_email via SMTP (Krishna)
   calendar_skill.py     get/create CalDAV events (Rama)
-  docling_skill.py      extract_document — PDF/DOCX/PPTX (Matsya discipline)
+  docling_skill.py      extract_document — pymupdf/python-docx default; NARAD_USE_DOCLING=1 for docling (Matsya)
   browser_skill.py      browse_url — JS-rendered pages (Matsya)
   document_skill.py     create_document() — DOCX via python-docx (Parashurama)
   browser_act_skill.py  browser_screenshot, browser_fill, browser_upload_and_submit (Matsya)
@@ -113,9 +111,9 @@ phase-9/        Project system · Smriti v2
   smriti_v2.py          Project-scoped Markdown wiki + get_project_context()
 
 narad_config.py         Canonical path constants (NARAD_HOME, TRACE_DIR, ARTIFACTS_DIR, CONFIG_DIR)
-phase-0a/               Spike: routing accuracy on local 4B model
-phase-0b/               Spike: ADK + SSE PoC
 ```
+
+Historical spikes (phase-0a routing eval, phase-0b ADK+SSE PoC) live on the `archive/spikes` branch.
 
 ---
 
@@ -135,13 +133,14 @@ export DEEPSEEK_API_KEY=sk-...     # router + avatāras + Tapas judge
 # Optional (unlock full feature set)
 export TAVILY_API_KEY=tvly-...     # Matsya web search
 export OPENAI_API_KEY=sk-...       # Smriti fallback embeddings
-export NOTION_API_TOKEN=secret_... # Phase 14 Notion sync
 export EMAIL_ADDRESS=you@gmail.com
 export EMAIL_APP_PASSWORD=xxxx
 export CALDAV_URL=https://...
 
-cd phase-1 && ../.venv/bin/python3.12 -m uvicorn server:app --host 0.0.0.0 --port 8000
+cd phase-1 && ../.venv/bin/python3.12 -m uvicorn server:app --host 127.0.0.1 --port 8000
 ```
+
+Binds to loopback by default. For phone access, pair with `tailscale serve` (see AUDIT-AND-ROADMAP.md §7) rather than binding 0.0.0.0 — auth outside localhost requires `NARAD_AUTH=strict` + bearer token.
 
 ## Quick start (frontend)
 
@@ -172,7 +171,7 @@ npm run dev        # → http://localhost:5173
 | 11 | Project detection, Scribe wiki compiler, left-panel UX | ✅ Done |
 | 12 | AssetOpsBench integration, typed traces, Markov spend patterns, health anomaly detection | ✅ Done |
 | 13 | Six Sigma quality layer — Kanban, Andon, 5S, DMAIC + Darshan Dashboard overhaul | ✅ Done |
-| 14 | Notion sync bridge — bidirectional push of memories, kanban, andon, sutras, sankalpas | ✅ Done |
+| 14 | Notion sync bridge | ❌ Cut (M0, 2026-07-04 — one-way stub, silent failures) |
 | 15 | Electron desktop packaging — local Gemma 4 E4B, offline-first, signed installer | 🔨 Next |
 
 ---

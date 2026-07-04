@@ -68,7 +68,7 @@ knows how to navigate.
 | `search_hf_papers(query)` | *Yantra-Patra* — ML papers from HuggingFace | Search HuggingFace paper feed |
 | `search_hf_models(query, limit)` | *Yantra-Kosha* — model warehouse inventory | Search HuggingFace model hub |
 | `query_deepwiki(repo_url, question)` | *Grantha-Prashna* — deep repo inquiry | Ask a question against a repo's deep wiki |
-| `run_shell(command)` | *Kriya* — action | Shell execution (ml-intern context only) |
+| `search_last30days(topic)` | *Pravaha-Darshan* — reading the current | 30-day social listening: Reddit, HN, GitHub |
 | `extract_document(file_path)` | *Uddharana* — extraction from document | Extract text from PDF, DOCX, or similar |
 | `scan_directory(path)` | *Kshetra-Drishti* — survey the filesystem field | List and map directory contents |
 | `move_to_trash(paths, dry_run)` | *Visarjan* — release with confirmation | Remove files; dry_run before execute |

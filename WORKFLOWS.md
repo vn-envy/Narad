@@ -1,5 +1,7 @@
 # Narad: Agent Workflow Design — User Story Atlas
 
+> **⚠️ Drift note (2026-07-04):** Parts of this atlas predate the 4-avatar consolidation and may still name **Varaha, Narasimha, Vamana, or Buddha**. Read those as their canonical successors: Varaha → Matsya (documents), Narasimha → Parashurama (debugging) / Krishna (symptom talk), Buddha → Matsya (analysis), Vamana → Matsya (filesystem) / Rama (finance + health). **AGENTS.md is the code-verified reference** for routing and tool rosters; where this file disagrees, AGENTS.md wins.
+
 ## Purpose
 
 Step-by-step workflow design for every major Narad use case, from user intention to final execution. Covers:
@@ -246,9 +248,9 @@ Each row maps: user intent → Narad routing → execution logic → tools → s
 |--------|--------|
 | **User Intent** | "Create a short explainer video about neural networks" |
 | **Narad Routing Logic** | Video creation → `invoke_krishna`. Routing rule: Krishna owns the FULL video pipeline (brief → outline → HTML build). If Krishna returns no video URL: route BACK to Krishna, never to Parashurama. |
-| **Agent Execution Logic** | **Phase 1 (brief):** Krishna synthesises the concept into a script/storyboard outline. Emits `CURRENT_PHASE: video_build`. **Phase 2 (build):** Krishna calls `_create_video(code, style="slides")` — passes Python code to executor sandbox (moviepy + Pillow + matplotlib). Sandbox writes `.mp4` to `ARTIFACTS_DIR`. Krishna returns file URL. **Phase 3:** Optionally generates frame images via `_generate_image()` or `_create_video_hyperframes()`. |
-| **Tools Used** | `_create_video`, `_generate_video_clip`, `_create_video_hyperframes`, `_generate_image` |
-| **Skills Used** | `video_skill.create_video()` |
+| **Agent Execution Logic** | **Phase 1 (brief):** Krishna synthesises the concept into a script/storyboard outline. Emits `CURRENT_PHASE: video_build`. **Phase 2 (build) — 2-step cascade:** (1) `_generate_video_clip(prompt)` — Gemini Veo AI video. (2) If Veo unavailable/errors: `_create_video(code)` — Python code in executor sandbox (moviepy + Pillow + matplotlib). Sandbox writes `.mp4` to `ARTIFACTS_DIR`. Krishna returns the `/media/…/video.mp4` URL. Frame images optionally via `_generate_image()`. |
+| **Tools Used** | `_generate_video_clip`, `_create_video`, `_generate_image` |
+| **Skills Used** | `veo_skill.generate_video_clip()`, `video_skill.create_video()` |
 | **Input Files** | None (generative) |
 | **Output Files** | `~/.narad/artifacts/{run_id}/output.mp4` |
 | **LLMs & APIs** | DeepSeek V4 Flash (Krishna), moviepy + Pillow + matplotlib (executor sandbox), Gemini Veo 3.1 (if `generate_video_clip` called), Gemini Imagen (if `generate_image` called) |
@@ -272,16 +274,7 @@ Each row maps: user intent → Narad routing → execution logic → tools → s
 
 ### 1.17 Music / Audio Generation
 
-| Column | Detail |
-|--------|--------|
-| **User Intent** | "Generate a lo-fi ambient track for a study session" |
-| **Narad Routing Logic** | Audio generation → `invoke_parashurama`. Parashurama owns `_create_audio`. |
-| **Agent Execution Logic** | 1. Parashurama calls `_create_audio(code, type="ambience")` — passes Python code to executor sandbox (scipy + numpy + midiutil). 2. Sandbox generates layered sine/noise waveforms at 44100 Hz. 3. Writes `.wav` to ARTIFACTS_DIR. 4. Returns file URL. |
-| **Tools Used** | `_create_audio` |
-| **Skills Used** | `audio_skill.create_audio()` |
-| **Input Files** | None (generative) |
-| **Output Files** | `~/.narad/artifacts/{run_id}/audio.wav` |
-| **LLMs & APIs** | DeepSeek V4 Pro (Parashurama), scipy + numpy + midiutil (executor sandbox) |
+**Removed in the M0 cut (2026-07-04).** `audio_skill` / `_create_audio` no longer exist; audio generation is not a supported workflow. Parashurama can still write audio-producing scripts via `_write_script` + `_run_shell` on explicit user request, but there is no first-class tool.
 
 ---
 
@@ -631,7 +624,6 @@ All requests — regardless of single/multi-agent — run through this pipeline 
 | **Smriti** | Remembers (task, result, avatar) into LanceDB vector store for future recall | `~/.narad/memory/` (LanceDB) |
 | **Scribe** | Compiles session into project wiki Markdown if a project is detected | `~/.narad/wiki/{user_id}/{project_id}/entity.md` |
 | **Kanban** | If plan steps active: transitions step status → emits `kanban_update` SSE | `~/.narad/kanban.db` |
-| **Notion** | If `NOTION_API_TOKEN` set: pushes memory + kanban + andon + sutra + wiki to 5 Notion DBs; logs failures with `notion_sync_error` Yantra event | `~/.narad/notion_errors.jsonl` |
 
 ---
 
@@ -709,15 +701,13 @@ User message arrives
 | Playwright Chromium | — | Matsya | JS-rendered page fetching + form automation |
 | Gmail SMTP | smtp.gmail.com:587 (TLS) | Krishna | Email delivery |
 | CalDAV | iCloud / Google / Nextcloud | Rama | Calendar read + create |
-| RxNorm REST API | rxnav.nlm.nih.gov | Vamana/Narasimha | Drug information lookup |
+| RxNorm REST API | rxnav.nlm.nih.gov | Rama | Drug information lookup |
 | SQLAlchemy | — | Parashurama | Database queries (SQLite/PostgreSQL/MySQL) |
-| Notion API | — | Notion sync | Push memory/kanban/andon/sutras/wiki |
-| moviepy + Pillow | — | Krishna/Parashurama | Programmatic video generation (executor sandbox) |
-| scipy + numpy | — | Parashurama | Audio generation (executor sandbox) |
-| Docling (IBM) | — | Varaha | PDF/DOCX/PPTX parsing |
-| PyMuPDF | — | Varaha | PDF parsing fallback |
+| moviepy + Pillow | — | Krishna | Programmatic video generation, fallback after Veo (executor sandbox) |
+| PyMuPDF + python-docx | — | Matsya | PDF/DOCX parsing (default extractors) |
+| Docling (IBM) | — | Matsya | Opt-in rich extraction (`NARAD_USE_DOCLING=1`) |
 | OpenAI `text-embedding-3-small` | — | Smriti v1 | Embedding fallback if Gemini unavailable |
 
 ---
 
-*Last updated: 2026-05-19. Source: live code analysis of `phase-1/narad_agent.py`, `phase-1/avatar_agents.py`, `phase-1/model_config.py`, `phase-1/server.py`, `phase-8/` skill files.*
+*Last updated: 2026-07-04 (M0 truth-reconciliation pass — video cascade, audio removal, Notion removal, integration table). Older sections may retain pre-consolidation avatar names; see drift note at top. Source: live code analysis of `phase-1/narad_agent.py`, `phase-1/avatar_agents.py`, `phase-1/model_config.py`, `phase-1/server.py`, `phase-8/` skill files.*

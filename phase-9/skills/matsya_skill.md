@@ -56,11 +56,6 @@
 - **Form safety**: NEVER submit a form without calling `browser_screenshot` first and
   showing the user a field-by-field dry_run preview. Explicit confirmation required.
 
-- **ML pipeline awareness**: For any research task involving model evaluation, dataset
-  analysis, or performance benchmarking, surface ml-intern as an autonomous execution
-  option when the task scope justifies it. Never invoke without the user saying yes.
-  Reference: https://github.com/huggingface/ml-intern
-
 ---
 
 ## TASK_TYPE Detection — match the first row that fits:
@@ -71,9 +66,6 @@
 | in-depth overview, research report, what is known about X, background on X             | web_research |
 | fill this form, apply to this job, sign up to X, submit my application                 | form_submit  |
 | submit this form on my behalf, fill in these fields                                     | form_submit  |
-| fine-tune a model, train a model on X, run an ML experiment, evaluate model performance | ml_experiment |
-| build a dataset, create training data, run a HuggingFace pipeline, benchmark a model    | ml_experiment |
-| fine-tune llama, train on my data, run evals, RLHF, LoRA, QLoRA                        | ml_experiment |
 | any file path (.pdf, .docx, .pptx, .xlsx, .csv, .txt) + analyze/read/summarize         | document_review |
 | review this document, extract from this PDF, summarise this report                      | document_review |
 | should I do X, is this a good idea, evaluate this plan, tradeoffs of X vs Y            | analysis      |
@@ -126,13 +118,6 @@ TASK_TYPE=file_cleanup → HARD GATES:
     confirm phase. The user MUST see a full file list in the preview phase first.
   - NEVER operate on system paths even if the user requests it.
   - execute phase only runs after confirm receives "yes" / "go ahead" / "do it".
-
-TASK_TYPE=ml_experiment → HARD GATES:
-  - NEVER execute ml-intern before completing scope + plan phases.
-  - NEVER pass a vague prompt to ml-intern — scope MUST yield a precise task string.
-  - ALWAYS show the structured ml-intern prompt to the user for approval before execution.
-  - plan MUST specify: base model HF repo ID, dataset (HF path or local), task type,
-    target metric, and compute constraints (GPU budget, max runtime).
 
 ---
 
@@ -234,63 +219,6 @@ End with: `CURRENT_PHASE: submit`
 Execute the submission only after explicit user confirmation:
 - Call `browser_fill(dry_run=False)` or `browser_upload_and_submit` as appropriate
 - Report the outcome: success confirmation, any error messages, next steps
-
-End with: `DONE`
-
----
-
-## [Skill: ml_experiment] — Autonomous ML Experiment via ml-intern
-
-Uses ml-intern (https://github.com/huggingface/ml-intern) — an autonomous ML agent CLI
-that researches, plans, writes, and executes ML code end-to-end. Invoked as:
-`ml-intern --model ... --max-iterations ... [--sandbox-tools] "task"` (headless mode).
-
-### Phase 1: SCOPE
-Define the ML task with precision before touching any tools:
-- Task type: fine-tune / evaluate / dataset-creation / inference-benchmark
-- Base model: which HuggingFace model? Exact repo ID (e.g. `mistralai/Mistral-7B-v0.1`)
-- Dataset: HF dataset path, local file, or does it need to be created?
-- Target metric: what does success look like? (accuracy %, BLEU, perplexity, latency ms)
-- Compute constraints: GPU available? Max wall-clock runtime? Cost ceiling?
-
-Ask targeted questions for any missing spec — do not proceed with ambiguity.
-
-End with: `CURRENT_PHASE: plan`
-
-### Phase 2: PLAN
-Construct the executable ml-intern task:
-- One clear task string a senior ML engineer would understand
-- Must include: model repo ID, dataset path, task description, success metric, constraints
-- Show the EXACT CLI command Narad will preview via `run_ml_experiment(...)`
-- Note required environment variables (HF_TOKEN, LOCAL_LLM_BASE_URL / provider base URL, CUDA_VISIBLE_DEVICES if relevant)
-
-End with: `CURRENT_PHASE: review`
-
-### Phase 3: REVIEW
-Present the command and STOP:
-> "Here's the ml-intern command I'll preview:"
-> `[show exact command string]`
-> "Required env: [list]. Estimated runtime: [X]. Reply 'run it' to proceed."
-
-Do NOT execute until explicit user confirmation.
-
-End with: `CURRENT_PHASE: execute`
-
-### Phase 4: EXECUTE
-Run the experiment in headless mode:
-- Call `run_ml_experiment(task, model, max_iterations, sandbox_tools, dry_run=True)` first
-- Only after confirmation: call `run_ml_experiment(..., dry_run=False)`
-- Stream output; surface any approval gates ml-intern raises to the user inline
-- If doom-loop or repeated failure detected: surface the error and stop — do not retry blindly
-
-End with: `CURRENT_PHASE: report`
-
-### Phase 5: REPORT
-Summarize the outcome:
-- Model/dataset URL on HuggingFace (if uploaded)
-- Key metric result vs. target metric from Phase 1
-- Training/eval summary (from ml-intern output)
-- Suggested next experiment if the metric was not met
 
 End with: `DONE`
 

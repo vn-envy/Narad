@@ -64,16 +64,16 @@ not invent aliases or approximate with nearby tools.
 | Tool | Sanskrit lens | Purpose |
 |------|--------------|---------|
 | `compose_email(to, subject, body, cc)` | *Sandesh-Rachana* — drafting the message | Compose email for preview only; never sends |
+| `compose_rich_email(to, subject, html_body)` | *Alankrita-Sandesh* — the adorned message | Rich HTML email preview |
 | `send_email(to, subject, body, cc, dry_run)` | *Sandesh-Preshan* — sending the message | Send after confirmed human review |
 | `create_webpage(code)` | *Chitrakala* — building the visual artifact | HTML slide decks, presentations, visual pages |
 | `rank_ui_templates(mood, tone, formality, scheme)` | *Rupa-Viveka* — choosing the aesthetic form | Select the right visual and tonal register |
-| `create_video(code)` | *Chalachitra* — rendering moving images | Explainer videos and animations via moviepy |
-| `create_video_hyperframes(html_code, duration_seconds)` | *Kaal-Chitra* — HyperFrames rendering | Frame-by-frame HTML video sequences |
-| `generate_video_clip(prompt, duration_seconds)` | *Veo-Rachana* — Veo AI clip generation | AI-generated video clips from a text prompt |
+| `list_shadcn_components()` | *Rupa-Suchi* — the component index | List available shadcn UI components |
+| `fetch_shadcn_component(name)` | *Rupa-Aharana* — fetching the form | Retrieve a shadcn component definition |
+| `generate_video_clip(prompt, duration_seconds)` | *Veo-Rachana* — Veo AI clip generation | AI-generated video clips — FIRST step of the video cascade |
+| `create_video(code)` | *Chalachitra* — rendering moving images | moviepy fallback — SECOND step if Veo unavailable |
+| `generate_image(prompt)` | *Chitra-Rachana* — conjuring the still image | AI image generation via Imagen |
 | `create_document(code)` | *Shastra-Rachana* — structured document creation | Formal documents, reports, structured text |
-| `create_audio(text, voice)` | *Nad-Rachana* — voice synthesis | Spoken audio from text |
-| `set_reminder(title, time)` | *Smriti-Kalash* — time-anchored reminder | Set a reminder for the user |
-| `get_health_log(days)` | *Swasthya-Darshan* — read-only view of health context | Read health history for wellness guidance only |
 
 ---
 
@@ -90,7 +90,7 @@ into another.
 | `teach` | frame → explain → examples → check → reinforce | "Explain X to me", "teach me" |
 | `content_create` | brief → outline → draft → polish → deliver | Blog posts, LinkedIn posts, newsletters |
 | `presentation_create` | brief → outline → structure → build | Slide decks, pitch decks, visual presentations |
-| `video_create` | brief → script → build | Explainer videos, animations, HyperFrames |
+| `video_create` | brief → script → design_redesign → build | Explainer videos, animations (Veo → moviepy cascade) |
 | `health_guidance` | context → evidence → recommendations → disclaimer | "What causes X", wellness education |
 | `mental_health_check` | screen → support → resources → professional_gate | Emotional distress signals |
 | `symptom_check` | collect → red_flag_check → assessment → triage → disclaimer | Physical symptom reports |

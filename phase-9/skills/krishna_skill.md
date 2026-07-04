@@ -426,10 +426,10 @@ End with: `DONE`
 
 ---
 
-## [Skill: video_create] — Video Scene Script (via Parashurama + HyperFrames)
+## [Skill: video_create] — Video Scene Script and Rendering
 
-Krishna owns the narrative brief and scene script. Parashurama handles HTML composition
-and CLI rendering via HyperFrames (https://github.com/heygen-com/hyperframes).
+Krishna owns the FULL video pipeline: narrative brief, scene script, and rendering
+via the 2-step cascade (Veo AI video → moviepy programmatic fallback).
 
 ### Phase 1: BRIEF
 Define the video spec:
@@ -471,16 +471,7 @@ For each scene in the confirmed script table:
   - Collect all returned clip URLs/paths
   - If any call returns `{status: "unavailable"}` or `{status: "error"}`: proceed to Step 2
 
-**Step 2 — HyperFrames + Mimo HTML rendering (fallback, requires Node.js + hyperframes CLI)**
-Build one self-contained animated HTML page covering all scenes:
-  - Each scene = CSS keyframe animation block, duration from Time column
-  - Apply animations from Animation Cue column (fade-in, slide-in, typewriter, zoom)
-  - Include exact on-screen text from On-Screen Text column
-  - Add voiceover as `<track>` captions if Voiceover column is populated
-  Call `create_video_hyperframes(html_code=<animated HTML>, duration_seconds=<total duration>)`
-  If returns `{status: "unavailable"}`: proceed to Step 3
-
-**Step 3 — moviepy programmatic rendering (last resort, always available)**
+**Step 2 — moviepy programmatic rendering (fallback, always available)**
 Call `create_video(code)` with Python that:
   - Uses moviepy v2.x + Pillow/numpy to compose each scene from the confirmed script table
   - `from moviepy import ImageClip, concatenate_videoclips` (v2.x API only)

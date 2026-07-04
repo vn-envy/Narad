@@ -123,12 +123,12 @@ The product is called **Narad**. The specialist agents are called **avatāras** 
 
 | Layer | What it is | Where it lives | Local? |
 |---|---|---|---|
-| **L1 — Narad (Supervisor)** | DeepSeek V3 LlmAgent with routing instruction and 8 handoff tools. Sees full conversation history. Routes to 1–3 avatāras per turn. | `phase-1/narad_agent.py` | 🟡 Cloud |
-| **L2 — Avatāras (Specialists)** | 8 LlmAgent instances, each with focused system prompt, tool set, and DeepSeek model. Wrapped in FunctionTool with Smriti + Sutra + Sankalpa injection. | `phase-1/avatar_agents.py` | 🟡 Cloud |
-| **L3 — Smriti (Memory)** | LanceDB vector memory (Gemini `text-embedding-005`, 768-dim; OpenAI fallback). `@lru_cache(128)` on `_embed()` deduplicates Gemini calls within a session. Vismriti decay (90d TTL), dedup gate (L2 < 0.10). FTS5 exact-match at `~/.narad/memory_fts.db` — routed selectively to Parashurama and Narasimha. Smriti v2: project-scoped Markdown wiki + optional Graphiti graph; `get_project_context()` injected as fourth context layer for project-tagged sessions. | `phase-2/smriti.py`, `phase-9/smriti_v2.py` | ✅ Local only |
+| **L1 — Narad (Supervisor)** | DeepSeek LlmAgent with routing instruction and 4 handoff tools. Sees full conversation history. Routes to 1–3 avatāras per turn. | `phase-1/narad_agent.py` | 🟡 Cloud |
+| **L2 — Avatāras (Specialists)** | 4 LlmAgent instances (Matsya, Rama, Krishna, Parashurama), each with focused system prompt, tool set, and DeepSeek model. Wrapped in FunctionTool with Smriti + Sutra + Sankalpa injection. | `phase-1/avatar_agents.py` | 🟡 Cloud |
+| **L3 — Smriti (Memory)** | LanceDB vector memory (Gemini `text-embedding-005`, 768-dim; OpenAI fallback). `@lru_cache(128)` on `_embed()` deduplicates Gemini calls within a session. Vismriti decay (90d TTL), dedup gate (L2 < 0.10). FTS5 exact-match at `~/.narad/memory_fts.db` — routed selectively to Parashurama. Smriti v2: project-scoped Markdown wiki + optional Graphiti graph; `get_project_context()` injected as fourth context layer for project-tagged sessions. | `phase-2/smriti.py`, `phase-9/smriti_v2.py` | ✅ Local only |
 | **L4 — Darshan (Observability)** | Yantra JSONL tracer (session_start, avatar_start, avatar_done + trajectory + usage, phase_transition, plan_created, routing_decision, session_done, error + `error_type`). AwarenessBar (72 px right strip). DarshanDashboard 5-tab drawer (Live, Kanban, Sutras, Memory, Ops). Scribe post-session wiki compiler. Andon gate fires `andon_alert` + `andon_diagnosis` SSE events. | `phase-2/yantra.py`, `phase-4/frontend/`, `phase-9/scribe.py`, `phase-1/andon.py` | ✅ Local |
 | **L5 — Tapas (Self-Evolution)** | Sutra extraction (per-avatāra, hallucination_free hard gate, sequence_correct penalty, CAI critique, DeepSeek R1 judge with 2-retry exponential backoff). Sankalpa user style modeling. Karma audit log. `tapas_skipped` Karma event when judge unavailable after retries. | `phase-3/tapas.py`, `phase-5/sutra_engine.py`, `phase-6/sankalpa.py` | ✅ Local only |
-| **L6 — Six Sigma + Sync** | Kanban step lifecycle (Karyakrama) · Andon quality gate (Jaagruti) · 5S filesystem health (Shuddhi) · DMAIC reporting (Viveka) · Notion bidirectional sync with structured error capture to `notion_errors.jsonl`. | `phase-1/kanban.py`, `phase-1/andon.py`, `phase-1/narad_5s.py`, `phase-1/notion_sync.py` | ✅ Local |
+| **L6 — Six Sigma** | Kanban step lifecycle (Karyakrama) · Andon quality gate (Jaagruti) · 5S filesystem health (Shuddhi) · DMAIC reporting (Viveka). | `phase-1/kanban.py`, `phase-1/andon.py`, `phase-1/narad_5s.py` | ✅ Local |
 
 ### Canonical Storage (~/.narad/)
 
@@ -146,8 +146,6 @@ The product is called **Narad**. The specialist agents are called **avatāras** 
 | `~/.narad/plans/` | Rama project plan JSON (`{session_id}.json`) — one per multi-avatar plan |
 | `~/.narad/manifest.json` | 5S Set-in-Order directory index (Phase 13) |
 | `~/.narad/5s_policy.json` | 5S retention policy — TTL thresholds per data type (Phase 13) |
-| `~/.narad/notion_errors.jsonl` | Structured log of Notion push failures (Phase 14) |
-| `~/.narad/config/notion_config.json` | Notion workspace config — database IDs, parent page, last sync (Phase 14) |
 
 ### Avatar Domain Quick-Reference
 
@@ -175,10 +173,10 @@ The product is called **Narad**. The specialist agents are called **avatāras** 
 | 9 | Project System + Memory UI | Scribe, Smriti v2, ProjectsPanel, canonical `~/.narad/` paths |
 | 10 | Observability, Memory & Guardrail Refinements | Yantra v2 (token costs, phase_transition, result_digest); Smriti v1.5 (Vismriti decay, dedup, FTS5); Dharma Layer; Tapas (0.80 threshold, R1 judge, CAI critique); Karma enrichment; sutra sanitization |
 | 11 | Project System + Memory UI | Scribe, Smriti v2, project detection, left panel |
-| 12 | AssetOpsBench Integration | Typed trace models (`Trajectory`/`TurnRecord`/`ToolCall`); `_TokenMeter`; `_parse_json()`; `Plan`/`PlanStep` + `levels()` + plan-aware Narad dispatch; Gemini embeddings in Smriti; Markov spend patterns (Vamana); health anomaly detection (z-score + Granite TTM); Tapas `hallucination_free` hard gate + `sequence_correct` penalty; FastMCP template in Parashurama |
-| 13 | Six Sigma Quality Layer + Darshan Dashboard | Kanban step lifecycle (`kanban.py`); Andon quality gate (`andon.py`, 4 trigger classes); 5S filesystem health (`narad_5s.py`); DMAIC report via Buddha (`POST /quality/report`); AwarenessBar + 5-tab DarshanDashboard (Live/Kanban/Sutras/Memory/Ops) |
-| 14 | Notion Sync Bridge | Bidirectional push of memories, kanban steps, andon events, sutras, wiki pages to Notion; `notion_errors.jsonl` error capture; `/notion/status` degraded signal |
-| Pre-15 | Production Hardening | Defensive `shell_skill` import fallback; FTS5 `recall_exact()` routed to Parashurama/Narasimha; Smriti v2 `get_project_context()` wired into pipeline; embedding LRU cache (`@lru_cache(128)` on `_embed()`); Tapas 2-retry backoff + `tapas_skipped` Karma event; `error_type` field on all Yantra error events; shared frontend constants (`avatara-constants.ts`, `format-time.ts`); clear chat, sutra confirmation, bulk accept, bounded `stepEvents`, native artifacts |
+| 12 | AssetOpsBench Integration | Typed trace models (`Trajectory`/`TurnRecord`/`ToolCall`); `_TokenMeter`; `_parse_json()`; `Plan`/`PlanStep` + `levels()` + plan-aware Narad dispatch; Gemini embeddings in Smriti; Markov spend patterns (Rama); health anomaly detection (z-score + Granite TTM); Tapas `hallucination_free` hard gate + `sequence_correct` penalty; FastMCP template in Parashurama |
+| 13 | Six Sigma Quality Layer + Darshan Dashboard | Kanban step lifecycle (`kanban.py`); Andon quality gate (`andon.py`, 4 trigger classes); 5S filesystem health (`narad_5s.py`); DMAIC report via Parashurama (`POST /quality/report`); AwarenessBar + 5-tab DarshanDashboard (Live/Kanban/Sutras/Memory/Ops) |
+| 14 | Notion Sync Bridge | ❌ Cut in M0 (2026-07-04) — was push-only with silent failures; removed entirely |
+| Pre-15 | Production Hardening | Defensive `shell_skill` import fallback; FTS5 `recall_exact()` routed to Parashurama; Smriti v2 `get_project_context()` wired into pipeline; embedding LRU cache (`@lru_cache(128)` on `_embed()`); Tapas 2-retry backoff + `tapas_skipped` Karma event; `error_type` field on all Yantra error events; shared frontend constants (`avatara-constants.ts`, `format-time.ts`); clear chat, sutra confirmation, bulk accept, bounded `stepEvents`, native artifacts |
 | 15 | Electron Desktop Packaging | Local Gemma 4 E4B, signed macOS installer, offline-first mode | ← Next |
 
 ---
@@ -190,7 +188,7 @@ The product is called **Narad**. The specialist agents are called **avatāras** 
 ### `model_config.py` — The Model Assignment Table
 **Location:** `phase-1/model_config.py`
 
-A single dict mapping each avatāra name to a LiteLLM model string. Encodes the phase-0a benchmark result: DeepSeek outperformed GPT-4o on routing by 9 points (93% vs 84%). Domain-specific assignments: Parashurama and Narasimha use DeepSeek's flagship (strongest code reasoning), Krishna and Rama use DeepSeek Flash (prose/structure tasks, cost matters).
+A single dict mapping each avatāra name to a LiteLLM model string. Encodes the phase-0a benchmark result: DeepSeek outperformed GPT-4o on routing by 9 points (93% vs 84%). Domain-specific assignments: Rama and Parashurama use DeepSeek V4 Pro (planning + code reasoning), Matsya and Krishna use DeepSeek V4 Flash (retrieval/prose, cost matters). Per-avatar env overrides (`{AVATAR}_MODEL`) + vision/visual-output routing also live here.
 
 **Data:** No persistent data. In-memory constants.
 
@@ -199,7 +197,7 @@ A single dict mapping each avatāra name to a LiteLLM model string. Encodes the 
 ### `narad_agent.py` — The Router
 **Location:** `phase-1/narad_agent.py`
 
-A Google ADK `LlmAgent` — a language model with a system prompt and a set of callable tools (the eight avatāras). Narad's system prompt defines routing rules: which avatāra handles which type of query, how to handle multi-deliverable queries (parallel routing), and how to use conversation history for follow-up resolution.
+A Google ADK `LlmAgent` — a language model with a system prompt and a set of callable tools (the four avatāras). Narad's system prompt defines routing rules: which avatāra handles which type of query, how to handle multi-deliverable queries (parallel routing), and how to use conversation history for follow-up resolution.
 
 **Key design decision.** Each avatāra is wrapped as a `FunctionTool`, not an `AgentTool`. This is because LiteLLM + `AgentTool` has a serialization bug in ADK 1.32 that causes the supervisor to output the tool call as text instead of executing it. The FunctionTool workaround is a patch for a framework limitation, not an architectural preference.
 
@@ -218,10 +216,10 @@ Rama emits a `PLAN_JSON:` block at the end of its response for qualifying projec
 
 ---
 
-### `avatar_agents.py` — The Eight Specialists
+### `avatar_agents.py` — The Four Specialists
 **Location:** `phase-1/avatar_agents.py`
 
-Eight `LlmAgent` instances plus the `_make_avatar_tool` function that wraps each one as a callable FunctionTool with memory enrichment, sutra injection, Sankalpa injection, and post-run scoring built in.
+Four `LlmAgent` instances (Matsya, Rama, Krishna, Parashurama) plus the `_make_avatar_tool` function that wraps each one as a callable FunctionTool with memory enrichment, sutra injection, Sankalpa injection, and post-run scoring built in.
 
 ```
 Before running (injection order — outermost to innermost):
@@ -245,18 +243,14 @@ so all Narad-level and avatar-level trace events land in the same `~/.narad/sess
 Token usage is tracked per avatar run and written to `avatar_done` trace events.
 Phase transitions are logged to `phase_transition` trace events regardless of ADK session state.
 
-The four canonical agents and their tool sets:
+The four canonical agents and their domains (code-verified tool rosters live in **AGENTS.md** — the single source of truth, kept in sync with `FunctionTool` registrations):
 
-| Avatāra | Tools |
-|---------|-------|
-| Matsya | `web_search`, `browse_url`, `http_request`, `browser_screenshot`, `browser_fill`, `browser_upload_and_submit`, `search_arxiv`, `search_papers`, `search_hf_papers`, `search_hf_models`, `query_deepwiki`, `query_rxnorm`, `run_shell` |
-| Varaha | `extract_document`, `write_script`, `run_shell` |
-| Narasimha | `read_file` |
-| Rama | `get_upcoming_events`, `create_event`, `get_spending`, `get_budget_status`, `get_financial_context`, `get_recurring_expenses`, `get_goals` |
-| Krishna | `compose_email`, `send_email`, `create_webpage`, `create_video`, `create_document`, `list_shadcn_components`, `fetch_shadcn_component`, `rank_ui_templates` |
-| Buddha | `get_financial_context`, `get_spending`, `get_net_worth`, `get_recurring_expenses` |
-| Parashurama | `create_webpage`, `create_document`, `read_file`, `write_script`, `run_shell`, `schedule_cron`, `list_cron_jobs`, `remove_cron_job`, `query_database`, `list_shadcn_components`, `fetch_shadcn_component`, `rank_ui_templates` |
-| Vamana | `scan_directory`, `move_to_trash`, `organize_by_type`, `find_large_files`, `get_disk_info`, `import_csv`, `sync_gmail`, `get_spending`, `get_budget_status`, `get_financial_context`, `get_recurring_expenses`, `get_net_worth`, `get_goals`, `set_budget`, `add_goal`, `update_goal_progress`, `add_balance_snapshot`, `categorize_transaction`, `get_spend_patterns`, `log_symptom`, `set_medication_reminder`, `get_health_log`, `query_rxnorm` |
+| Avatāra | Domain | Roster size |
+|---------|--------|-------------|
+| Matsya | Web search, browser automation, academic/ML paper search, document extraction, filesystem hygiene, 30-day social listening | 19 tools |
+| Rama | Calendar, finance (budgets, goals, imports, spend patterns), health logging, RxNorm | 20 tools |
+| Krishna | Email, webpages/decks, video (Veo → moviepy cascade), image generation, documents, shadcn/UI templates | 11 tools |
+| Parashurama | Code, shell, SQL, cron, documents, webpages, shadcn/UI | 11 tools |
 
 ---
 
@@ -298,7 +292,7 @@ A vector database layer that stores every avatāra output and retrieves semantic
 
 1. After every avatāra run, `remember()` runs a deduplication check (L2 < 0.10 → skip), then embeds the task text (Gemini `text-embedding-005`, 768 dimensions by default; OpenAI `text-embedding-3-small` fallback via `SMRITI_EMBEDDING_MODEL=openai`) and writes to LanceDB and the FTS5 SQLite index.
 2. At the start of every run, `recall()` embeds the current task, runs ANN search, applies the Vismriti decay filter (`max_age_days`, default 90), discards records with L2 distance > 1.3, and prepends survivors as a `[MEMORY]` block.
-3. `recall_exact(query, user_id)` provides FTS5 BM25 exact-match search — used by Parashurama (code snippets) and Narasimha (error messages).
+3. `recall_exact(query, user_id)` provides FTS5 BM25 exact-match search — used by Parashurama (code snippets, error messages).
 
 **Data persisted:** `~/.narad/memory/` (LanceDB), `~/.narad/memory_fts.db` (SQLite FTS5).
 
@@ -331,7 +325,7 @@ A structured logger that writes a JSONL trace file per session. Exposed via `GET
 
 **Sanskrit root:** *Tapas* (तपस्) — disciplined austerity that generates transformative power.
 
-After every avatāra run (async, never blocking the user), Tapas scores the response using an avatāra-specific rubric (Parashurama: penalized for skeleton code; Narasimha: penalized for fixes without root-cause diagnosis; Matsya: penalized for uncited claims). Deduplicates against existing sutras by batch cosine similarity (threshold 0.92).
+After every avatāra run (async, never blocking the user), Tapas scores the response using an avatāra-specific rubric (Parashurama: penalized for skeleton code and fixes without root-cause diagnosis; Matsya: penalized for uncited claims). Deduplicates against existing sutras by batch cosine similarity (threshold 0.92).
 
 Phase 10 updates:
 - Promotion threshold raised to **0.80** (from 0.75).
@@ -395,20 +389,18 @@ Returns `output_files` — a list of paths to generated artifacts (`.mp4`, `.wav
 
 ---
 
-### `skills/video_skill.py` and `skills/audio_skill.py` — Media Generation
+### `skills/video_skill.py` — Media Generation
 **Location:** `phase-7/skills/`
 
-`create_video(code, style)` — Parashurama writes moviepy + Pillow code; the executor runs it; returns a playable URL. Styles: `slides`, `code_walkthrough`, `chart`.
+`create_video(code)` — Krishna writes moviepy v2 + Pillow code; the executor runs it; returns a playable URL. This is the fallback step of the 2-step video cascade (`generate_video_clip` Veo first). Error messages are capped at 300 chars with a "one retry only" instruction to prevent context explosion.
 
-`create_audio(code, type)` — Parashurama writes numpy + scipy code; executor runs it; returns a URL. Types: `music`, `ambience`, `beeps`.
-
-Error messages are capped at 300 chars with a "one retry only" instruction to prevent context explosion.
+`audio_skill` was removed in the M0 cut (2026-07-04) — no first-class audio tool remains.
 
 ---
 
-### Phase 8 Skills — All Eight Avatāras Fully Tooled
+### Phase 8 Skills — All Four Avatāras Fully Tooled
 
-**`local_skill.py` → Vamana**
+**`local_skill.py` → Matsya**
 Five tools: `scan_directory`, `move_to_trash` (dry_run=True default), `organize_by_type` (dry_run=True default), `find_large_files`, `get_disk_info`. Files go to macOS Trash (recoverable), never permanently deleted. Blocked on system paths.
 
 **`shell_skill.py` → Parashurama**
@@ -423,8 +415,8 @@ Five tools: `scan_directory`, `move_to_trash` (dry_run=True default), `organize_
 **`calendar_skill.py` → Rama**
 `get_upcoming_events` (read-only) and `create_event(dry_run=True)` — CalDAV via `CALDAV_URL`/`CALDAV_USERNAME`/`CALDAV_PASSWORD`. Never creates without user confirmation.
 
-**`docling_skill.py` → Varaha**
-`extract_document(file_path)` — IBM Docling extracts text, tables, and structure from PDF, DOCX, PPTX, HTML. Returns Markdown with preserved table structure.
+**`docling_skill.py` → Matsya**
+`extract_document(file_path)` — pymupdf (PDF) + python-docx (Word) + plain-text read by default; set `NARAD_USE_DOCLING=1` to opt into IBM Docling for richer table/layout extraction.
 
 **`browser_skill.py` → Matsya** (read-only)
 `browse_url(url, extract)` — Playwright headless Chromium for JS-rendered SPAs. Text, structured, or links extraction modes.
@@ -446,20 +438,19 @@ Three functions with a screenshot-first safety model:
 `KanbanBoard` is a SQLite-backed step tracker at `~/.narad/kanban.db`. Every `PlanStep` from Rama is upserted on plan creation. `_make_avatar_tool` calls `transition()` as avatāras start and finish: `backlog → in_progress → review → done | blocked`. `GET /kanban/{session_id}` and `GET /kanban` (active sessions). `kanban_update` SSE events update `KanbanBoardView` in the DarshanDashboard Kanban tab.
 
 **`andon.py` — Jaagruti (quality gate)**
-`AndonGate.check(result_text, latency_ms, retries_exhausted, tool_error)` is a pure function returning `(should_fire, reason)`. Four trigger classes: `EMPTY_RESULT` (< 80 chars), `TIMEOUT` (> 120 000 ms), `CONNECTION` (retries exhausted), `TOOL_ERROR`. When triggered: `log_andon()` → `andon_alert` SSE → fire-and-forget Narasimha `ANDON_DIAGNOSTIC` → `andon_diagnosis` SSE. `GET /andon/log`, `GET /andon/stats`. Env: `ANDON_MIN_LENGTH`, `ANDON_LATENCY_MS`.
+`AndonGate.check(result_text, latency_ms, retries_exhausted, tool_error)` is a pure function returning `(should_fire, reason)`. Four trigger classes: `EMPTY_RESULT` (< 80 chars), `TIMEOUT` (> 120 000 ms), `CONNECTION` (retries exhausted), `TOOL_ERROR`. When triggered: `log_andon()` → `andon_alert` SSE → fire-and-forget Parashurama `ANDON_DIAGNOSTIC` → `andon_diagnosis` SSE. `GET /andon/log`, `GET /andon/stats`. Env: `ANDON_MIN_LENGTH`, `ANDON_LATENCY_MS`.
 
 **`narad_5s.py` — Shuddhi (filesystem health)**
 `NaradShuddhi` implements Toyota 5S over `~/.narad/`: Sort (identify stale files) → Set-in-Order (write `manifest.json`) → Shine (delete stale, log to `5s_shine_log.jsonl`) → Standardize (write `5s_policy.json`) → Sustain (run full cycle, emit Yantra `shuddhi_run`). `report()` returns `5s_score` (0.0–1.0). `_daily_shuddhi_loop` in `server.py` runs `sustain()` every 24 h. `POST /5s/shine?dry_run=true` · `GET /5s/report`.
 
 **DMAIC (Viveka) — `POST /quality/report`**
-Assembles 7-day metrics (andon_stats, andon_log, session count) and passes to Buddha with a structured DMAIC prompt. Report saved to `~/.narad/wiki/{user_id}/quality/DMAIC_{date}.md`. Cached for `GET /quality/report`.
+Assembles 7-day metrics (andon_stats, andon_log, session count) and passes to Parashurama with a structured DMAIC prompt. Report saved to `~/.narad/wiki/{user_id}/quality/DMAIC_{date}.md`. Cached for `GET /quality/report`.
 
 ---
 
-### Phase 14 — Notion Sync Bridge
+### Phase 14 — Notion Sync Bridge (removed)
 
-**`notion_sync.py` — NotionSync**
-`NotionSync` pushes Narad's local data to a user's Notion workspace across five databases (Memory, Kanban, Andon, Sutras, Wiki). All push methods are fire-and-forget — they never block avatar execution. Error capture: failures write to `~/.narad/notion_errors.jsonl` and log at WARNING level. `get_status()` (called by `GET /notion/status`) returns `sync_degraded: true` and up to 5 recent errors when failures have occurred. Setup: `POST /notion/setup` · bulk resync: `POST /notion/sync`.
+Cut in M0 (2026-07-04). The push was one-way (never bidirectional as previously claimed) and failed silently. `notion_sync.py`, the `/notion/*` endpoints, and all fire-and-forget hooks were removed.
 
 ---
 
@@ -550,7 +541,7 @@ USER TYPES A MESSAGE AND PRESSES SEND
 [10] avatar_agents.py _run(task)
     → Smriti v2.get_project_context(user_id, task) → [PROJECT CONTEXT] block (if project session)
     → Smriti.recall(task, user_id)             → [MEMORY] block (vector ANN)
-    → if Parashurama/Narasimha: recall_exact() → [EXACT-MATCH MEMORY] block (FTS5 BM25)
+    → if Parashurama: recall_exact()           → [EXACT-MATCH MEMORY] block (FTS5 BM25)
     → SutraEngine.get_active_sutras()          → [LEARNED PATTERNS] block
     → Sankalpa.get_active_sankalpas()          → [USER STYLE] block
     enriched_task = [PROJECT CONTEXT] + [LEARNED PATTERNS] + [EXACT-MATCH MEMORY] + [MEMORY] + task
@@ -561,13 +552,12 @@ USER TYPES A MESSAGE AND PRESSES SEND
 
 [11] Post-run:
     → Smriti.remember(task, result) → dedup check → LanceDB + FTS5
-    → AndonGate.check(result, latency_ms) → if fires: andon_alert SSE + fire-and-forget Narasimha diagnosis
+    → AndonGate.check(result, latency_ms) → if fires: andon_alert SSE + fire-and-forget Parashurama diagnosis
     → KanbanBoard.transition(step) → kanban_update SSE event
     → Tapas.process_session() (async) → DeepSeek R1 judge (2-retry backoff) → CAI critique → sutra → karma
       (if judge unreachable after retries → tapas_skipped karma event, session continues)
     → Sankalpa.observe_session() (async) → style update
     → Yantra span.finish(result, tokens) → error_type on exception → ~/.narad/sessions/{session_id}.jsonl
-    → NotionSync.push_*() (fire-and-forget) → notion_errors.jsonl on failure
 
 [12] server.py
     → yields: avatar_done event
@@ -617,14 +607,10 @@ USER TYPES A MESSAGE AND PRESSES SEND
 | System Name | Literal Sanskrit Meaning | Technical Function |
 |-------------|--------------------------|-------------------|
 | **Narad** | The divine messenger-kalakar who holds the Mahati | Router + multi-turn supervisor: reads history, routes to avatāras, synthesizes outputs |
-| **Matsya** | Fish (retrieved submerged scriptures from the flood) | Research, retrieval, API calls, and interactive form filling |
-| **Varaha** | Boar (retrieved the earth from beneath the cosmic ocean) | Document extraction: deep reading of user-provided files |
-| **Narasimha** | Man-lion (emerged to destroy a specific unstoppable threat) | Debugging: root cause diagnosis for broken or misbehaving systems |
-| **Rama** | The righteous king who accomplished his mission step by step | Structured planning: SOPs, checklists, runbooks, calendar management |
+| **Matsya** | Fish (retrieved submerged scriptures from the flood) | Research, retrieval, document extraction, API calls, interactive form filling, filesystem hygiene — absorbed Varaha (documents), Buddha (critical analysis), Vamana (filesystem) in the 4-avatar consolidation |
+| **Rama** | The righteous king who accomplished his mission step by step | Structured planning: SOPs, checklists, runbooks, calendar management, finance + health data — absorbed Vamana's finance/health tooling |
 | **Krishna** | The diplomat, storyteller, teacher, and communicator of the Mahabharata | All human-facing content end-to-end: email, teaching (multi-phase Socratic), HTML slide decks, video creation, mental health support, health guidance, finance advisory |
-| **Buddha** | The enlightened one who questioned everything | Critical analysis: tradeoffs, red-teaming, assumption audits |
-| **Parashurama** | The warrior who cleared and rebuilt | Code, shell execution, engineering artifacts, SQL — no content/media production |
-| **Vamana** | The dwarf who measured the three worlds in three steps | Local filesystem: precise, scoped, recoverable actions on the user's machine |
+| **Parashurama** | The warrior who cleared and rebuilt | Code, shell execution, engineering artifacts, SQL, debugging/root-cause diagnosis (absorbed Narasimha) — no content/media production |
 | **Smriti** | "That which is remembered" | Vector-DB long-term memory across sessions |
 | **Tapas** | Disciplined austerity that generates transformative power | Self-evolution: scores outputs, promotes high-quality ones to sutras |
 | **Sutra** | Thread, aphorism — minimum representation of maximum wisdom | Promoted learned patterns injected into future runs |
@@ -635,7 +621,7 @@ USER TYPES A MESSAGE AND PRESSES SEND
 | **Karyakrama** | Schedule, programme | Kanban step lifecycle tracker — maps Rama plan steps to Kanban board columns |
 | **Jaagruti** | Awakening, vigilance | Andon quality gate — fires on empty result, timeout, connection failure, or tool error |
 | **Shuddhi** | Purification | 5S filesystem health — Sort/Set-in-Order/Shine/Standardize/Sustain over `~/.narad/` |
-| **Viveka** | Discernment | DMAIC quality reporting — Buddha synthesizes 7-day metrics into Define/Measure/Analyze/Improve/Control |
+| **Viveka** | Discernment | DMAIC quality reporting — Parashurama synthesizes 7-day metrics into Define/Measure/Analyze/Improve/Control |
 | **Avatāra** | Descent — a specialized form for a specific purpose | What Silicon Valley calls "agents" — the concept, not the product name |
 
 ---
@@ -654,7 +640,7 @@ Most multi-agent systems fail because they are built bottom-up: you have an LLM,
 |---|---|
 | Product name | **Narad** — the sage, the kalakar, the router |
 | Agent concept | **Avatāra** — the Sanskrit word for what Silicon Valley calls "agents" |
-| Logo | **Mahati veena with 8 strings** — one per avatāra, bindu for Narad |
+| Logo | **Mahati veena** — one string per avatāra, bindu for Narad |
 | Routing model default | **DeepSeek V3** (93% routing accuracy) |
 | Memory | **Local LanceDB + project wiki** — on user's disk, never transmitted |
 | Self-evolution | **Karma-log-gated** — auto-applied with 24h cooldown, always reversible |
@@ -662,5 +648,5 @@ Most multi-agent systems fail because they are built bottom-up: you have an LLM,
 
 ---
 
-*Document version: Pre-Phase-15 hardening complete, 2026-05-19*
-*Architecture current as of: Phase 14 (Notion Sync) + Pre-Phase-15 production hardening — Phase 13 Six Sigma layer (Kanban/Andon/5S/DMAIC + DarshanDashboard overhaul); Phase 14 Notion bidirectional sync (`notion_sync.py`, 5 databases, `notion_errors.jsonl` error capture); defensive `shell_skill` import fallback; FTS5 `recall_exact()` routed to Parashurama/Narasimha; Smriti v2 `get_project_context()` wired into pipeline; embedding `@lru_cache(128)` on `_embed()`; Tapas 2-retry exponential backoff + `tapas_skipped` karma event; `error_type` field on all Yantra error events; shared frontend constants (`avatara-constants.ts`, `format-time.ts`); clear chat, sutra confirmation, bulk accept, bounded `stepEvents` (200), native artifact side panel. All data canonical at `~/.narad/`.*
+*Document version: M0 truth-reconciliation pass, 2026-07-04*
+*Architecture current as of: 4-avatar consolidation + M0 cut (Notion sync, webwright, ml-intern, hyperframes, audio, remotion removed; docling now opt-in via `NARAD_USE_DOCLING=1`) — Phase 13 Six Sigma layer (Kanban/Andon/5S/DMAIC + DarshanDashboard overhaul); defensive `shell_skill` import fallback; FTS5 `recall_exact()` routed to Parashurama; Smriti v2 `get_project_context()` wired into pipeline; embedding `@lru_cache(128)` on `_embed()`; Tapas 2-retry exponential backoff + `tapas_skipped` karma event; `error_type` classification on all Yantra error events; shared frontend constants (`avatara-constants.ts`, `format-time.ts`); clear chat, sutra confirmation, bulk accept, bounded `stepEvents` (200), native artifact side panel. All data canonical at `~/.narad/`. See AGENTS.md for the code-verified tool rosters and AUDIT-AND-ROADMAP.md for the forward plan.*
