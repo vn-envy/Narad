@@ -76,22 +76,6 @@ def log_andon(
     with open(ANDON_LOG_PATH, "a", encoding="utf-8") as f:
         f.write(json.dumps(event) + "\n")
 
-    # Notion sync hook (fire-and-forget)
-    try:
-        import os as _os
-        if _os.environ.get("NOTION_API_TOKEN"):
-            import asyncio as _ao
-
-            from notion_sync import NotionSync as _NS  # type: ignore
-            _ns = _NS()
-            _ao.get_event_loop().call_soon(lambda _e=event:
-                _ao.ensure_future(_ns.push_andon(
-                    _e["id"], _e["avatar"], _e["trigger"], _e["session_id"],
-                    _e["task_preview"], _e.get("result_preview", ""), _e["ts"]
-                )))
-    except Exception:
-        pass
-
 
 def load_andon_log(limit: int = 50) -> list[dict]:
     """Return the last `limit` andon events, newest first."""

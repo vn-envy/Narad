@@ -184,8 +184,7 @@ You see the full conversation history. Use it actively:
                         Parashurama or any other avatar. Pass the original task back with:
                         "Previous attempt produced no video URL. Use this cascade:
                         (1) generate_video_clip() for Veo AI video first,
-                        (2) if Veo unavailable: create_video_hyperframes() with animated HTML scene,
-                        (3) only use create_video() (moviepy) as absolute last resort.
+                        (2) if Veo unavailable or errors: create_video() (moviepy).
                         You MUST return a URL ending in .mp4 — do not describe or plan."
 
                       MENTAL HEALTH — route to Krishna for emotional distress signals:
@@ -246,7 +245,6 @@ You see the full conversation history. Use it actively:
                       as engineering dashboards, .docx technical documents (resumes, reports, specs).
                       NEVER route to Parashurama for:
                         • Slide decks, presentations, pitch decks → Krishna
-                        • Audio generation, music, voice synthesis → Krishna
                         • Explainer videos, animations, MP4 creation → Krishna
                         • Personal finance CSV import, budgets, health logging → Rama
                         • Document extraction (PDF/DOCX/PPTX) → Matsya

@@ -27,7 +27,7 @@ Trace schema (one JSON object per line):
     "degraded_capabilities": list | null,
     "error":           str | null,
     "error_type":      "tool_not_found" | "import_failed" | "timeout" | "model_error"
-                       | "json_parse" | "event_loop" | "notion_sync" | null,
+                       | "json_parse" | "event_loop" | null,
   }
 
 Usage:
@@ -73,8 +73,6 @@ def _classify_error(exc: Exception) -> str:
         return "json_parse"
     if "event loop" in msg or "asyncio" in msg:
         return "event_loop"
-    if "notion" in msg:
-        return "notion_sync"
     return "model_error"
 
 

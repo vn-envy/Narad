@@ -33,11 +33,6 @@ try:
     from model_registry import context_policy_payload as _context_policy_payload
 except Exception:
     _context_policy_payload = None
-try:
-    from ml_intern_skill import inspect_ml_intern_status as _inspect_ml_intern_status
-except Exception:
-    _inspect_ml_intern_status = None
-
 _CONTRACT_PATH = _ROOT / "contracts" / "agent-contracts.json"
 _BUILD_PHASE = "pre-15"
 _BUILD_LABEL = "narad-4-agent-cloud"
@@ -159,11 +154,6 @@ def provider_status() -> dict[str, dict[str, Any]]:
             "available": _env_present("TAVILY_API_KEY"),
             "kind": "cloud",
             "reason": None if _env_present("TAVILY_API_KEY") else "TAVILY_API_KEY not set",
-        },
-        "notion": {
-            "available": _env_present("NOTION_API_TOKEN"),
-            "kind": "cloud",
-            "reason": None if _env_present("NOTION_API_TOKEN") else "NOTION_API_TOKEN not set",
         },
         "smtp": {
             "available": _env_present("EMAIL_ADDRESS") and _env_present("EMAIL_APP_PASSWORD"),
@@ -357,19 +347,6 @@ def collect_runtime_contract() -> dict[str, Any]:
     status = "healthy" if not any(issue.level == "error" for issue in issues) and not issues else "degraded"
     agent_status = agent_runtime_status()
     degraded_count = sum(len(agent["degraded_tool_families"]) for agent in agent_status)
-    ml_intern_status = (
-        _inspect_ml_intern_status()
-        if _inspect_ml_intern_status is not None
-        else {
-            "available": False,
-            "ready": False,
-            "preview_only": False,
-            "reason": "ml_intern_skill unavailable",
-            "binary": None,
-            "warnings": [],
-            "env_requirements": [],
-        }
-    )
 
     return {
         "status": status,
@@ -395,13 +372,6 @@ def collect_runtime_contract() -> dict[str, Any]:
         "issues": [issue.to_dict() for issue in issues],
         "issue_count": len(issues),
         "degraded_capability_count": degraded_count,
-        "ml_intern": {
-            "available": ml_intern_status["available"],
-            "ready": ml_intern_status["ready"],
-            "preview_only": ml_intern_status["preview_only"],
-            "reason": ml_intern_status.get("reason"),
-            "binary": ml_intern_status.get("binary"),
-        },
         "context_policy": (
             _context_policy_payload(AVATAR_MODELS)
             if _context_policy_payload is not None

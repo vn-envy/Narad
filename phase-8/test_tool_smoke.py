@@ -8,9 +8,7 @@ import email_skill
 import finance_skill
 import http_skill
 import local_skill
-import ml_intern_skill
 import shell_skill
-import webwright_skill
 
 
 class ToolSmokeTests(unittest.TestCase):
@@ -147,33 +145,6 @@ class ToolSmokeTests(unittest.TestCase):
         self.assertIn("coverage_gaps", payload)
         self.assertTrue(payload["citations"])
         self.assertIn("github", payload["source_breakdown"])
-
-    def test_web_task_refuses_irreversible_actions(self) -> None:
-        payload = webwright_skill.web_task("Submit this job application for me")
-        self.assertEqual(payload["status"], "needs_confirmation")
-        self.assertTrue(payload["requires_confirmation"])
-
-    def test_ml_intern_preview_returns_command(self) -> None:
-        with patch.object(ml_intern_skill, "_find_ml_intern", return_value="/usr/local/bin/ml-intern"):
-            payload = ml_intern_skill.run_ml_experiment(
-                "Train a compact classifier on this dataset",
-                model="Qwen/Qwen3-Coder-30B-A3B-Instruct",
-                dry_run=True,
-            )
-        self.assertEqual(payload["status"], "preview")
-        self.assertTrue(payload["requires_confirmation"])
-        self.assertIn("ml-intern", payload["command"])
-        self.assertIn("--model", payload["command"])
-        self.assertIn("--max-iterations", payload["command"])
-        self.assertIn("readiness", payload)
-
-    def test_ml_intern_reports_preview_only_without_hf_token(self) -> None:
-        with patch.object(ml_intern_skill, "_find_ml_intern", return_value="/usr/local/bin/ml-intern"), patch.dict("os.environ", {}, clear=True):
-            status = ml_intern_skill.inspect_ml_intern_status(model="Qwen/Qwen3-Coder-30B-A3B-Instruct")
-        self.assertTrue(status["available"])
-        self.assertFalse(status["ready"])
-        self.assertTrue(status["preview_only"])
-        self.assertIn("HF_TOKEN", " ".join(status["env_requirements"]))
 
 
 if __name__ == "__main__":

@@ -237,7 +237,7 @@ SKILLS: dict[str, list[str]] = {
         "brief",  # Topic, duration, scene count, style, platform
         "script", # Scene-by-scene content plan
         "design_redesign", # Refine the visual direction before rendering
-        "build",  # Veo → HyperFrames → moviepy fallback cascade
+        "build",  # Veo → moviepy fallback cascade
     ],
     "dogfood_ui": [
         "scope",       # Define the UI or flow to inspect

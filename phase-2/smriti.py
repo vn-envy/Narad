@@ -333,17 +333,5 @@ def remember(task: str, result: str, avatar: str, user_id: str) -> None:
             except Exception:
                 pass
 
-        # Notion sync hook (fire-and-forget, non-blocking)
-        try:
-            if os.environ.get("NOTION_API_TOKEN"):
-                import asyncio as _ao
-
-                from notion_sync import NotionSync as _NSynth  # type: ignore
-                _ns_inst = _NSynth()
-                _ao.get_event_loop().call_soon(lambda _r=row_id, _u=user_id, _a=avatar, _m=memory_text, _c=created_at:
-                    _ao.ensure_future(_ns_inst.push_memory(_r, _u, _a, _m, _c)))
-        except Exception:
-            pass
-
     except Exception:
         pass

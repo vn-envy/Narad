@@ -26,10 +26,8 @@ class RuntimeContractTests(unittest.TestCase):
         self.assertIn("providers", payload)
         self.assertIn("tool_families", payload)
         self.assertIn("startup_checks", payload)
-        self.assertIn("ml_intern", payload)
         self.assertIn("context_policy", payload)
         self.assertIn("profiles", payload["context_policy"])
-        self.assertIn("preview_only", payload["ml_intern"])
         for agent in payload["agents"]:
             self.assertIn("discipline", agent)
             self.assertIn("degraded_tool_families", agent)

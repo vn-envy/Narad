@@ -1,18 +1,17 @@
 """
-Matsya document extraction skill — IBM Docling.
+Matsya document extraction skill.
 
-Replaces raw PyMuPDF/text extraction with Docling, which correctly handles:
-  - Multi-column PDF layouts
-  - Tables (preserved as Markdown tables)
-  - Figures and captions
-  - Headers, footers, footnotes
-  - Word (.docx), PowerPoint (.pptx), HTML, Markdown, and plain text
-
-Falls back gracefully to basic text extraction if Docling is not installed.
+Default engines are lightweight: PyMuPDF for PDFs, python-docx for Word,
+plain read for text/HTML/Markdown. IBM Docling (heavy: torch + layout models)
+is OPT-IN via NARAD_USE_DOCLING=1 — it adds multi-column layout, table
+structure, and figure/caption fidelity when you need it.
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
+
+_USE_DOCLING = os.environ.get("NARAD_USE_DOCLING", "").strip().lower() in {"1", "true", "yes"}
 
 
 def extract_document(file_path: str) -> dict:
@@ -63,46 +62,47 @@ def extract_document(file_path: str) -> dict:
             "content": "",
         }
 
-    # Try Docling first (full fidelity)
-    try:
-        from docling.document_converter import DocumentConverter
+    # Docling (heavy, full fidelity) — opt-in only via NARAD_USE_DOCLING=1
+    if _USE_DOCLING:
+        try:
+            from docling.document_converter import DocumentConverter
 
-        converter = DocumentConverter()
-        doc_result = converter.convert(str(p))
-        markdown = doc_result.document.export_to_markdown()
+            converter = DocumentConverter()
+            doc_result = converter.convert(str(p))
+            markdown = doc_result.document.export_to_markdown()
 
-        # Count tables (markdown tables start with a line containing |)
-        table_count = sum(
-            1 for i, ln in enumerate(markdown.splitlines())
-            if ln.strip().startswith("|") and (
-                i == 0 or not markdown.splitlines()[i - 1].strip().startswith("|")
+            # Count tables (markdown tables start with a line containing |)
+            table_count = sum(
+                1 for i, ln in enumerate(markdown.splitlines())
+                if ln.strip().startswith("|") and (
+                    i == 0 or not markdown.splitlines()[i - 1].strip().startswith("|")
+                )
             )
-        )
 
-        return {
-            "status":  "ok",
-            "path":    str(p),
-            "content": markdown,
-            "tables":  table_count,
-            "pages":   0,
-            "engine":  "docling",
-            "message": (
-                f"Extracted {len(markdown):,} characters from {p.name}. "
-                f"{table_count} table(s) found."
-            ),
-        }
+            return {
+                "status":  "ok",
+                "path":    str(p),
+                "content": markdown,
+                "tables":  table_count,
+                "pages":   0,
+                "engine":  "docling",
+                "message": (
+                    f"Extracted {len(markdown):,} characters from {p.name}. "
+                    f"{table_count} table(s) found."
+                ),
+            }
 
-    except ImportError:
-        pass  # fall through to basic extraction
+        except ImportError:
+            pass  # docling requested but not installed — fall through to light engines
 
-    except Exception as exc:
-        return {
-            "status":  "error",
-            "message": f"Docling extraction failed: {exc}",
-            "content": "",
-        }
+        except Exception as exc:
+            return {
+                "status":  "error",
+                "message": f"Docling extraction failed: {exc}",
+                "content": "",
+            }
 
-    # Fallback: basic PDF extraction via PyMuPDF, plain read for text files
+    # Default: PDF extraction via PyMuPDF
     if p.suffix.lower() == ".pdf":
         try:
             import fitz  # PyMuPDF
@@ -119,14 +119,47 @@ def extract_document(file_path: str) -> dict:
                 "content": content,
                 "tables":  0,
                 "pages":   len(pages_text),
-                "engine":  "pymupdf_fallback",
+                "engine":  "pymupdf",
                 "message": (
                     f"Extracted {len(content):,} characters from {p.name} via PyMuPDF. "
-                    "Install docling for better table and layout support."
+                    "Set NARAD_USE_DOCLING=1 for richer table/layout extraction."
                 ),
             }
         except ImportError:
             pass
+
+    # Word documents via python-docx (lightweight)
+    if p.suffix.lower() in {".docx", ".doc"}:
+        try:
+            import docx  # python-docx
+
+            document = docx.Document(str(p))
+            parts: list[str] = [para.text for para in document.paragraphs]
+            table_count = len(document.tables)
+            for table in document.tables:
+                for row in table.rows:
+                    parts.append(" | ".join(cell.text.strip() for cell in row.cells))
+            content = "\n\n".join(part for part in parts if part.strip())
+            return {
+                "status":  "ok",
+                "path":    str(p),
+                "content": content,
+                "tables":  table_count,
+                "pages":   0,
+                "engine":  "python-docx",
+                "message": (
+                    f"Extracted {len(content):,} characters from {p.name} via python-docx. "
+                    f"{table_count} table(s) found."
+                ),
+            }
+        except ImportError:
+            pass
+        except Exception as exc:
+            return {
+                "status":  "error",
+                "message": f"python-docx extraction failed: {exc}",
+                "content": "",
+            }
 
     # Last resort: plain text read
     if p.suffix.lower() in {".txt", ".md", ".html", ".htm", ".rtf"}:
@@ -154,8 +187,8 @@ def extract_document(file_path: str) -> dict:
     return {
         "status":  "error",
         "message": (
-            "No extraction engine available. "
-            "Install docling: pip install docling"
+            f"No extraction engine available for {p.suffix}. "
+            "Install pymupdf/python-docx, or set NARAD_USE_DOCLING=1 with docling installed."
         ),
         "content": "",
     }

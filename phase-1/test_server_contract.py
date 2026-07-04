@@ -40,7 +40,6 @@ class ServerContractTests(unittest.TestCase):
             [agent["name"] for agent in capabilities_payload["agents"]],
             ["Matsya", "Rama", "Krishna", "Parashurama"],
         )
-        self.assertIn("ml_intern", capabilities_payload)
         self.assertIn("context_policy", capabilities_payload)
         self.assertIn("fallback_graph", capabilities_payload["context_policy"])
         self.assertIn("memory_tiers", capabilities_payload)

@@ -3,9 +3,10 @@
  *   fish   = Matsya (samudra lapis)     sun   = Rama (surya gold)
  *   peacock = Krishna (morpankh teal)   axe   = Parashurama (rakta crimson)
  * with lotus + bindu accents in sindoor/haldi (Narad's realm).
- * All colours from design tokens; scroll animation honours reduced-motion.
+ * All colours from design tokens; scroll animation honours reduced-motion
+ * via a pure-CSS keyframe (no JS animation library).
  */
-import { motion, useReducedMotion } from 'motion/react'
+import type { CSSProperties } from 'react'
 
 interface MadhubaniBorderProps {
   className?: string
@@ -121,7 +122,6 @@ export function MadhubaniBorder({
   const scale = h / baseHeight
   const scaledTileWidth = tileWidth * scale
   const viewportWidth = scaledTileWidth * 2
-  const reduceMotion = useReducedMotion()
 
   return (
     <div
@@ -136,15 +136,26 @@ export function MadhubaniBorder({
         xmlns="http://www.w3.org/2000/svg"
         style={{ display: 'block' }}
       >
-        <motion.g
-          animate={reduceMotion ? undefined : { x: [0, -scaledTileWidth] }}
-          transition={{ duration: 18, ease: 'linear', repeat: Infinity }}
-          transform={`scale(${scale})`}
+        <style>{`
+          @keyframes madhubani-scroll {
+            from { transform: translateX(0); }
+            to   { transform: translateX(var(--madhubani-shift)); }
+          }
+          .madhubani-track { animation: madhubani-scroll 18s linear infinite; }
+          @media (prefers-reduced-motion: reduce) {
+            .madhubani-track { animation: none; }
+          }
+        `}</style>
+        <g
+          className="madhubani-track"
+          style={{ '--madhubani-shift': `${-scaledTileWidth}px` } as CSSProperties}
         >
-          <Tile x={0} h={baseHeight} />
-          <Tile x={tileWidth} h={baseHeight} />
-          <Tile x={tileWidth * 2} h={baseHeight} />
-        </motion.g>
+          <g transform={`scale(${scale})`}>
+            <Tile x={0} h={baseHeight} />
+            <Tile x={tileWidth} h={baseHeight} />
+            <Tile x={tileWidth * 2} h={baseHeight} />
+          </g>
+        </g>
       </svg>
     </div>
   )

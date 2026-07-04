@@ -146,7 +146,7 @@ def _check_safety(code: str) -> str | None:
 # ── Environment scrubbing ──────────────────────────────────────────────────────
 
 # Only these names cross into the subprocess. Everything else — DEEPSEEK_API_KEY,
-# NOTION_API_TOKEN, GOOGLE_*, and any future secret — stays in the parent.
+# GOOGLE_*, and any future secret — stays in the parent.
 _ENV_PASSTHROUGH = {
     "PATH", "HOME", "USER", "SHELL", "LANG", "LC_ALL", "LC_CTYPE", "TERM",
     "TMPDIR", "PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV",

@@ -55,14 +55,6 @@ export interface CapabilityFlag {
   kind?: string
 }
 
-export interface MlInternStatus {
-  available: boolean
-  ready: boolean
-  preview_only: boolean
-  reason?: string | null
-  binary?: string | null
-}
-
 export interface ContextPolicyProfile {
   model: string
   provider: string
@@ -157,7 +149,6 @@ export interface RuntimeCapabilities {
   issues: RuntimeIssue[]
   issue_count: number
   degraded_capability_count: number
-  ml_intern?: MlInternStatus
   context_policy?: ContextPolicy
   memory_tiers?: MemoryTierPolicy
 }

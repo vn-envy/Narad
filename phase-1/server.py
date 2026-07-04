@@ -1802,26 +1802,6 @@ async def get_quality_report():
     return _last_quality_report
 
 
-# ── Notion sync endpoints ─────────────────────────────────────────────────────
-
-@app.get("/notion/status")
-async def notion_status():
-    from notion_sync import NotionSync
-    return NotionSync().get_status()
-
-
-@app.post("/notion/setup")
-async def notion_setup(parent_page_id: str):
-    from notion_sync import NotionSync
-    return NotionSync().setup_workspace(parent_page_id)
-
-
-@app.post("/notion/sync")
-async def notion_sync_endpoint(user_id: str = "default"):
-    from notion_sync import NotionSync
-    return await NotionSync().sync_all(user_id)
-
-
 # ── Cultural-core endpoints ───────────────────────────────────────────────────
 
 @app.post("/swapna/run")

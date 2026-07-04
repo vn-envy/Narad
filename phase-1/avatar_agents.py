@@ -1074,8 +1074,6 @@ from docling_skill import extract_document as _extract_document  # noqa: E402
 from http_skill import http_request as _http_request  # noqa: E402
 from http_skill import search_last30days as _search_last30days
 from matsya_search import web_search as _web_search  # noqa: E402
-from ml_intern_skill import run_ml_experiment as _run_ml_experiment  # noqa: E402
-from webwright_skill import web_task as _web_task  # noqa: E402
 
 # ── Research tools (phase-2) — graceful fallback if unavailable ───────────────
 try:
@@ -1305,31 +1303,9 @@ browser_upload_and_submit(url, fields, file_uploads) — fill + upload + submit.
 4a. If no file upload: browser_fill(url, fields, dry_run=False)
 4b. If file upload: browser_upload_and_submit(url, fields, file_uploads)
 
-━━━ LONG-HORIZON BROWSER TOOL ━━━
-
-web_task(task, start_url="", task2ui=False, timeout_s=180)
-  - Uses Webwright to solve multi-step browser tasks as a rerunnable program.
-  - Best for repeatable, inspectable browser work where the durable artifact should be a script,
-    logs, and an optional HTML report — not a fragile browser session.
-  - Safe scope: research, gathering public information, comparing listings, extracting structured
-    findings from a workflow, producing an inspectable result surface.
-  - Do NOT use web_task for irreversible actions (submissions, purchases, bookings, deletions).
-    Use the screenshot/fill/confirm flow above instead.
-
-━━━ ML EXPERIMENT TOOL ━━━
-
-run_ml_experiment(task, model="", max_iterations=50, sandbox_tools=False, dry_run=True)
-  - Wraps Hugging Face ml-intern for autonomous ML experiment execution.
-  - Use for: paper-to-experiment translation, quick benchmark runs, training/eval scaffolds,
-    dataset or modeling exploration that should produce logs and artifacts.
-  - Always start with dry_run=True. Show the command and assumptions first.
-  - Only execute after the user confirms.
-
 ━━━ GENERAL RULES ━━━
 
 - web_search first for research; browse_url for JS pages; http_request for direct API calls
-- use web_task for long-horizon browser workflows that should end in rerunnable artifacts
-- use run_ml_experiment for real experiment execution rather than generic advice
 - Never fabricate URLs — only cite URLs returned by the tools
 - NEVER call browser_fill (even dry_run=True) without first calling browser_screenshot on
   the same URL in the current turn. Filling without a screenshot is a workflow violation.
@@ -1463,7 +1439,7 @@ matsya = LlmAgent(
         "local documents (PDF/DOCX/PPTX/HTML/CSV via extract_document), and the local filesystem. "
         "Use for: research, current events, live data, JS-rendered pages, REST API calls, "
         "web form automation, academic literature (arxiv/Semantic Scholar/HuggingFace), "
-        "ML experiments, document extraction and review, filesystem scan/cleanup, "
+        "document extraction and review, filesystem scan/cleanup, "
         "critical analysis (steelman + red-team), research synthesis. "
         "Always screenshots before submitting forms; always dry_run before mutating filesystem."
     ),
@@ -1480,8 +1456,6 @@ matsya = LlmAgent(
         FunctionTool(_search_hf_papers),
         FunctionTool(_search_hf_models),
         FunctionTool(_query_deepwiki),
-        FunctionTool(_web_task),
-        FunctionTool(_run_ml_experiment),
         FunctionTool(_extract_document),
         FunctionTool(_scan_directory),
         FunctionTool(_move_to_trash),
@@ -1962,27 +1936,6 @@ VIDEO — MANDATORY CALL SEQUENCE (no exceptions):
 
   Step 3. Return the /media/…/video.mp4 URL to the user.
 
-  render_remotion(template='', props={{}}, component_tsx='')
-    React/HTML video via the Remotion engine — the highest-fidelity programmatic option.
-    Use INSTEAD of create_video when the user asks for "Remotion", or wants HTML/React/CSS
-    motion design, precise typographic animation, data-driven graphics, or a reusable template.
-    Returns a dict with status and url — url is the /media/…/video.mp4 browser link.
-
-    TWO MODES — pick one:
-    • TEMPLATE (safe, fast) — choose a built-in composition and pass props:
-        TitleCard   — props: title, subtitle, bg, accent
-        Slides      — props: slides=[{{title, bullets:[...]}}], secondsPerSlide, bg, accent
-        LowerThird  — props: name, role, accent  (transparent bg, composites over footage)
-        CodeReveal  — props: code, bg, accent
-      e.g. render_remotion(template="Slides", props={{"slides":[{{"title":"Intro","bullets":["a","b"]}}],"secondsPerSlide":3}})
-    • ESCAPE HATCH (full control) — author a raw component as TSX:
-        render_remotion(component_tsx="export const Custom: React.FC = () => {{ ... }}")
-      The TSX MUST export a component named Custom. Import primitives from 'remotion'
-      (AbsoluteFill, useCurrentFrame, interpolate, spring, Sequence, useVideoConfig, Img, Audio).
-
-    Optional universal props (either mode): durationSeconds, fps, width, height —
-    resize/retime without editing the template. First render triggers a one-time engine setup.
-
 NEVER describe the video without calling a video tool to render it (once script is confirmed).
 NEVER use moviepy v1 API — it always fails. Always use v2.x.
 NEVER route video creation to Parashurama."""
@@ -2064,7 +2017,7 @@ You own: code (write / debug / review / refactor / migrate / scaffold / sprint-p
          technical .docx documents (specs, reports, resumes).
 
 You do NOT own (refuse with one sentence naming the correct avatāra):
-  - Slides, pitch decks, video, audio, music, images → Krishna
+  - Slides, pitch decks, video, images → Krishna
   - Live web search, API data retrieval, document extraction (PDF/DOCX) → Matsya
   - Personal finance, health logging, bank statements, spending data → Rama
 
@@ -2335,11 +2288,8 @@ def _rank_ui_templates(
 
 # ── Phase-7 / Phase-8 skill imports (paths registered by narad_paths) ────────
 
-from audio_skill import create_audio as _create_audio  # noqa: E402
 from document_skill import create_document as _create_document  # noqa: E402
-from hyperframes_skill import create_video_hyperframes as _create_video_hyperframes  # noqa: E402
 from imagen_skill import generate_image as _generate_image  # noqa: E402
-from remotion_skill import render_remotion as _render_remotion  # noqa: E402
 from video_skill import create_video as _create_video  # noqa: E402
 from webpage_skill import create_webpage as _create_webpage  # noqa: E402
 
@@ -2353,10 +2303,7 @@ except Exception:
 krishna.tools = list(krishna.tools or []) + [
     FunctionTool(_create_webpage),
     FunctionTool(_create_video),
-    FunctionTool(_render_remotion),
     FunctionTool(_generate_video_clip),
-    FunctionTool(_create_video_hyperframes),
-    FunctionTool(_create_audio),     # moved from Parashurama — Krishna owns all audio/media
     FunctionTool(_generate_image),
     FunctionTool(_create_document),
     FunctionTool(_list_shadcn_components),
