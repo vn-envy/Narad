@@ -174,8 +174,8 @@ The cultural frame is Narad's differentiation and it is *earned* in code — kee
 
 ## 10. Sequenced roadmap
 
-- **M0 — Truth & hygiene (1–2 days).** Commit the dirty tree. Execute the cut list (§4). Reconcile AGENTS.md/WORKFLOWS.md/README to 4 avatars + honest claims (checklist E1/E2). Fresh-machine dry run (F1).
-- **M1 — Phone (1 weekend).** §7 Phase 0 + Phase 1. You use Narad from your pocket by Sunday night.
+- **M0 — Truth & hygiene (1–2 days).** ✅ *Done 2026-07-04.* Commit the dirty tree. Execute the cut list (§4). Reconcile AGENTS.md/WORKFLOWS.md/README to 4 avatars + honest claims (checklist E1/E2). Fresh-machine dry run (F1 still pending — needs a real machine).
+- **M1 — Phone (1 weekend).** ✅ *Code done 2026-07-04 (commits M1.1–M1.4): same-origin serving, PWA manifest + Mahati icons, 390px pass, SSE re-attach + scroll pill. Left for later: self-hosted fonts (CDN still required for Devanagari), ntfy push (Phase 2). Your side: install Tailscale + `tailscale serve --bg 8000`.* §7 Phase 0 + Phase 1. You use Narad from your pocket by Sunday night.
 - **M2 — Memory consolidation (1 week).** §5. Fix re-embed bug first (day one, it's isolated), then the 3-plane merge, then Narad-level recall.
 - **M3 — Close the loops (1 week).** Delivery channel + ntfy (§6.3), reminders fire, Swapna consumed nightly, Andon feeds the retry path instead of just logging, IMAP triage for Krishna.
 - **M4 — Prove the moat (ongoing).** Sutra A/B eval, golden-task CI, cost ledger, distilled-rule sutras.
