@@ -1,11 +1,16 @@
+/** Ports used by `npm run dev` (Vite). Anywhere else — the backend serving
+ *  its own dist/, a tailscale hostname, the installed PWA — is same-origin. */
+const VITE_DEV_PORTS = new Set(['5173', '5174'])
+const DEV_BACKEND_PORT = '8000'
+
 function inferLocalApiBase(): string {
   if (typeof window === 'undefined') return ''
-  const host = window.location.hostname
-  const port = window.location.port
-  const isLocalHost = host === 'localhost' || host === '127.0.0.1'
-  if (!isLocalHost) return ''
-  if (port === '8010') return ''
-  return `${window.location.protocol}//${host}:8010`
+  const { hostname, port, protocol } = window.location
+  const isLocalHost = hostname === 'localhost' || hostname === '127.0.0.1'
+  if (isLocalHost && VITE_DEV_PORTS.has(port)) {
+    return `${protocol}//${hostname}:${DEV_BACKEND_PORT}`
+  }
+  return ''
 }
 
 export const API_BASE = ((import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')) || inferLocalApiBase()

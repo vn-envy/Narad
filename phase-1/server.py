@@ -414,12 +414,20 @@ def _load_or_create_api_token() -> str:
 _API_TOKEN = _load_or_create_api_token() if _AUTH_MODE != "off" else ""
 
 
+def _is_public_shell_path(path: str) -> bool:
+    """SPA shell + static assets are public — they contain no user data.
+    All API routes stay behind auth in strict mode."""
+    if path in ("/", "/index.html", "/manifest.webmanifest", "/sw.js", "/registerSW.js"):
+        return True
+    return path.startswith(("/assets/", "/icons/")) or path.startswith("/favicon")
+
+
 @app.middleware("http")
 async def _bearer_auth(request, call_next):
     if _AUTH_MODE == "off" or request.method == "OPTIONS":
         return await call_next(request)
     path = request.url.path
-    if path == "/health" or path.startswith("/media/"):
+    if path == "/health" or path.startswith("/media/") or _is_public_shell_path(path):
         return await call_next(request)
     client_host = request.client.host if request.client else ""
     if _AUTH_MODE == "local" and client_host in _LOCAL_CLIENTS:
@@ -2403,4 +2411,20 @@ def _learning_artifact_offer_pending(text: str) -> bool:
     return (
         "would you like me to create a visual learning artifact" in normalized
         or "flashcards, an interactive quiz, or a diagram" in normalized
+    )
+
+
+# ── Same-origin frontend serving (M1.1) ───────────────────────────────────────
+# Mounted LAST so every API route above wins first. `npm run build` in
+# phase-4/frontend produces dist/; when present, the backend serves the app
+# shell itself — one origin, no CORS, no port split-brain, and the phone path
+# (tailscale serve → loopback) gets UI + API through a single URL.
+_FRONTEND_DIST = Path(__file__).resolve().parent.parent / "phase-4" / "frontend" / "dist"
+if _FRONTEND_DIST.is_dir():
+    app.mount("/", StaticFiles(directory=str(_FRONTEND_DIST), html=True), name="app")
+    logging.getLogger("narad.server").info("Serving frontend from %s", _FRONTEND_DIST)
+else:
+    logging.getLogger("narad.server").info(
+        "Frontend dist/ not found (%s) — API-only mode. Build with: cd phase-4/frontend && npm run build",
+        _FRONTEND_DIST,
     )

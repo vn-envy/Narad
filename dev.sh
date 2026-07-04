@@ -5,7 +5,7 @@
 #   ./dev.sh
 #
 # Backend  → http://127.0.0.1:8000   (uvicorn, auth mode "local")
-# Frontend → http://localhost:5173   (Vite dev server, proxies /chat etc. → 8000)
+# Frontend → http://localhost:5173   (Vite dev server; api.ts targets the backend directly)
 #
 # Loads .env, waits for backend /health before starting the frontend, and
 # shuts both processes down cleanly on Ctrl-C.
@@ -15,10 +15,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
-# Frontend (phase-4/frontend/src/lib/api.ts) calls the backend at :8010 on
-# localhost, so the backend must listen there.
+# 8000 is the canonical port (api.ts falls back to localhost:8000 in dev).
+# A custom NARAD_PORT still works: we export VITE_API_BASE_URL below so the
+# frontend targets whatever port the backend actually got.
 BACKEND_HOST="${NARAD_HOST:-127.0.0.1}"
-BACKEND_PORT="${NARAD_PORT:-8010}"
+BACKEND_PORT="${NARAD_PORT:-8000}"
 FRONTEND_DIR="$ROOT/phase-4/frontend"
 
 log()  { printf '\033[1;36m[dev]\033[0m %s\n' "$*"; }
@@ -89,7 +90,7 @@ if [ ! -d "$FRONTEND_DIR/node_modules" ]; then
 fi
 
 log "Starting frontend on http://localhost:5173"
-(cd "$FRONTEND_DIR" && npm run dev) &
+(cd "$FRONTEND_DIR" && VITE_API_BASE_URL="http://127.0.0.1:$BACKEND_PORT" npm run dev) &
 FRONTEND_PID=$!
 
 log "Both servers up. Open http://localhost:5173  ·  Ctrl-C to stop."
