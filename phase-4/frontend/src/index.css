@@ -436,3 +436,26 @@
   .text-body-sm   { font-family: var(--font-body);   font-size: 13px; line-height: 1.6; }
   .text-chip      { font-family: var(--font-mono);   font-size: 9px;  letter-spacing: 0.06em; }
 }
+
+/* ── Mobile & touch (M1.3) ──────────────────────────────────────────────────
+   ≤640px is the phone breakpoint (mirrors src/hooks/useIsMobile.ts). */
+
+/* Touch devices have no hover: message actions must always be reachable. */
+@media (hover: none) and (pointer: coarse) {
+  .msg-actions { opacity: 0.7; }
+}
+
+@media (max-width: 640px) {
+  /* iOS Safari zooms the page when a focused input is <16px — never zoom. */
+  textarea,
+  input[type='text'],
+  input[type='search'],
+  input:not([type]) {
+    font-size: 16px !important;
+  }
+
+  /* Comfortable touch targets for the small action chips. */
+  .msg-actions button {
+    padding: 6px 8px;
+  }
+}

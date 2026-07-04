@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useIsMobile } from '../hooks/useIsMobile'
 import type {
   AndonAlertPayload,
   AvatarName,
@@ -96,6 +97,7 @@ export function NaradDashboard({
 }: Props) {
   const [activeTab, setActiveTab] = useState<TabId>('darshan')
   const [andonCount, setAndonCount] = useState(0)
+  const isMobile = useIsMobile()
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -211,7 +213,7 @@ export function NaradDashboard({
           नारद <span style={{ color: 'rgba(252,250,242,0.45)', fontWeight: 400, fontFamily: 'var(--font-body)' }}>/ Dashboard</span>
         </div>
 
-        <div style={{ flex: 1, minWidth: 280, maxWidth: 560 }}>
+        <div style={{ flex: 1, minWidth: isMobile ? 0 : 280, maxWidth: 560 }}>
           <SearchBar
             userId={userId}
             onNavigate={nav => {
@@ -223,7 +225,8 @@ export function NaradDashboard({
           />
         </div>
 
-        <div style={{ display: 'flex', gap: 6, marginLeft: 'auto' }}>
+        {/* Avatar chips — hidden on phones; the AwarenessBar already shows presence */}
+        <div style={{ display: isMobile ? 'none' : 'flex', gap: 6, marginLeft: 'auto' }}>
           {AVATAR_NAMES.map(name => {
             const status = avatars[name]
             const active = status?.state === 'active'
@@ -287,10 +290,10 @@ export function NaradDashboard({
             <span style={{ fontFamily: 'var(--font-deva)', fontSize: 13, color: 'var(--sindoor)' }}>{activeMeta.sanskrit}</span>
             <span style={{ fontSize: 12.5, color: 'rgba(45,42,38,0.58)', fontWeight: 600 }}>{activeMeta.label}</span>
           </div>
-          <div style={{ fontSize: 12, color: 'rgba(45,42,38,0.5)', lineHeight: 1.5 }}>
+          <div style={{ display: isMobile ? 'none' : 'block', fontSize: 12, color: 'rgba(45,42,38,0.5)', lineHeight: 1.5 }}>
             {headerSummary(activeTab)}
           </div>
-          <div style={{ marginLeft: 'auto', fontSize: 11.5, color: 'rgba(45,42,38,0.45)' }}>
+          <div style={{ display: isMobile ? 'none' : 'block', marginLeft: 'auto', fontSize: 11.5, color: 'rgba(45,42,38,0.45)' }}>
             {capabilities ? `${capabilities.build.runtime_mode} mode · ${capabilities.issue_count} issue${capabilities.issue_count === 1 ? '' : 's'}` : 'Runtime contract pending'}
           </div>
         </div>
@@ -302,6 +305,7 @@ export function NaradDashboard({
           padding: '0 16px',
           display: 'flex',
           flexShrink: 0,
+          overflowX: 'auto',
         }}
       >
         {TABS.map(tab => {

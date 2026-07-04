@@ -12,26 +12,48 @@ interface Props {
   avatars: Record<AvatarName, AvatarStatus>
   activeSteps: number
   onOpenDarshan: () => void
+  /** Phone layout: render as a bottom bar instead of the right-edge rail. */
+  horizontal?: boolean
 }
 
 export function AwarenessBar({
   avatars,
   activeSteps,
   onOpenDarshan,
+  horizontal = false,
 }: Props) {
   const [hoveredAvatar, setHoveredAvatar] = useState<AvatarName | null>(null)
 
   return (
     <div
-      className="flex flex-col items-center py-3 gap-3 h-full overflow-hidden"
-      style={{
-        width: 72,
-        background: 'var(--kajal)',
-        borderLeft: '1px solid rgba(252,250,242,0.06)',
-      }}
+      className={
+        horizontal
+          ? 'flex flex-row items-center px-4 gap-4 w-full overflow-hidden'
+          : 'flex flex-col items-center py-3 gap-3 h-full overflow-hidden'
+      }
+      style={
+        horizontal
+          ? {
+              height: 'calc(60px + env(safe-area-inset-bottom))',
+              paddingBottom: 'env(safe-area-inset-bottom)',
+              background: 'var(--kajal)',
+              borderTop: '1px solid rgba(252,250,242,0.06)',
+            }
+          : {
+              width: 72,
+              background: 'var(--kajal)',
+              borderLeft: '1px solid rgba(252,250,242,0.06)',
+            }
+      }
     >
       {/* Avatar strings */}
-      <div className="flex flex-col items-center gap-2.5 flex-1">
+      <div
+        className={
+          horizontal
+            ? 'flex flex-row items-center justify-center gap-5 flex-1'
+            : 'flex flex-col items-center gap-2.5 flex-1'
+        }
+      >
         {AVATAR_NAMES.map((name, i) => {
           const st = avatars[name]
           const active = st?.state === 'active'
@@ -95,16 +117,21 @@ export function AwarenessBar({
                 {i + 1}
               </span>
 
-              {/* Tooltip */}
+              {/* Tooltip — left of the rail, or above the bottom bar */}
               {hoveredAvatar === name && (
                 <div
-                  className="absolute right-full mr-2 z-50 px-2.5 py-1.5 rounded whitespace-nowrap pointer-events-none"
+                  className={
+                    horizontal
+                      ? 'absolute bottom-full mb-2 z-50 px-2.5 py-1.5 rounded whitespace-nowrap pointer-events-none'
+                      : 'absolute right-full mr-2 z-50 px-2.5 py-1.5 rounded whitespace-nowrap pointer-events-none'
+                  }
                   style={{
                     background: 'var(--kajal)',
                     border: `1px solid rgba(${rgb}, 0.45)`,
                     color: 'rgba(252,250,242,0.9)',
-                    top: '50%',
-                    transform: 'translateY(-50%)',
+                    ...(horizontal
+                      ? { left: '50%', transform: 'translateX(-50%)' }
+                      : { top: '50%', transform: 'translateY(-50%)' }),
                     boxShadow: '0 4px 16px rgba(0,0,0,0.35)',
                   }}
                 >

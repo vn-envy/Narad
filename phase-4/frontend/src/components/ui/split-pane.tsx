@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useIsMobile } from '../../hooks/useIsMobile'
 
 interface SplitPaneProps {
   storageKey: string
@@ -28,6 +29,7 @@ export function SplitPane({
   const draggingRef = useRef(false)
   const [rightWidth, setRightWidth] = useState(defaultRightWidth)
   const [collapsed, setCollapsed] = useState(false)
+  const isMobile = useIsMobile()
 
   useEffect(() => {
     try {
@@ -51,7 +53,8 @@ export function SplitPane({
   }, [storageKey, rightWidth, collapsed])
 
   useEffect(() => {
-    const onMove = (event: MouseEvent) => {
+    // Pointer events: one code path for mouse AND touch drags.
+    const onMove = (event: PointerEvent) => {
       if (!draggingRef.current || !containerRef.current) return
       const rect = containerRef.current.getBoundingClientRect()
       const nextRight = rect.right - event.clientX
@@ -65,11 +68,13 @@ export function SplitPane({
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
     }
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
     return () => {
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
     }
   }, [minLeftWidth, minRightWidth])
 
@@ -92,6 +97,90 @@ export function SplitPane({
         }}
       >
         {left}
+      </div>
+    )
+  }
+
+  // Phone: stack vertically — left pane on top, right pane as a bottom
+  // section (no drag handle; the collapse toggle still works).
+  if (isMobile) {
+    return (
+      <div style={{ flex: 1, minWidth: 0, minHeight: 0, height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div
+          style={{
+            flex: 1,
+            minHeight: 0,
+            overflowX: 'hidden',
+            overflowY: 'auto',
+            overscrollBehaviorY: 'contain',
+            WebkitOverflowScrolling: 'touch',
+            touchAction: 'pan-y',
+          }}
+        >
+          {left}
+        </div>
+        {!collapsed ? (
+          <div
+            style={{
+              height: '42%',
+              minHeight: 160,
+              position: 'relative',
+              overflowX: 'hidden',
+              overflowY: 'auto',
+              overscrollBehaviorY: 'contain',
+              WebkitOverflowScrolling: 'touch',
+              touchAction: 'pan-y',
+              background: 'rgba(252,250,242,0.92)',
+              borderTop: '1px solid rgba(26,24,21,0.10)',
+              flexShrink: 0,
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setCollapsed(true)}
+              style={{
+                position: 'absolute',
+                top: 8,
+                right: 10,
+                zIndex: 2,
+                width: 28,
+                height: 28,
+                borderRadius: 999,
+                border: '1px solid rgba(26,24,21,0.12)',
+                background: 'rgba(252,250,242,0.88)',
+                color: 'rgba(26,24,21,0.55)',
+                cursor: 'pointer',
+              }}
+              aria-label="Collapse bottom panel"
+              title="Collapse bottom panel"
+            >
+              ↓
+            </button>
+            {right}
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setCollapsed(false)}
+            aria-label={rightCollapsedLabel}
+            title={rightCollapsedLabel}
+            style={{
+              height: 32,
+              flexShrink: 0,
+              borderTop: '1px solid rgba(26,24,21,0.08)',
+              background: 'linear-gradient(180deg, rgba(252,250,242,0.92), rgba(243,239,225,0.88))',
+              color: 'var(--kajal)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 6,
+              cursor: 'pointer',
+              fontSize: 11,
+            }}
+          >
+            ↑ <span style={{ opacity: 0.6 }}>{rightCollapsedLabel}</span>
+          </button>
+        )}
       </div>
     )
   }
@@ -119,7 +208,7 @@ export function SplitPane({
           <div
             role="separator"
             aria-orientation="vertical"
-            onMouseDown={() => {
+            onPointerDown={() => {
               draggingRef.current = true
               document.body.style.cursor = 'col-resize'
               document.body.style.userSelect = 'none'
@@ -134,6 +223,7 @@ export function SplitPane({
               borderLeft: '1px solid rgba(26,24,21,0.04)',
               borderRight: '1px solid rgba(26,24,21,0.04)',
               flexShrink: 0,
+              touchAction: 'none',
             }}
             title="Drag to resize"
           >

@@ -475,7 +475,7 @@ export function ChatPanel({
                   msg.role === 'user' ? 'items-end pr-0.5' : 'items-start pl-0.5'
                 )}
               >
-                <div className="flex gap-1 opacity-0 group-hover/bubble:opacity-100 transition-opacity duration-150">
+                <div className="msg-actions flex gap-1 opacity-0 group-hover/bubble:opacity-100 transition-opacity duration-150">
                   {msg.role === 'user' && (
                     <button
                       className={ACTION_BTN}

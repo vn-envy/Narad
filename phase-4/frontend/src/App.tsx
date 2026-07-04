@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { useAvatara } from './hooks/useAvatara'
+import { useIsMobile } from './hooks/useIsMobile'
 import { ChatPanel }            from './components/ChatPanel'
 import { AwarenessBar }         from './components/AwarenessBar'
 import { NaradDashboard }      from './components/NaradDashboard'
@@ -31,6 +32,7 @@ export default function App() {
 
   const [darshanOpen, setDarshanOpen] = useState(false)
   const [capabilities, setCapabilities] = useState<RuntimeCapabilities | null>(null)
+  const isMobile = useIsMobile()
 
   useEffect(() => {
     let cancelled = false
@@ -55,9 +57,18 @@ export default function App() {
       <div
         className="grid h-screen overflow-hidden"
         style={{
-          gridTemplateColumns: activeArtifactSession || pendingToolUi
-            ? 'minmax(0,1fr) minmax(360px, 440px) 72px'
-            : '1fr 72px',
+          ...(isMobile
+            ? {
+                // Phone: chat on top, AwarenessBar as bottom bar. The side
+                // panel becomes a full-screen sheet (rendered below).
+                gridTemplateRows: 'minmax(0,1fr) auto',
+                gridTemplateColumns: '1fr',
+              }
+            : {
+                gridTemplateColumns: activeArtifactSession || pendingToolUi
+                  ? 'minmax(0,1fr) minmax(360px, 440px) 72px'
+                  : '1fr 72px',
+              }),
           position: 'relative',
           zIndex: 1,
         }}
@@ -78,8 +89,12 @@ export default function App() {
 
         {(activeArtifactSession || pendingToolUi) && (
           <div
-            className="h-full overflow-hidden border-l"
-            style={{ borderColor: 'color-mix(in srgb, var(--kajal) 10%, transparent)', background: 'var(--paper)' }}
+            className={isMobile ? 'overflow-hidden' : 'h-full overflow-hidden border-l'}
+            style={
+              isMobile
+                ? { position: 'fixed', inset: 0, zIndex: 40, background: 'var(--paper)' }
+                : { borderColor: 'color-mix(in srgb, var(--kajal) 10%, transparent)', background: 'var(--paper)' }
+            }
           >
             <Suspense
               fallback={
@@ -106,11 +121,12 @@ export default function App() {
           </div>
         )}
 
-        {/* Right column — AwarenessBar (72px) */}
+        {/* AwarenessBar — right rail on desktop, bottom bar on phone */}
         <AwarenessBar
           avatars={avatars}
           activeSteps={activeSteps}
           onOpenDarshan={() => setDarshanOpen(true)}
+          horizontal={isMobile}
         />
       </div>
 
