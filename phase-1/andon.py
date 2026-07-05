@@ -47,7 +47,10 @@ class AndonGate:
 
         if retries_exhausted:
             return True, "CONNECTION"
-        if tool_error:
+        # TOOL_ERROR only when the final answer did NOT recover: a substantive
+        # result despite a mid-run tool failure means the avatar routed around
+        # it — that's success, not an andon (M3.3).
+        if tool_error and len(stripped) < ANDON_MIN_LENGTH:
             return True, "TOOL_ERROR"
         if len(stripped) < ANDON_MIN_LENGTH:
             return True, "EMPTY_RESULT"

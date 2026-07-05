@@ -806,20 +806,95 @@ def _make_avatar_tool(agent: LlmAgent, user_id: str = "default") -> FunctionTool
                 log_andon as _log_andon,
             )
             _gate = _AndonGate()
+            _had_tool_error = any(
+                tc.error
+                for t in _traj.turns
+                for tc in t.tool_calls
+                if tc.error
+            )
             _fired, _reason = _gate.check(
                 result_text=result_text,
                 latency_ms=_traj.total_ms,
                 retries_exhausted=(_retry_attempt >= _MAX_RETRIES),
-                tool_error=any(
-                    tc.error
-                    for t in _traj.turns
-                    for tc in t.tool_calls
-                    if tc.error
-                ),
+                tool_error=_had_tool_error,
             )
+
+            # M3.3 — Andon feeds the retry path: one corrective retry on the
+            # same session for recoverable failures before declaring a blocker.
+            if _fired and _reason in ("EMPTY_RESULT", "TOOL_ERROR"):
+                try:
+                    tracer.log_event(
+                        "andon_retry",
+                        avatar=agent.name,
+                        trigger=_reason,
+                        discipline=_discipline,
+                    )
+                    if _q is not None:
+                        await _q.put(json.dumps({
+                            "type": "step_event",
+                            "data": {
+                                "avatar": agent.name,
+                                "discipline": _discipline,
+                                "kind": "andon_retry",
+                                "preview": f"Quality gate ({_reason}) — retrying once",
+                            },
+                        }))
+                    _retry_msg = genai_types.Content(role="user", parts=[genai_types.Part(text=(
+                        "Your previous attempt failed the quality gate "
+                        f"(reason: {_reason}). Try the task once more. "
+                        "If a tool kept failing, work around it or answer from what "
+                        "you already gathered. Give a complete, substantive answer."
+                    ))])
+                    _retry_text = ""
+                    async for _r_event in runner.run_async(
+                        user_id="narad", session_id=sid, new_message=_retry_msg
+                    ):
+                        if _r_event.is_final_response() and _r_event.content and _r_event.content.parts:
+                            _retry_text = "".join(p.text or "" for p in _r_event.content.parts)
+                    _refire, _re_reason = _gate.check(
+                        result_text=_retry_text,
+                        latency_ms=0,
+                        retries_exhausted=False,
+                        tool_error=False,
+                    )
+                    if not _refire:
+                        # Recovered — adopt the retry answer, suppress the andon.
+                        result_text = _retry_text
+                        _traj.total_ms = int((time.monotonic() - span._start) * 1000)
+                        _fired = False
+                        tracer.log_event(
+                            "andon_recovered",
+                            avatar=agent.name,
+                            trigger=_reason,
+                            discipline=_discipline,
+                        )
+                except Exception as _retry_exc:
+                    import logging as _alog
+                    _alog.getLogger("narad.andon").warning(
+                        "Andon corrective retry failed for %s: %s", agent.name, _retry_exc
+                    )
+
             if _fired:
                 _log_andon(agent.name, _reason, _trace_session_id,
                            task[:200], result_text[:200])
+                # M3.3 — unrecovered andon reaches the user via Vahana.
+                try:
+                    from vahana import deliver as _vahana_deliver
+                    _vahana_deliver(
+                        kind="andon",
+                        title=f"{agent.name} blocked: {_reason.replace('_', ' ').lower()}",
+                        body=(
+                            f"Task: {task[:180]}\n"
+                            f"Reason: {_reason} (one corrective retry already attempted)\n"
+                            f"Last signal: {result_text[:220] or '—'}"
+                        ),
+                        user_id=user_id,
+                        source="avatar_agents.andon",
+                        priority="high",
+                        data={"session_id": _trace_session_id, "avatar": agent.name},
+                    )
+                except Exception:
+                    pass
                 tracer.log_event(
                     "andon_fired",
                     avatar=agent.name,
