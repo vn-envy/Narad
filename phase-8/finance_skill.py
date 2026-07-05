@@ -28,7 +28,10 @@ from typing import Any
 
 # ── DB path ──────────────────────────────────────────────────────────────────
 
-_DB_PATH = Path.home() / ".narad" / "finance.db"
+try:
+    from narad_config import FINANCE_DB as _DB_PATH
+except ImportError:  # standalone use without narad_paths bootstrap
+    _DB_PATH = Path.home() / ".narad" / "finance.db"
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS transactions (

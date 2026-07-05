@@ -2192,6 +2192,14 @@ async def _daily_shuddhi_loop():
 @app.on_event("startup")
 async def _start_background_tasks():
     asyncio.create_task(_daily_shuddhi_loop())
+    # Kala scheduler (M3.2) — reminders fire + Swapna consumed nightly.
+    # Disable with NARAD_SCHEDULER=0 (e.g. in tests / one-off scripts).
+    if os.environ.get("NARAD_SCHEDULER", "1") != "0":
+        try:
+            from kala_scheduler import run_scheduler_loop
+            asyncio.create_task(run_scheduler_loop())
+        except Exception as exc:
+            logging.getLogger("narad.server").warning("Kala scheduler not started: %s", exc)
 
 
 class ThinkingFilter:

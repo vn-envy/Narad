@@ -70,6 +70,9 @@ BASELINE_DIR:              Path = BENCHMARK_DIR / "baseline"
 # Finance database (already used by phase-8/finance_skill.py)
 FINANCE_DB: Path = NARAD_HOME / "finance.db"
 
+# Health database (phase-1/health_skill.py — symptom log + medication reminders)
+HEALTH_DB: Path = NARAD_HOME / "health.db"
+
 # ── Create all directories on import ──────────────────────────────────────────
 
 for _d in [

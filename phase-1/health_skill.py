@@ -14,7 +14,10 @@ import urllib.request
 from datetime import datetime
 from pathlib import Path
 
-_DB_PATH = Path.home() / ".narad" / "health.db"
+try:
+    from narad_config import HEALTH_DB as _DB_PATH
+except ImportError:  # standalone use without narad_paths bootstrap
+    _DB_PATH = Path.home() / ".narad" / "health.db"
 
 
 def _get_conn() -> sqlite3.Connection:
