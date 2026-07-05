@@ -1207,6 +1207,44 @@ async def _run_agent_task(
                 app_name="avatara", user_id=req.user_id, session_id=runtime_session_id
             )
 
+        # ── Supervisor recall: Narad remembers before delegating (M2.3) ──────
+        # One budgeted packet (episodes + wiki + sutras + sankalpa) prepended to
+        # the supervisor prompt, with provenance surfaced as a narad_recall SSE
+        # event. Failure never blocks the turn.
+        try:
+            supervisor_recall_budget = int(
+                os.environ.get("NARAD_SUPERVISOR_RECALL_BUDGET", "384")
+            )
+        except ValueError:
+            supervisor_recall_budget = 384
+        if supervisor_recall_budget > 0:
+            try:
+                from smriti_core import recall_context as _supervisor_recall
+                recall_packet = await _supervisor_recall(
+                    req.query,
+                    user_id=req.user_id,
+                    avatar="Narad",
+                    token_budget=supervisor_recall_budget,
+                    model=selected_model,
+                )
+                recall_text = (recall_packet or {}).get("context", "")
+                if recall_text:
+                    effective_query = (
+                        "[NARAD MEMORY — prior work relevant to this request]\n"
+                        f"{recall_text}\n[END NARAD MEMORY]\n\n{effective_query}"
+                    )
+                    await queue.put(json.dumps({
+                        "type": "narad_recall",
+                        "data": {
+                            "provenance": (recall_packet.get("provenance") or [])[:8],
+                            "token_budget": supervisor_recall_budget,
+                        },
+                    }))
+            except Exception as exc:
+                logging.getLogger("narad.server").warning(
+                    "Narad supervisor recall skipped this turn: %s", exc
+                )
+
         user_message = genai_types.Content(
             role="user", parts=[genai_types.Part(text=effective_query)]
         )
