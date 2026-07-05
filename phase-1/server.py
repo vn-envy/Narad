@@ -1889,6 +1889,33 @@ async def get_swapna_inbox():
     return {"items": inbox()}
 
 
+# ── Vahana inbox endpoints (M3.1) ─────────────────────────────────────────────
+
+@app.get("/inbox")
+async def get_inbox(
+    user_id: str = "default",
+    limit: int = 50,
+    unread_only: bool = False,
+    kind: Optional[str] = None,
+):
+    from vahana import load_inbox, unread_count
+    return {
+        "items": load_inbox(user_id, limit=limit, unread_only=unread_only, kind=kind),
+        "unread": unread_count(user_id),
+    }
+
+
+class InboxMarkReadRequest(BaseModel):
+    user_id: str = "default"
+    ids: Optional[list[str]] = None  # None → mark all unread
+
+
+@app.post("/inbox/mark-read")
+async def post_inbox_mark_read(req: InboxMarkReadRequest):
+    from vahana import mark_read
+    return mark_read(req.user_id, req.ids)
+
+
 @app.get("/provenance/{entity_id}")
 async def get_provenance_endpoint(entity_id: str, user_id: str = "default"):
     from smriti_core import get_provenance

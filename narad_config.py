@@ -62,6 +62,8 @@ SANKALPA_COMMITMENTS_PATH: Path = CONFIG_DIR / "sankalpa_commitments.jsonl"
 DHARMA_POLICY_PATH:        Path = CONFIG_DIR / "dharma_policy.json"
 KARMA_MUTATIONS_PATH:      Path = CONFIG_DIR / "karma_mutations.jsonl"
 SWAPNA_INBOX_DIR:          Path = NARAD_HOME / "swapna" / "inbox"
+INBOX_DIR:                 Path = NARAD_HOME / "inbox"          # Vahana delivery (M3)
+SCHEDULER_STATE_PATH:      Path = NARAD_HOME / "scheduler_state.json"
 BENCHMARK_DIR:             Path = NARAD_HOME / "benchmarks"
 BASELINE_DIR:              Path = BENCHMARK_DIR / "baseline"
 
@@ -86,6 +88,7 @@ for _d in [
     ARTIFACTS_DIR,
     CONFIG_DIR,
     SWAPNA_INBOX_DIR,
+    INBOX_DIR,
     BENCHMARK_DIR,
     BASELINE_DIR,
 ]:
