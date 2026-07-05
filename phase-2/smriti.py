@@ -1,9 +1,9 @@
 """
-Smriti — Avatara's persistent memory layer (v1.5).
+Smriti — Avatara's persistent memory layer (v1.5, legacy store).
 
 Direct LanceDB implementation (mem0 2.x dropped native LanceDB support).
-Embedding provider: Gemini gemini-embedding-001 (768 dims) by default when configured.
-Set SMRITI_EMBEDDING_MODEL=mimo or openai to force the OpenAI-compatible path.
+Embedding lives in smriti_embed (the single embedding client) — this module
+only owns the legacy LanceDB table + memory_fts sidecar.
 
 Three operations:
   recall(task, user_id, limit, max_age_days)  → relevant memories as context prefix string
@@ -22,10 +22,8 @@ Vismriti (healthy forgetting):
 
 from __future__ import annotations
 
-import os
 import random
 import sqlite3
-import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
@@ -35,34 +33,27 @@ from typing import Any
 import lancedb
 import pyarrow as pa
 
+import smriti_embed as _se
 from narad_config import SMRITI_DB as _DB_PATH
 
+# Re-read provider selection whenever this module is (re)imported, so test
+# reloads and env changes are honoured even though smriti_embed stays cached.
+_se.refresh_provider()
+
 _TABLE = "memories"
-def _select_embed_provider() -> str:
-    configured = os.environ.get("SMRITI_EMBEDDING_MODEL", "").strip().lower()
-    if configured in {"gemini", "mimo", "openai"}:
-        return configured
-    if configured and configured != "auto":
-        return configured
-    if os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"):
-        return "gemini"
-    if os.environ.get("MIMO_API_KEY"):
-        return "mimo"
-    if os.environ.get("OPENAI_API_KEY"):
-        return "openai"
-    return "gemini"
-
-
-_SMRITI_EMBED_PROVIDER = _select_embed_provider()
-_EMBED_DIM = 768 if _SMRITI_EMBED_PROVIDER == "gemini" else 1536
 _DISTANCE_THRESHOLD = 1.3   # L2 distance — above this is semantically unrelated noise
 _DEDUP_THRESHOLD    = 0.10  # L2 distance — below this is a near-duplicate, skip insert
 _FTS_DB_PATH = Path(str(_DB_PATH)).parent / "memory_fts.db"
-_EMBED_FAILURE_COOLDOWN_S = int(os.environ.get("SMRITI_EMBED_FAILURE_COOLDOWN_S", "300"))
-_embed_unavailable_until = 0.0
 
 _db: lancedb.DBConnection | None = None
 _table: Any = None
+
+
+def __getattr__(name: str) -> Any:
+    """Forward embedding state to smriti_embed (single source of truth)."""
+    if name in {"_SMRITI_EMBED_PROVIDER", "_EMBED_DIM", "_embed_unavailable_until"}:
+        return getattr(_se, name)
+    raise AttributeError(f"module 'smriti' has no attribute {name!r}")
 
 
 def _get_table() -> Any:
@@ -78,12 +69,12 @@ def _get_table() -> Any:
         # Drop and recreate if embedding provider switched (dim mismatch)
         try:
             existing_dim = tbl.schema.field("vector").type.list_size
-            if existing_dim != _EMBED_DIM:
+            if existing_dim != _se._EMBED_DIM:
                 import logging as _lg
                 _lg.getLogger("narad.smriti").warning(
                     "Smriti: vector dim mismatch (existing=%d, expected=%d) — "
                     "wiping memory table. Re-populate via remember().",
-                    existing_dim, _EMBED_DIM,
+                    existing_dim, _se._EMBED_DIM,
                 )
                 _db.drop_table(_TABLE)
                 # fall through to create fresh schema below
@@ -100,7 +91,7 @@ def _get_table() -> Any:
         pa.field("avatar",     pa.utf8()),
         pa.field("memory",     pa.utf8()),
         pa.field("created_at", pa.utf8()),
-        pa.field("vector",     pa.list_(pa.float32(), _EMBED_DIM)),
+        pa.field("vector",     pa.list_(pa.float32(), _se._EMBED_DIM)),
     ])
     _table = _db.create_table(_TABLE, schema=schema)
     return _table
@@ -126,53 +117,8 @@ def _get_fts_conn() -> sqlite3.Connection:
 
 @lru_cache(maxsize=128)
 def _embed(text: str) -> list[float]:
-    global _embed_unavailable_until
-    now = time.time()
-    if _embed_unavailable_until and now < _embed_unavailable_until:
-        raise RuntimeError(
-            f"embedding provider {_SMRITI_EMBED_PROVIDER} cooling down until "
-            f"{datetime.fromtimestamp(_embed_unavailable_until, tz=timezone.utc).isoformat()}"
-        )
-    if _SMRITI_EMBED_PROVIDER == "gemini":
-        # Legacy path — only used if SMRITI_EMBEDDING_MODEL=gemini explicitly set
-        try:
-            from google import genai as _genai
-            from google.genai import types as _gtypes
-            api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY", "")
-            if not api_key:
-                raise RuntimeError("SMRITI_EMBEDDING_MODEL=gemini but GEMINI_API_KEY is not set")
-            client = _genai.Client(api_key=api_key)
-            resp = client.models.embed_content(
-                model="gemini-embedding-001",
-                contents=text[:4000],
-                config=_gtypes.EmbedContentConfig(output_dimensionality=768),
-            )
-            return resp.embeddings[0].values
-        except Exception as exc:
-            message = str(exc).lower()
-            if any(token in message for token in ("quota", "resource_exhausted", "429", "rate limit")):
-                _embed_unavailable_until = now + _EMBED_FAILURE_COOLDOWN_S
-            else:
-                # Gemini failures tend to repeat for the same request burst, so cool
-                # the provider down briefly instead of re-paying long error latencies.
-                _embed_unavailable_until = max(
-                    _embed_unavailable_until,
-                    now + min(_EMBED_FAILURE_COOLDOWN_S, 60),
-                )
-            raise
-    # OpenAI-compatible path: Mimo when configured, otherwise plain OpenAI.
-    import openai as _openai
-    if _SMRITI_EMBED_PROVIDER == "mimo":
-        api_key = os.environ.get("MIMO_API_KEY", "")
-        base_url = os.environ.get("MIMO_BASE_URL")
-    else:
-        api_key = os.environ.get("OPENAI_API_KEY", "")
-        base_url = None
-    if not api_key:
-        raise RuntimeError(f"SMRITI_EMBEDDING_MODEL={_SMRITI_EMBED_PROVIDER} but no API key is set")
-    client = _openai.OpenAI(api_key=api_key, base_url=base_url)
-    resp = client.embeddings.create(model="text-embedding-3-small", input=text[:4000])
-    return resp.data[0].embedding
+    """Single embedding client — delegates to smriti_embed (no fallback)."""
+    return _se._embed(text)
 
 
 def _extract_substance(result: str) -> str:

@@ -14,6 +14,7 @@ It keeps the current stores intact while making the runtime think in terms of:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import uuid
 from collections import Counter
@@ -21,6 +22,8 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+_log = logging.getLogger("narad.smriti")
 
 _ROOT = Path(__file__).parent
 
@@ -192,10 +195,14 @@ def capture_episode(
         provenance=[trace_session_id or session_id],
     )
     _append_jsonl(_episode_path(user_id), asdict(episode))
+    index_deferred = False
     try:
         index_episode_record(asdict(episode))
-    except Exception:
-        pass
+    except Exception as exc:
+        # Episode is safely in the source of truth; the index catches up on the
+        # next ensure_user_episode_index() pass. Visible, never silent.
+        index_deferred = True
+        _log.warning("Smriti: episode %s written but not indexed yet: %s", episode.id, exc)
     log_mutation(
         "episode_captured",
         entity_type="episode",
@@ -250,6 +257,7 @@ def capture_episode(
         "status": "ok",
         "episode_id": episode.id,
         "remembered": remembered,
+        "index_deferred": index_deferred,
         "commitment_count": len(commitments),
         "provenance": episode.provenance,
     }
@@ -340,8 +348,8 @@ async def recall_context(
                 if block:
                     blocks.append(block)
                     provenance.append({"kind": "smriti_exact", "preview": _truncate(block, 200)})
-    except Exception:
-        pass
+    except Exception as exc:
+        _log.warning("Smriti: vector/semantic recall unavailable this turn: %s", exc)
 
     try:
         from smriti_v2 import get_project_context

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
 import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -11,6 +10,11 @@ from typing import Any
 from turbovec_policy import memory_tier_policy_payload
 
 from narad_config import SMRITI_MANIFEST_DIR, SMRITI_VECTOR_DIR
+from smriti_embed import (  # noqa: F401  — re-exported for callers
+    EmbeddingUnavailableError,
+    current_embedding_model,
+    embed_text,
+)
 
 try:
     import numpy as np
@@ -34,40 +38,6 @@ def _sha(value: str) -> str:
 
 def _numeric_id(record_id: str) -> int:
     return int(_sha(record_id)[:16], 16)
-
-
-def _l2_norm(values: list[float]) -> float:
-    return math.sqrt(sum(v * v for v in values)) or 1.0
-
-
-def _normalize(values: list[float]) -> list[float]:
-    norm = _l2_norm(values)
-    return [v / norm for v in values]
-
-
-def _fallback_embed(text: str, dim: int = 256) -> list[float]:
-    buckets = [0.0] * dim
-    words = re.findall(r"\w+", text.lower())
-    if not words:
-        return buckets
-    for token in words:
-        base = int(_sha(token)[:8], 16)
-        idx = base % dim
-        buckets[idx] += 1.0
-        pair = int(_sha(token[::-1])[:8], 16)
-        buckets[pair % dim] += 0.35
-    return _normalize(buckets)
-
-
-def embed_text(text: str) -> tuple[list[float], str]:
-    try:
-        from smriti import _SMRITI_EMBED_PROVIDER, _embed  # type: ignore
-
-        vector = _normalize(list(map(float, _embed(text[:4000]))))
-        return vector, f"smriti-{_safe_slug(_SMRITI_EMBED_PROVIDER)}-{len(vector)}"
-    except Exception:
-        vector = _fallback_embed(text)
-        return vector, f"local-hash-v1-{len(vector)}"
 
 
 @dataclass
