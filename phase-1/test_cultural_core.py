@@ -76,10 +76,6 @@ class CulturalCoreTests(unittest.TestCase):
             trace_session_id="trace-2",
         )
 
-        fake_smriti = types.SimpleNamespace(
-            recall=lambda *args, **kwargs: "- [Parashurama] semantic memory",
-            recall_exact=lambda *args, **kwargs: "- [Parashurama] exact memory",
-        )
         async def _fake_project_context(*args, **kwargs):
             return "[PROJECT MEMORY]\nrecent architectural notes"
 
@@ -96,7 +92,6 @@ class CulturalCoreTests(unittest.TestCase):
         with patch.dict(
             sys.modules,
             {
-                "smriti": fake_smriti,
                 "smriti_v2": fake_smriti_v2,
                 "sutra_engine": fake_sutra,
                 "sankalpa": fake_sankalpa,
@@ -104,14 +99,17 @@ class CulturalCoreTests(unittest.TestCase):
         ):
             packet = asyncio.run(
                 self.smriti_core.recall_context(
-                    "review this dashboard bug",
+                    "concise bullet summaries for code reviews",
                     user_id="tester",
                     avatar="Parashurama",
                 )
             )
 
-        self.assertIn("semantic memory", packet["context"])
-        self.assertIn("exact memory", packet["context"])
+        # Unified plane: one vector/lexical packet replaces the legacy
+        # smriti.recall / recall_exact blocks (M2.2 3-plane merge).
+        self.assertIn("[SMRITI VECTOR MEMORY", packet["context"])
+        self.assertIn("recalled from", packet["context"])
+        self.assertIn("code reviews", packet["context"])
         self.assertIn("[PROJECT MEMORY]", packet["context"])
         self.assertIn("[SUTRAS]", packet["context"])
         self.assertIn("[SANKALPA]", packet["context"])

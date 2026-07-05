@@ -171,6 +171,37 @@ def upsert_record(record: VectorMemoryRecord) -> None:
     sync_records(user_id=record.user_id, namespace=record.namespace, records=[record])
 
 
+def remove_records(*, user_id: str, record_ids: set[str]) -> int:
+    """Remove records by id from every manifest for this user (forget cascade).
+
+    Scans all models/namespaces/tiers, rewrites only manifests that contained a
+    match, and marks their turbovec index dirty. Returns how many were removed.
+    """
+    if not record_ids:
+        return 0
+    removed = 0
+    base = SMRITI_MANIFEST_DIR / _safe_slug(user_id)
+    if not base.exists():
+        return 0
+    for manifest in base.glob("*/*/*/records.jsonl"):
+        existing = _load_records(manifest)
+        keep = {rid: rec for rid, rec in existing.items() if rid not in record_ids}
+        if len(keep) == len(existing):
+            continue
+        removed += len(existing) - len(keep)
+        _write_records(manifest, list(keep.values()))
+        # manifest = <model>/<namespace>/<tier>/records.jsonl
+        tier_dir = manifest.parent
+        _mark_dirty(
+            SMRITI_VECTOR_DIR
+            / _safe_slug(user_id)
+            / tier_dir.parent.parent.name
+            / tier_dir.parent.name
+            / tier_dir.name
+        )
+    return removed
+
+
 def _build_turbovec_index(
     *,
     records: list[VectorMemoryRecord],

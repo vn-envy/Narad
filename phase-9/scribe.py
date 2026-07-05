@@ -22,7 +22,38 @@ log = logging.getLogger("narad.scribe")
 # Import paths resolved at call time to avoid circular deps
 _PHASE2 = Path(__file__).parent.parent / "phase-2"
 
+from narad_config import EPISODE_DIR as _EPISODE_DIR
 from narad_config import TRACE_DIR as _TRACE_DIR
+
+
+def _session_episode_results(session_id: str, user_id: str) -> dict[str, str]:
+    """avatar → real result text from the canonical episode store.
+
+    Traces only carry result_len/latency_ms; the wiki used to be compiled from
+    those placeholders ("[Completed in 3.1s, response ~800 chars]"). Episodes
+    hold the actual output, so read them and keep the last result per avatar.
+    """
+    path = _EPISODE_DIR / f"{user_id}.jsonl"
+    if not path.exists():
+        return {}
+    results: dict[str, str] = {}
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except Exception:
+                continue
+            if row.get("session_id") != session_id and row.get("trace_session_id") != session_id:
+                continue
+            avatar = row.get("avatar", "")
+            result = (row.get("result") or "").strip()
+            if avatar and result:
+                results[avatar] = result
+    except Exception:
+        return {}
+    return results
 
 
 def _load_trace(session_id: str) -> list[dict[str, Any]]:
@@ -97,7 +128,9 @@ async def compile_session(session_id: str, user_id: str) -> None:
         if not events:
             return
 
-        # Extract avatar_start → avatar_done pairs
+        # Extract avatar_start → avatar_done pairs; real results come from the
+        # canonical episode store, latency notes are only the fallback.
+        real_results = _session_episode_results(session_id, user_id)
         pending: dict[str, str] = {}  # avatar → task
         episodes: list[tuple[str, str, str]] = []  # (avatar, task, result)
 
@@ -111,11 +144,12 @@ async def compile_session(session_id: str, user_id: str) -> None:
             elif e_type == "avatar_done" and avatar and avatar in pending:
                 result_len = evt.get("result_len", 0)
                 latency_ms = evt.get("latency_ms", 0)
-                result_note = (
+                fallback_note = (
                     f"[Completed in {latency_ms / 1000:.1f}s, "
                     f"response ~{result_len} chars]"
                 ) if result_len else f"[Completed in {latency_ms / 1000:.1f}s]"
-                episodes.append((avatar, pending.pop(avatar), result_note))
+                result_text = real_results.get(avatar, "") or fallback_note
+                episodes.append((avatar, pending.pop(avatar), result_text[:3000]))
 
         if not episodes:
             return

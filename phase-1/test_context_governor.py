@@ -91,11 +91,6 @@ class ContextGovernorTests(unittest.TestCase):
         self.assertIsInstance(meta["artifact_references"], list)
 
     def test_recall_context_respects_token_budget(self) -> None:
-        fake_smriti = types.SimpleNamespace(
-            recall=lambda query, user_id="default": "semantic memory " * 200,
-            recall_exact=lambda query, user_id="default", avatar="": "exact memory " * 200,
-        )
-
         async def _fake_project_context(*args, **kwargs):
             return "project context " * 220
 
@@ -112,7 +107,6 @@ class ContextGovernorTests(unittest.TestCase):
         with patch.dict(
             sys.modules,
             {
-                "smriti": fake_smriti,
                 "smriti_v2": fake_smriti_v2,
                 "sutra_engine": fake_sutra_engine,
                 "sankalpa": fake_sankalpa,

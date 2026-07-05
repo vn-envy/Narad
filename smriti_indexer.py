@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -33,6 +35,121 @@ def _stable_id(prefix: str, *parts: str) -> str:
     return f"{prefix}:{hashlib.sha1(raw.encode('utf-8')).hexdigest()[:16]}"
 
 
+# ── Episode FTS5 (lexical plane over episodes.jsonl) ────────────────────────
+# One sidecar DB per user, next to the vector manifests. Written BEFORE any
+# embedding call, so exact-match recall survives embedding-provider outages.
+
+
+def _fts_db_path(user_id: str) -> Path:
+    return SMRITI_MANIFEST_DIR / _safe_slug(user_id) / "episode_fts.db"
+
+
+def _fts_conn(user_id: str) -> sqlite3.Connection:
+    path = _fts_db_path(user_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(path))
+    conn.execute(
+        """
+        CREATE VIRTUAL TABLE IF NOT EXISTS episodes_fts USING fts5(
+            episode_id UNINDEXED,
+            avatar UNINDEXED,
+            project_id UNINDEXED,
+            ts UNINDEXED,
+            task,
+            result,
+            tokenize='porter unicode61'
+        )
+        """
+    )
+    return conn
+
+
+def fts_upsert_episode(episode: dict[str, Any], *, user_id: str | None = None) -> None:
+    """Idempotent write of one episode into the lexical index (delete+insert)."""
+    uid = user_id or episode.get("user_id", "default")
+    episode_id = str(episode.get("id", ""))
+    if not episode_id:
+        return
+    conn = _fts_conn(uid)
+    try:
+        conn.execute("DELETE FROM episodes_fts WHERE episode_id = ?", (episode_id,))
+        conn.execute(
+            "INSERT INTO episodes_fts(episode_id, avatar, project_id, ts, task, result) "
+            "VALUES (?,?,?,?,?,?)",
+            (
+                episode_id,
+                episode.get("avatar", ""),
+                episode.get("project_id", "general"),
+                episode.get("ts", ""),
+                episode.get("task", ""),
+                episode.get("result", ""),
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def fts_delete_episode(user_id: str, episode_id: str) -> None:
+    if not _fts_db_path(user_id).exists():
+        return
+    conn = _fts_conn(user_id)
+    try:
+        conn.execute("DELETE FROM episodes_fts WHERE episode_id = ?", (episode_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def fts_search_episodes(
+    query: str,
+    *,
+    user_id: str = "default",
+    limit: int = 5,
+    avatar: str | None = None,
+) -> list[dict[str, Any]]:
+    """BM25 lexical search over episodes. Returns row dicts, best first.
+
+    Query is tokenized to bare words joined with OR — user text never reaches
+    the FTS5 syntax parser, so stack traces and shell errors are safe input.
+    """
+    tokens = re.findall(r"\w+", query)[:12]
+    if not tokens or not _fts_db_path(user_id).exists():
+        return []
+    match = " OR ".join(f'"{token}"' for token in tokens)
+    conn = _fts_conn(user_id)
+    try:
+        if avatar:
+            rows = conn.execute(
+                "SELECT episode_id, avatar, project_id, ts, task, result "
+                "FROM episodes_fts WHERE episodes_fts MATCH ? AND avatar = ? "
+                "ORDER BY rank LIMIT ?",
+                (match, avatar, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT episode_id, avatar, project_id, ts, task, result "
+                "FROM episodes_fts WHERE episodes_fts MATCH ? ORDER BY rank LIMIT ?",
+                (match, limit),
+            ).fetchall()
+    except Exception as exc:
+        log.warning("Smriti: episode FTS search failed: %s", exc)
+        return []
+    finally:
+        conn.close()
+    return [
+        {
+            "episode_id": row[0],
+            "avatar": row[1],
+            "project_id": row[2],
+            "ts": row[3],
+            "task": row[4],
+            "result": row[5],
+        }
+        for row in rows
+    ]
+
+
 def _episode_index_text(episode: dict[str, Any]) -> str:
     return (
         f"Task: {episode.get('task', '')}\n"
@@ -57,6 +174,11 @@ def index_episode_record(
     text = _episode_index_text(episode)
     if not text:
         return False
+    # Lexical plane first: FTS must not be lost when embedding fails below.
+    try:
+        fts_upsert_episode(episode)
+    except Exception as exc:
+        log.warning("Smriti: episode FTS upsert failed: %s", exc)
     record_id = f"episode:{episode.get('id', '')}"
     content_hash = _stable_id("hash", text)
     if known_hashes is not None and known_hashes.get(record_id) == content_hash:
@@ -131,7 +253,9 @@ def ensure_user_episode_index(user_id: str = "default") -> None:
     size = path.stat().st_size
     ckpt = _load_episode_ckpt(user_id)
     start = 0
-    if ckpt.get("model") == model and isinstance(ckpt.get("offset"), int):
+    if not _fts_db_path(user_id).exists():
+        pass  # lexical index missing (pre-FTS data) → full rescan backfills it
+    elif ckpt.get("model") == model and isinstance(ckpt.get("offset"), int):
         if ckpt["offset"] == size:
             return  # fast path: no new episodes since last index
         if 0 < ckpt["offset"] < size:

@@ -1339,11 +1339,12 @@ async def _run_agent_task(
                         entries=glossary_entries,
                     )
                 try:
-                    from smriti import remember as _remember
-                    _remember(
-                        f"Learning workspace checkpoint for {topic}",
-                        _distill_learning_summary(topic, req.query, narad_response_text),
-                        "Krishna",
+                    from smriti_core import capture_episode as _capture_episode
+                    _capture_episode(
+                        session_id=session_id,
+                        task=f"Learning workspace checkpoint for {topic}",
+                        avatar="Krishna",
+                        result=_distill_learning_summary(topic, req.query, narad_response_text),
                         user_id=req.user_id,
                     )
                 except Exception:
@@ -1879,17 +1880,20 @@ async def query_memory(
     limit: int = 50,
     q: Optional[str] = None,
 ):
-    """Query Smriti memories with optional filters."""
+    """Query the canonical episode store (episodes.jsonl) with optional filters."""
     from datetime import datetime, timedelta
     try:
-        from smriti import _get_table  # type: ignore
-        table = _get_table()
-        raw = (
-            table.search()
-            .where(f"user_id = '{user_id}'", prefilter=True)
-            .limit(limit * 4)
-            .to_list()
-        )
+        from narad_config import EPISODE_DIR
+        path = EPISODE_DIR / f"{user_id}.jsonl"
+        raw = []
+        if path.exists():
+            for line in path.read_text(encoding="utf-8").splitlines():
+                if not line.strip():
+                    continue
+                try:
+                    raw.append(json.loads(line))
+                except Exception:
+                    continue
     except Exception:
         return []
 
@@ -1899,11 +1903,11 @@ async def query_memory(
 
     results = []
     for row in raw:
-        if cutoff and row.get("created_at", "") < cutoff:
+        if cutoff and row.get("ts", "") < cutoff:
             continue
         if avatar and row.get("avatar") != avatar:
             continue
-        text = row.get("memory", "")
+        text = f"{row.get('task', '')}\n\n{row.get('avatar', '')} answered: {row.get('result', '')}".strip()
         if q and q.lower() not in text.lower():
             continue
         tl = text.lower()
@@ -1921,7 +1925,7 @@ async def query_memory(
             "id":         row.get("id", ""),
             "avatar":     row.get("avatar", ""),
             "text":       text,
-            "created_at": row.get("created_at", ""),
+            "created_at": row.get("ts", ""),
             "type":       mtype,
         })
 
@@ -1951,23 +1955,19 @@ async def unified_search(
     results: list[dict] = []
     q_lower = q.lower()
 
-    # Memories (FTS5)
+    # Memories (episode FTS5 — lexical plane of the unified store)
     try:
-        from smriti import recall_exact  # type: ignore
-        mem_text = recall_exact(q, user_id=user_id, limit=5)
-        for line in mem_text.strip().split("\n"):
-            line = line.strip()
-            if line.startswith("- ["):
-                parts = line[3:].split("]", 1)
-                if len(parts) == 2:
-                    results.append({
-                        "id": f"mem_{len(results)}",
-                        "type": "memory",
-                        "avatar": parts[0],
-                        "preview": parts[1].strip()[:120],
-                        "ts": "",
-                        "nav": "memory",
-                    })
+        from smriti_indexer import fts_search_episodes  # type: ignore
+        for row in fts_search_episodes(q, user_id=user_id, limit=5):
+            preview = (row.get("task") or row.get("result") or "").strip()
+            results.append({
+                "id": row.get("episode_id", f"mem_{len(results)}"),
+                "type": "memory",
+                "avatar": row.get("avatar", ""),
+                "preview": preview[:120],
+                "ts": row.get("ts", ""),
+                "nav": "memory",
+            })
     except Exception:
         pass
 

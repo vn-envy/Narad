@@ -94,27 +94,44 @@ def log_karma(
         if metadata:
             record["metadata"] = metadata
 
-        _KARMA_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with _KARMA_PATH.open("a") as f:
+        # Single audit ledger: KARMA_MUTATIONS_PATH. (Events used to be written
+        # to both files; load_karma merge-reads so pre-merge history survives.)
+        _KARMA_MUTATIONS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with _KARMA_MUTATIONS_PATH.open("a") as f:
             f.write(json.dumps(record) + "\n")
-        with _KARMA_MUTATIONS_PATH.open("a") as f2:
-            f2.write(json.dumps(record) + "\n")
     except Exception:
         pass
 
 
-def load_karma(limit: int = 100) -> list[dict]:
-    """Load recent karma events, newest first."""
-    if not _KARMA_PATH.exists():
+def _read_jsonl(path) -> list[dict]:
+    if not path.exists():
         return []
-    events = []
-    for line in _KARMA_PATH.read_text().splitlines():
+    rows = []
+    for line in path.read_text().splitlines():
         if not line.strip():
             continue
         try:
-            events.append(json.loads(line))
+            rows.append(json.loads(line))
         except Exception:
             continue
+    return rows
+
+
+def load_karma(limit: int = 100) -> list[dict]:
+    """Load recent karma events, newest first.
+
+    Merge-reads the legacy karma.jsonl and the unified mutations ledger,
+    deduplicating by event id (dual-write era wrote the same record to both).
+    """
+    seen: set[str] = set()
+    events: list[dict] = []
+    for row in _read_jsonl(_KARMA_MUTATIONS_PATH) + _read_jsonl(_KARMA_PATH):
+        rid = str(row.get("id", ""))
+        if rid and rid in seen:
+            continue
+        if rid:
+            seen.add(rid)
+        events.append(row)
     events.sort(key=lambda x: x.get("ts", ""), reverse=True)
     return events[:limit]
 
@@ -133,17 +150,5 @@ def karma_summary() -> dict:
 
 
 def load_mutations(limit: int = 100) -> list[dict]:
-    """Load expanded mutation log, newest first."""
-    path = _KARMA_MUTATIONS_PATH if _KARMA_MUTATIONS_PATH.exists() else _KARMA_PATH
-    if not path.exists():
-        return []
-    rows = []
-    for line in path.read_text().splitlines():
-        if not line.strip():
-            continue
-        try:
-            rows.append(json.loads(line))
-        except Exception:
-            continue
-    rows.sort(key=lambda x: x.get("ts", ""), reverse=True)
-    return rows[:limit]
+    """Load expanded mutation log, newest first (merge-read, dedupe by id)."""
+    return load_karma(limit=limit)

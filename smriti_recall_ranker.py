@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -8,8 +10,23 @@ from typing import Any
 
 from context_governor import compact_text_block, count_text_tokens
 
-from smriti_indexer import ensure_project_wiki_indexed, ensure_user_episode_index
+log = logging.getLogger("narad.smriti")
+
+from narad_config import EPISODE_DIR
+from smriti_indexer import (
+    ensure_project_wiki_indexed,
+    ensure_user_episode_index,
+    fts_search_episodes,
+)
 from smriti_vector_store import VectorMemoryRecord, memory_tier_diagnostics, search_records
+
+
+def _recall_floor() -> float:
+    """Relevance floor — hits scoring below this are noise, not memory."""
+    try:
+        return float(os.environ.get("NARAD_RECALL_FLOOR", "0.30"))
+    except ValueError:
+        return 0.30
 
 
 def _parse_ts(value: str | None) -> datetime | None:
@@ -93,7 +110,32 @@ def _rank_hits(query: str, hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if hit["record"].project_id and hit["record"].project_id != "general":
             hit["final_score"] += 0.05
     hits.sort(key=lambda item: item["final_score"], reverse=True)
-    return hits
+    floor = _recall_floor()
+    return [hit for hit in hits if hit["final_score"] >= floor]
+
+
+def _fts_record(row: dict[str, Any], user_id: str) -> VectorMemoryRecord:
+    """Shape a lexical hit like a vector record so ranking/fitting is uniform."""
+    ts = row.get("ts", "")
+    task = row.get("task", "")
+    result = row.get("result", "")
+    return VectorMemoryRecord(
+        record_id=f"episode:{row.get('episode_id', '')}",
+        namespace="episodic_summary",
+        tier="fts5",
+        user_id=user_id,
+        project_id=row.get("project_id") or "general",
+        source_kind="episode",
+        source_path=str(EPISODE_DIR / f"{user_id}.jsonl"),
+        source_ref=str(row.get("episode_id", "")),
+        created_at=ts,
+        updated_at=ts,
+        preview=(task or result)[:180],
+        text=f"Task: {task}\nResult: {result}"[:1400],
+        content_hash="",
+        embedding_model="fts5",
+        dim=0,
+    )
 
 
 def _fit_blocks(
@@ -113,7 +155,10 @@ def _fit_blocks(
         exact_text = hit["exact_text"]
         if not exact_text:
             continue
-        candidate = f"[{label}]\n{exact_text}"
+        recalled_at = _parse_ts(hit["record"].updated_at)
+        stamp = recalled_at.strftime("%d %b %Y") if recalled_at else "undated"
+        header = f"[{label} | recalled from {stamp} — {hit['record'].preview[:60]}]"
+        candidate = f"{header}\n{exact_text}"
         if remaining is not None and count_text_tokens(model, candidate) > remaining:
             compacted = compact_text_block(
                 candidate,
@@ -138,6 +183,8 @@ def _fit_blocks(
             "namespace": hit["record"].namespace,
             "tier": hit["record"].tier,
             "backend": hit["backend"],
+            "score": round(hit.get("final_score", 0.0), 4),
+            "recalled_from": stamp,
             "compressed_candidate": True,
             "exact_reread": True,
             "source_path": hit["record"].source_path,
@@ -160,26 +207,44 @@ def build_semantic_memory_context(
     model: str = "deepseek/deepseek-v4-flash",
     limit: int = 4,
 ) -> dict[str, Any]:
-    ensure_user_episode_index(user_id)
-    raw_hits = search_records(
-        user_id=user_id,
-        namespace="episodic_summary",
-        query=query,
-        limit=max(limit * 2, 6),
-        project_id=project_id,
-    )
-    hits = _rank_hits(
-        query,
-        [
+    try:
+        ensure_user_episode_index(user_id)
+        raw_hits = search_records(
+            user_id=user_id,
+            namespace="episodic_summary",
+            query=query,
+            limit=max(limit * 2, 6),
+            project_id=project_id,
+        )
+    except Exception as exc:
+        # Embedding provider down — lexical plane still answers (one recall
+        # path, degraded honestly rather than silently empty).
+        log.warning("Smriti: vector plane unavailable, lexical-only recall: %s", exc)
+        raw_hits = []
+    candidates = [
+        {
+            "record": hit.record,
+            "score": hit.score,
+            "backend": hit.backend,
+            "exact_text": _exact_reread(hit.record),
+        }
+        for hit in raw_hits
+    ]
+    seen_ids = {c["record"].record_id for c in candidates}
+    for row in fts_search_episodes(query, user_id=user_id, limit=limit):
+        record = _fts_record(row, user_id)
+        if record.record_id in seen_ids:
+            continue  # vector plane already surfaced this episode
+        seen_ids.add(record.record_id)
+        candidates.append(
             {
-                "record": hit.record,
-                "score": hit.score,
-                "backend": hit.backend,
-                "exact_text": _exact_reread(hit.record),
+                "record": record,
+                "score": 0.5,  # neutral base — lexical + recency differentiate
+                "backend": "fts5",
+                "exact_text": _exact_reread(record),
             }
-            for hit in raw_hits
-        ],
-    )
+        )
+    hits = _rank_hits(query, candidates)
     fitted = _fit_blocks(
         query=query,
         model=model,
