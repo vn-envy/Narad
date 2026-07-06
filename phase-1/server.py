@@ -1339,7 +1339,12 @@ async def _run_agent_task(
                             )
                 except Exception:
                     pass
-            usage_payload = _usage_to_sse(event)
+            usage_payload = _usage_to_sse(
+                event,
+                model=selected_model,
+                user_id=req.user_id,
+                session_id=session_id,
+            )
             if usage_payload:
                 await queue.put(usage_payload)
 
@@ -1916,6 +1921,15 @@ async def post_inbox_mark_read(req: InboxMarkReadRequest):
     return mark_read(req.user_id, req.ids)
 
 
+# ── Cost ledger (M4.1) ─────────────────────────────────────────────────────────
+
+@app.get("/costs")
+async def get_costs(days: int = 7, user_id: Optional[str] = None):
+    """Trailing cost roll-up: totals, by_day, by_source (turn vs tapas_*), by_model."""
+    from cost_ledger import summarize
+    return summarize(days=days, user_id=user_id)
+
+
 @app.get("/provenance/{entity_id}")
 async def get_provenance_endpoint(entity_id: str, user_id: str = "default"):
     from smriti_core import get_provenance
@@ -2320,13 +2334,23 @@ def _event_to_sse(event: Event, think: "ThinkingFilter | None" = None) -> list[s
     return payloads or [json.dumps({"type": "unknown", "data": {}})]
 
 
-def _usage_to_sse(event: Event) -> str | None:
+def _usage_to_sse(
+    event: Event,
+    *,
+    model: str = "",
+    user_id: str = "default",
+    session_id: str = "",
+) -> str | None:
     """Emit a usage event for the final response event only.
 
     ADK attaches usage_metadata to many intermediate events (tool calls, etc.)
     with cumulative but partial counts. Only the final response event carries
     the complete turn total — gating here means exactly one usage event per turn,
     always after narad_synthesis has fired so client timing is correct.
+
+    M4.1: the same gate is the cost-ledger write path — one ledger entry per
+    turn, priced from the model that served it, and cost_usd rides along on
+    the SSE payload so the client never needs its own price table.
     """
     if not event.is_final_response():
         return None
@@ -2339,6 +2363,20 @@ def _usage_to_sse(event: Event) -> str | None:
     total_toks       = um.total_token_count        or 0
     if total_toks == 0:
         return None
+    cost_usd = 0.0
+    try:
+        from cost_ledger import record as _record_cost
+        cost_usd = _record_cost(
+            source="turn",
+            model=model,
+            prompt_tokens=prompt_toks,
+            completion_tokens=completion_toks,
+            thoughts_tokens=thoughts_toks,
+            user_id=user_id,
+            session_id=session_id,
+        )["cost_usd"]
+    except Exception as exc:  # ledger failure must never break the stream
+        logging.getLogger("narad.server").warning("cost ledger write failed: %s", exc)
     return json.dumps({
         "type": "usage",
         "data": {
@@ -2346,6 +2384,8 @@ def _usage_to_sse(event: Event) -> str | None:
             "completion_tokens": completion_toks,
             "thoughts_tokens":   thoughts_toks,
             "total_tokens":      total_toks,
+            "model":             model,
+            "cost_usd":          cost_usd,
         },
     })
 

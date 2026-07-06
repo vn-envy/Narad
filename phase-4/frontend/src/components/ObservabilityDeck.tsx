@@ -19,7 +19,7 @@ interface Props {
   avatars: Record<AvatarName, AvatarStatus>
   currentSession: SessionInfo | null
   stepEvents: StepEvent[]
-  sessionTotals: { promptTokens: number; completionTokens: number; totalTokens: number }
+  sessionTotals: { promptTokens: number; completionTokens: number; totalTokens: number; costUsd: number }
   capabilities: RuntimeCapabilities | null
   compact?: boolean
   metricsOnly?: boolean
@@ -42,6 +42,12 @@ interface SutraMetric {
 function fmtCompact(value: number): string {
   if (value >= 1000) return `${(value / 1000).toFixed(1)}k`
   return String(value)
+}
+
+/** M4.1: session cost — sub-cent amounts keep 4 decimals so they never render as $0.00. */
+function fmtCost(usd: number): string {
+  if (usd <= 0) return '$0'
+  return usd < 0.01 ? `$${usd.toFixed(4)}` : `$${usd.toFixed(2)}`
 }
 
 function StatCard({
@@ -360,7 +366,7 @@ export function ObservabilityDeck({
               value={currentSession?.sessionId ? `${toolCalls}` : '0'}
               subtitle={
                 currentSession
-                  ? `${sessionTotals.totalTokens > 0 ? fmtCompact(sessionTotals.totalTokens) : '0'} tok · ${currentSession.totalMs ? (currentSession.totalMs / 1000).toFixed(1) : '0.0'}s`
+                  ? `${sessionTotals.totalTokens > 0 ? fmtCompact(sessionTotals.totalTokens) : '0'} tok · ${currentSession.totalMs ? (currentSession.totalMs / 1000).toFixed(1) : '0.0'}s · ${fmtCost(sessionTotals.costUsd)}`
                   : 'No active session yet'
               }
               accent="var(--kajal)"
@@ -505,7 +511,7 @@ export function ObservabilityDeck({
             <StatCard
               title="Session Tokens"
               value={sessionTotals.totalTokens > 0 ? fmtCompact(sessionTotals.totalTokens) : '0'}
-              subtitle={sessionTotals.totalTokens > 0 ? `${promptPct}% prompt · ${completionPct}% completion` : 'No token usage yet'}
+              subtitle={sessionTotals.totalTokens > 0 ? `${promptPct}% prompt · ${completionPct}% completion · ${fmtCost(sessionTotals.costUsd)}` : 'No token usage yet'}
               accent="var(--kajal)"
             />
             <StatCard

@@ -33,7 +33,7 @@ interface Props {
   streaming: boolean
   messages: Message[]
   stepEvents: StepEvent[]
-  sessionTotals: { promptTokens: number; completionTokens: number; totalTokens: number }
+  sessionTotals: { promptTokens: number; completionTokens: number; totalTokens: number; costUsd: number }
   currentSession: SessionInfo | null
   userId: string
   kanbanUpdate: KanbanUpdatePayload | null

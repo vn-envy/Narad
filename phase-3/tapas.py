@@ -195,6 +195,26 @@ def _litellm_with_retry(litellm_module: Any, kwargs: dict, max_retries: int = 2)
             delay *= 2
 
 
+def _record_judge_cost(response: Any, source: str) -> None:
+    """M4.1: judge/critique calls hit the cost ledger — learning has a price tag.
+
+    Best-effort; never lets ledger problems affect scoring.
+    """
+    try:
+        usage = getattr(response, "usage", None)
+        if not usage:
+            return
+        from cost_ledger import record
+        record(
+            source=source,
+            model=_JUDGE_MODEL,
+            prompt_tokens=int(getattr(usage, "prompt_tokens", 0) or 0),
+            completion_tokens=int(getattr(usage, "completion_tokens", 0) or 0),
+        )
+    except Exception:
+        pass
+
+
 def score_session(query: str, avatar: str, result: str) -> tuple[float, str, bool, bool]:
     """Score an avatar response using the configured judge model.
 
@@ -223,6 +243,7 @@ def score_session(query: str, avatar: str, result: str) -> tuple[float, str, boo
             kwargs["api_key"] = _JUDGE_API_KEY
 
         response = _litellm_with_retry(litellm, kwargs)
+        _record_judge_cost(response, "tapas_judge")
         raw = response.choices[0].message.content.strip()
         data              = _extract_judge_json(raw)
         score             = float(data.get("score", 0.5))
@@ -283,6 +304,7 @@ def _cai_critique(avatar: str, task: str, result: str) -> tuple[bool, str]:
         if _JUDGE_API_KEY:
             kwargs["api_key"] = _JUDGE_API_KEY
         response = _litellm_with_retry(litellm, kwargs)
+        _record_judge_cost(response, "tapas_critique")
         raw  = response.choices[0].message.content.strip()
         data = _extract_judge_json(raw)
         return bool(data.get("pass", True)), str(data.get("concerns", ""))

@@ -63,6 +63,7 @@ DHARMA_POLICY_PATH:        Path = CONFIG_DIR / "dharma_policy.json"
 KARMA_MUTATIONS_PATH:      Path = CONFIG_DIR / "karma_mutations.jsonl"
 SWAPNA_INBOX_DIR:          Path = NARAD_HOME / "swapna" / "inbox"
 INBOX_DIR:                 Path = NARAD_HOME / "inbox"          # Vahana delivery (M3)
+COST_LEDGER_PATH:          Path = CONFIG_DIR / "cost_ledger.jsonl"  # usage → USD (M4.1)
 SCHEDULER_STATE_PATH:      Path = NARAD_HOME / "scheduler_state.json"
 BENCHMARK_DIR:             Path = NARAD_HOME / "benchmarks"
 BASELINE_DIR:              Path = BENCHMARK_DIR / "baseline"

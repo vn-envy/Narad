@@ -21,6 +21,8 @@ export interface TokenUsage {
   totalTokens:      number
   tokPerSec?:       number
   synthDurationMs?: number
+  /** M4.1: server-priced cost for this turn (USD) — client keeps no price table. */
+  costUsd?:         number
 }
 
 export interface Message {
@@ -150,7 +152,7 @@ interface AvatararState {
   streaming: boolean
   error: string | null
   stepEvents: StepEvent[]
-  sessionTotals: { promptTokens: number; completionTokens: number; totalTokens: number }
+  sessionTotals: { promptTokens: number; completionTokens: number; totalTokens: number; costUsd: number }
   activeArtifactSession: ActiveArtifactSession | null
   pendingToolUi: PendingToolUi | null
   kanbanUpdate: KanbanUpdatePayload | null
@@ -279,7 +281,7 @@ export function useAvatara(userId = 'default') {
     streaming: false,
     error: null,
     stepEvents: [],
-    sessionTotals: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+    sessionTotals: { promptTokens: 0, completionTokens: 0, totalTokens: 0, costUsd: 0 },
     activeArtifactSession: null,
     pendingToolUi: null,
     kanbanUpdate: null,
@@ -658,11 +660,12 @@ export function useAvatara(userId = 'default') {
             case 'usage': {
               // Store raw token counts only — timing (tokPerSec, synthDurationMs)
               // is computed in the `done` handler when synthesis is definitively complete.
-              const d = evt.data as { prompt_tokens: number; completion_tokens: number; total_tokens: number }
+              const d = evt.data as { prompt_tokens: number; completion_tokens: number; total_tokens: number; cost_usd?: number }
               const usage: TokenUsage = {
                 promptTokens:     d.prompt_tokens,
                 completionTokens: d.completion_tokens,
                 totalTokens:      d.total_tokens,
+                costUsd:          d.cost_usd ?? 0,
               }
               msgUsageRef.current = usage
               setState(s => ({
@@ -671,6 +674,7 @@ export function useAvatara(userId = 'default') {
                   promptTokens:     s.sessionTotals.promptTokens     + d.prompt_tokens,
                   completionTokens: s.sessionTotals.completionTokens + d.completion_tokens,
                   totalTokens:      s.sessionTotals.totalTokens      + d.total_tokens,
+                  costUsd:          s.sessionTotals.costUsd          + (d.cost_usd ?? 0),
                 },
                 messages: s.messages.map(m =>
                   m.id === msgIdRef.current ? { ...m, usage } : m
