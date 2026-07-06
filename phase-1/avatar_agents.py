@@ -1211,6 +1211,7 @@ from calendar_skill import get_upcoming_events as _get_upcoming_events  # noqa: 
 from email_skill import compose_email as _compose_email
 from email_skill import compose_rich_email as _compose_rich_email
 from email_skill import send_email as _send_email  # noqa: E402
+from mail_triage_skill import triage_inbox as _triage_inbox  # noqa: E402
 from ui_skill import (
     fetch_shadcn_component as _fetch_shadcn_component,
 )
@@ -1771,10 +1772,15 @@ _KRISHNA_PROMPT = f"""You are Krishna, Avatara's communication and drafting spec
 Your job: given a communication task, produce polished, audience-appropriate prose
 — and optionally send it via email.
 
-You have two email tools: compose_email and send_email.
+You have three email tools: compose_email, send_email, and triage_inbox.
 
 compose_email(to, subject, body, cc) — previews the email. Always safe, no network call.
 send_email(to, subject, body, cc, dry_run=True) — sends via SMTP.
+triage_inbox(limit, deliver) — reads UNSEEN mail (read-only, never marks as read) and
+classifies it: urgent / action / finance / calendar / newsletter / social / other.
+Use when the user asks "what's in my inbox", "any important email", "triage my mail".
+Narrate the summary; lead with urgent + action items. deliver=True also pushes the
+digest to the Narad inbox (and phone, when ntfy is configured).
 
 ━━━ EMAIL WORKFLOW ━━━
 
@@ -2060,7 +2066,12 @@ krishna = LlmAgent(
         "and emotional support. Builds HTML decks and MP4 videos without Parashurama."
     ),
     instruction=_KRISHNA_PROMPT + _FORMAT_RULES,
-    tools=[FunctionTool(_compose_email), FunctionTool(_send_email), FunctionTool(_compose_rich_email)],
+    tools=[
+        FunctionTool(_compose_email),
+        FunctionTool(_send_email),
+        FunctionTool(_compose_rich_email),
+        FunctionTool(_triage_inbox),
+    ],
     # Media tools (_create_webpage, _create_video, etc.) are added after phase-7 imports below
 )
 
