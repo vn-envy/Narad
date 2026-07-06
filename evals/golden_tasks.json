@@ -1,0 +1,303 @@
+{
+  "version": 1,
+  "description": "Golden-task set for nightly structural evals (M4.2). Assertions are structural — routed avatar, tools invoked, synthesis shape — never exact text. Placeholders: {fixture} → runner-created test file, {root} → repo root. strict:false marks routing-ambiguous prompts whose avatar mismatch is a warning, not a failure.",
+  "tasks": [
+    {
+      "id": "matsya-01-doc-extract",
+      "avatar": "Matsya",
+      "prompt": "Use Matsya. Call extract_document on '{fixture}' and summarize the file in 3 bullets.",
+      "expect": { "tools_any": ["extract_document"], "min_synthesis_chars": 60 }
+    },
+    {
+      "id": "matsya-02-scan-dir",
+      "avatar": "Matsya",
+      "prompt": "Use Matsya. Call scan_directory on '{fixture_dir}' and tell me how many files it contains.",
+      "expect": { "tools_any": ["scan_directory"], "synthesis_regex": "\\d" }
+    },
+    {
+      "id": "matsya-03-large-files",
+      "avatar": "Matsya",
+      "prompt": "Use Matsya. Call find_large_files on '{fixture_dir}' and report what you find in one sentence.",
+      "expect": { "tools_any": ["find_large_files"] }
+    },
+    {
+      "id": "matsya-04-disk-info",
+      "avatar": "Matsya",
+      "prompt": "Use Matsya. Call get_disk_info and report free disk space in one sentence.",
+      "expect": { "tools_any": ["get_disk_info"], "synthesis_regex": "\\d" }
+    },
+    {
+      "id": "matsya-05-web-search",
+      "avatar": "Matsya",
+      "prompt": "Search the web: what is the latest stable Python 3 release? One sentence with the version number.",
+      "expect": { "tools_any": ["web_search", "browse_url", "http_request"], "synthesis_regex": "3\\.\\d+" }
+    },
+    {
+      "id": "matsya-06-arxiv",
+      "avatar": "Matsya",
+      "prompt": "Use Matsya. Search arXiv for 'retrieval augmented generation' and list the titles of 3 papers.",
+      "expect": { "tools_any": ["search_arxiv", "search_papers"], "min_synthesis_chars": 80 }
+    },
+    {
+      "id": "matsya-07-http",
+      "avatar": "Matsya",
+      "prompt": "Use Matsya. Make an http_request GET to https://example.com and tell me the page title.",
+      "expect": { "tools_any": ["http_request", "browse_url"], "synthesis_regex": "[Ee]xample" }
+    },
+    {
+      "id": "matsya-08-route-research",
+      "avatar": "Matsya",
+      "prompt": "Research the current state of open-source vector databases and give me a 5-line comparison.",
+      "expect": { "tools_any": ["web_search", "browse_url", "http_request", "search_hf_models"], "min_synthesis_chars": 150 }
+    },
+    {
+      "id": "matsya-09-hf-models",
+      "avatar": "Matsya",
+      "prompt": "Use Matsya. Call search_hf_models for 'sentence embedding' and name 3 models.",
+      "expect": { "tools_any": ["search_hf_models"], "min_synthesis_chars": 60 }
+    },
+    {
+      "id": "matsya-10-recent-files",
+      "avatar": "Matsya",
+      "prompt": "Use Matsya. Call search_last30days on '{fixture_dir}' and report how many recent files you find.",
+      "expect": { "tools_any": ["search_last30days"], "synthesis_regex": "\\d" }
+    },
+    {
+      "id": "matsya-11-deepwiki",
+      "avatar": "Matsya",
+      "prompt": "Use Matsya. Call query_deepwiki about the 'fastapi/fastapi' repository and summarize what the project does in 2 sentences.",
+      "expect": { "tools_any": ["query_deepwiki"], "min_synthesis_chars": 60 }
+    },
+    {
+      "id": "matsya-12-route-file-summary",
+      "avatar": "Matsya",
+      "strict": false,
+      "prompt": "Summarize the document at '{fixture}' in two sentences.",
+      "expect": { "tools_any": ["extract_document", "read_file"], "min_synthesis_chars": 40 }
+    },
+
+    {
+      "id": "rama-01-upcoming",
+      "avatar": "Rama",
+      "prompt": "Use Rama. Call get_upcoming_events for the next 7 days and summarize in 2 bullets. Do not create anything.",
+      "expect": { "tools_any": ["get_upcoming_events"] }
+    },
+    {
+      "id": "rama-02-budget",
+      "avatar": "Rama",
+      "prompt": "Use Rama. Call get_budget_status only and summarize the result in 2 bullets. Do not modify any data.",
+      "expect": { "tools_any": ["get_budget_status"] }
+    },
+    {
+      "id": "rama-03-fin-context",
+      "avatar": "Rama",
+      "prompt": "Use Rama. Call get_financial_context() only and summarize the snapshot in 3 bullets. Read-only.",
+      "expect": { "tools_any": ["get_financial_context"], "min_synthesis_chars": 60 }
+    },
+    {
+      "id": "rama-04-spending",
+      "avatar": "Rama",
+      "prompt": "Use Rama. Call get_spending for this month and report the top categories. Read-only.",
+      "expect": { "tools_any": ["get_spending"] }
+    },
+    {
+      "id": "rama-05-recurring",
+      "avatar": "Rama",
+      "prompt": "Use Rama. Call get_recurring_expenses and list what you find, one line each. Read-only.",
+      "expect": { "tools_any": ["get_recurring_expenses"] }
+    },
+    {
+      "id": "rama-06-goals",
+      "avatar": "Rama",
+      "prompt": "Use Rama. Call get_goals and summarize progress in 2 bullets. Do not add or update any goal.",
+      "expect": { "tools_any": ["get_goals"] }
+    },
+    {
+      "id": "rama-07-networth",
+      "avatar": "Rama",
+      "prompt": "Use Rama. Call get_net_worth and report it in one sentence. Read-only.",
+      "expect": { "tools_any": ["get_net_worth"] }
+    },
+    {
+      "id": "rama-08-health-log",
+      "avatar": "Rama",
+      "prompt": "Use Rama. Call get_health_log for the last 7 days and summarize. Do not log anything new.",
+      "expect": { "tools_any": ["get_health_log"] }
+    },
+    {
+      "id": "rama-09-rxnorm",
+      "avatar": "Rama",
+      "prompt": "Use Rama. Call query_rxnorm for 'ibuprofen' and tell me what drug class it belongs to.",
+      "expect": { "tools_any": ["query_rxnorm"], "min_synthesis_chars": 40 }
+    },
+    {
+      "id": "rama-10-route-plan",
+      "avatar": "Rama",
+      "prompt": "What's on my calendar this week, and can I afford a 15000 rupee purchase this month? Read-only — don't change anything.",
+      "expect": { "tools_any": ["get_upcoming_events", "get_budget_status", "get_spending", "get_financial_context"], "min_synthesis_chars": 60 }
+    },
+    {
+      "id": "rama-11-spend-patterns",
+      "avatar": "Rama",
+      "prompt": "Use Rama. Call get_spend_patterns and share one insight about my spending. Read-only.",
+      "expect": { "tools_any": ["get_spend_patterns"] }
+    },
+    {
+      "id": "rama-12-route-symptoms",
+      "avatar": "Rama",
+      "prompt": "Did I log any symptoms recently? Just check, don't add anything.",
+      "expect": { "tools_any": ["get_health_log"] }
+    },
+
+    {
+      "id": "krishna-01-compose",
+      "avatar": "Krishna",
+      "prompt": "Use Krishna. Call compose_email with to='team@example.com', subject='Golden task check', body='This is a structural eval of the compose path.', cc=''. Show the preview and do not send anything.",
+      "expect": { "tools_any": ["compose_email"], "forbid_tools": ["send_email"] }
+    },
+    {
+      "id": "krishna-02-rich-email",
+      "avatar": "Krishna",
+      "prompt": "Use Krishna. Call compose_rich_email to draft a short HTML status update to team@example.com titled 'Weekly update'. Preview only — do not send.",
+      "expect": { "tools_any": ["compose_rich_email", "compose_email"], "forbid_tools": ["send_email"] }
+    },
+    {
+      "id": "krishna-03-triage",
+      "avatar": "Krishna",
+      "prompt": "Use Krishna. Call triage_inbox with limit=10 and tell me what's in my inbox. If email isn't configured, say so.",
+      "expect": { "tools_any": ["triage_inbox"] }
+    },
+    {
+      "id": "krishna-04-draft-post",
+      "avatar": "Krishna",
+      "prompt": "Draft a short LinkedIn post announcing our v2 launch. Do not send or publish anything.",
+      "expect": { "min_synthesis_chars": 100 }
+    },
+    {
+      "id": "krishna-05-document",
+      "avatar": "Krishna",
+      "prompt": "Use Krishna. Call create_document to produce a one-page markdown note titled 'Golden Eval Note' with two short sections.",
+      "expect": { "tools_any": ["create_document"] }
+    },
+    {
+      "id": "krishna-06-webpage",
+      "avatar": "Krishna",
+      "prompt": "Use Krishna. Call create_webpage for a minimal single-section landing page titled 'Golden Eval'. No video, no images.",
+      "expect": { "tools_any": ["create_webpage"] }
+    },
+    {
+      "id": "krishna-07-shadcn",
+      "avatar": "Krishna",
+      "prompt": "Use Krishna. Call list_shadcn_components and name any 3 components.",
+      "expect": { "tools_any": ["list_shadcn_components"], "min_synthesis_chars": 30 }
+    },
+    {
+      "id": "krishna-08-route-email",
+      "avatar": "Krishna",
+      "prompt": "Write an email to priya@example.com thanking her for the design review — just show me the draft, don't send it.",
+      "expect": { "tools_any": ["compose_email", "compose_rich_email"], "forbid_tools": ["send_email"] }
+    },
+    {
+      "id": "krishna-09-tone",
+      "avatar": "Krishna",
+      "strict": false,
+      "prompt": "Rewrite this sentence in a warmer tone: 'Your request is denied.'",
+      "expect": { "min_synthesis_chars": 20 }
+    },
+    {
+      "id": "krishna-10-route-triage",
+      "avatar": "Krishna",
+      "prompt": "Anything important in my email inbox? Read-only check.",
+      "expect": { "tools_any": ["triage_inbox"] }
+    },
+    {
+      "id": "krishna-11-poem",
+      "avatar": "Krishna",
+      "strict": false,
+      "prompt": "Write a 4-line poem about the Mahati veena.",
+      "expect": { "min_synthesis_chars": 60 }
+    },
+    {
+      "id": "krishna-12-talking-points",
+      "avatar": "Krishna",
+      "strict": false,
+      "prompt": "Turn these notes into 3 crisp talking points: shipped delivery loops, cost ledger is live, evals are next.",
+      "expect": { "min_synthesis_chars": 60 }
+    },
+
+    {
+      "id": "para-01-read-file",
+      "avatar": "Parashurama",
+      "prompt": "Use Parashurama. Call read_file on '{fixture}' and report its first line.",
+      "expect": { "tools_any": ["read_file"], "synthesis_regex": "[Nn]arad" }
+    },
+    {
+      "id": "para-02-shell-pwd",
+      "avatar": "Parashurama",
+      "prompt": "Use Parashurama. Run run_shell('pwd', working_dir='{root}') and report the output.",
+      "expect": { "tools_any": ["run_shell"] }
+    },
+    {
+      "id": "para-03-write-script",
+      "avatar": "Parashurama",
+      "prompt": "Use Parashurama. Call write_script to create a Python script that prints 'golden eval ok'. Do not execute it.",
+      "expect": { "tools_any": ["write_script"] }
+    },
+    {
+      "id": "para-04-shell-date",
+      "avatar": "Parashurama",
+      "prompt": "Use Parashurama. Run run_shell('date') and tell me the output.",
+      "expect": { "tools_any": ["run_shell"], "synthesis_regex": "20\\d\\d" }
+    },
+    {
+      "id": "para-05-cron-list",
+      "avatar": "Parashurama",
+      "prompt": "Use Parashurama. Call list_cron_jobs and report what's scheduled. Do not add or remove anything.",
+      "expect": { "tools_any": ["list_cron_jobs"], "forbid_tools": ["schedule_cron", "remove_cron_job"] }
+    },
+    {
+      "id": "para-06-route-debug",
+      "avatar": "Parashurama",
+      "prompt": "My Python script throws RecursionError but only on certain inputs. How do I find the bug?",
+      "expect": { "min_synthesis_chars": 150 }
+    },
+    {
+      "id": "para-07-fizzbuzz-run",
+      "avatar": "Parashurama",
+      "prompt": "Use Parashurama. Write a fizzbuzz script for 1 to 15 with write_script, run it with run_shell, and show the output.",
+      "expect": { "tools_any": ["write_script", "run_shell"], "synthesis_regex": "[Ff]izz" }
+    },
+    {
+      "id": "para-08-route-sql",
+      "avatar": "Parashurama",
+      "prompt": "Why would a SQL query run fast on staging but take 45 seconds in production? Give the top 3 causes.",
+      "expect": { "min_synthesis_chars": 150 }
+    },
+    {
+      "id": "para-09-shadcn-fetch",
+      "avatar": "Parashurama",
+      "prompt": "Use Parashurama. Call fetch_shadcn_component for 'button' and describe its props in 2 sentences.",
+      "expect": { "tools_any": ["fetch_shadcn_component", "list_shadcn_components"] }
+    },
+    {
+      "id": "para-10-shell-ls",
+      "avatar": "Parashurama",
+      "prompt": "Use Parashurama. Run run_shell('ls', working_dir='{root}') and name any 3 entries you see.",
+      "expect": { "tools_any": ["run_shell"], "min_synthesis_chars": 30 }
+    },
+    {
+      "id": "para-11-code-review",
+      "avatar": "Parashurama",
+      "strict": false,
+      "prompt": "Review this function for bugs: def add(a, b): return a - b",
+      "expect": { "min_synthesis_chars": 40, "synthesis_regex": "(subtract|minus|\\-|\\+)" }
+    },
+    {
+      "id": "para-12-route-regex",
+      "avatar": "Parashurama",
+      "strict": false,
+      "prompt": "Write a regex that matches ISO dates like 2026-07-06, and explain it in one sentence.",
+      "expect": { "min_synthesis_chars": 40, "synthesis_regex": "\\\\d|\\[0-9\\]|\\d\\{4\\}" }
+    }
+  ]
+}
