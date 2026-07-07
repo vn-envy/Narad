@@ -1079,7 +1079,20 @@ def _make_avatar_tool(agent: LlmAgent, user_id: str = "default") -> FunctionTool
     return FunctionTool(_run)
 
 
+def _learning_frozen() -> bool:
+    """M4.3: NARAD_LEARNING_FREEZE=1 pauses Tapas promotion + Sankalpa observation.
+
+    Used by the sutra A/B eval so neither arm mutates the sutra store mid-run
+    (a promotion in arm one would contaminate arm two). Also skips the 2-3
+    judge LLM calls per avatar run while frozen.
+    """
+    import os
+    return os.environ.get("NARAD_LEARNING_FREEZE", "").strip().lower() in ("1", "true", "on")
+
+
 async def _run_tapas(session_id: str, task: str, avatar: str, result: str) -> None:
+    if _learning_frozen():
+        return
     try:
         from smriti_core import promote_sutra
         promote_sutra(session_id=session_id, query=task, avatar=avatar, result=result)
@@ -1088,6 +1101,8 @@ async def _run_tapas(session_id: str, task: str, avatar: str, result: str) -> No
 
 
 async def _run_sankalpa_observe(user_id: str, avatar: str, task: str, result: str) -> None:
+    if _learning_frozen():
+        return
     try:
         from smriti_core import update_sankalpa
         update_sankalpa(user_id=user_id, avatar=avatar, task=task, result=result)

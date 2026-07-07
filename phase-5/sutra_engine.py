@@ -26,6 +26,16 @@ from narad_config import SUTRAS_PATH as _SUTRAS_PATH
 COOLDOWN_HOURS = int(__import__("os").environ.get("SUTRA_COOLDOWN_HOURS", "24"))
 MAX_ACTIVE_PER_AVATAR = int(__import__("os").environ.get("SUTRA_MAX_ACTIVE", "5"))
 
+
+def sutras_enabled() -> bool:
+    """M4.3: global sutra kill switch — NARAD_SUTRAS=off|0|false disables injection.
+
+    Read per call (not at import) so the A/B eval can flip arms in-process.
+    Default: enabled.
+    """
+    import os
+    return os.environ.get("NARAD_SUTRAS", "on").strip().lower() not in ("off", "0", "false")
+
 SutraStatus = Literal["pending", "active", "reverted"]
 
 
@@ -144,7 +154,12 @@ def get_active_sutras(avatar: str, task: str = "") -> list[dict]:
       0.6 × tapas_score  +  0.4 × keyword_overlap(task, sutra.query)
     This surfaces patterns actually relevant to the current query rather than
     always returning the globally highest-scored ones.
+
+    Returns [] when the NARAD_SUTRAS kill switch is off (M4.3) — this is the
+    single gate every injection consumer flows through.
     """
+    if not sutras_enabled():
+        return []
     all_s = get_all_sutras()
     active = [
         s for s in all_s
