@@ -287,6 +287,14 @@ def load_workspace(*, user_id: str, workspace_id: str) -> dict[str, Any] | None:
     glossary = _glossary_path(user_id, workspace_id).read_text(encoding="utf-8") if _glossary_path(user_id, workspace_id).exists() else ""
     resources = _resources_path(user_id, workspace_id).read_text(encoding="utf-8") if _resources_path(user_id, workspace_id).exists() else ""
     records = list_records(user_id=user_id, workspace_id=workspace_id, limit=10)
+    syllabus: dict[str, Any] | None = None
+    learner_state: dict[str, Any] = {}
+    try:
+        from guru_engine import load_learner_state, load_syllabus
+        syllabus = load_syllabus(user_id=user_id, workspace_id=workspace_id)
+        learner_state = load_learner_state(user_id=user_id, workspace_id=workspace_id)
+    except Exception:
+        pass
     return {
         **meta,
         "mission": mission,
@@ -294,6 +302,8 @@ def load_workspace(*, user_id: str, workspace_id: str) -> dict[str, Any] | None:
         "resources": resources,
         "records": records,
         "artifacts": list_artifacts(user_id=user_id, workspace_id=workspace_id, limit=5),
+        "syllabus": syllabus,
+        "learner_state": learner_state,
     }
 
 
@@ -424,17 +434,33 @@ def create_learning_artifact(
 
     artifact_id = f"art_{uuid.uuid4().hex[:12]}"
     now = _now_iso()
+    resolved_topic = topic.strip() or workspace["topic"]
+    resolved_type = _normalize_artifact_type(artifact_type)
+    # G2: LLM-generate real content; fall back to templates offline (local-first).
+    generator = "llm"
+    try:
+        from guru_engine import generate_artifact_doc
+        doc = generate_artifact_doc(
+            topic=resolved_topic,
+            artifact_type=resolved_type,
+            teaching_context=teaching_context,
+            packet=build_workspace_packet(user_id=user_id, workspace_id=workspace_id),
+        )
+    except Exception:
+        doc = _seed_artifact_doc(resolved_topic, artifact_type, teaching_context)
+        generator = "template"
     artifact = {
         "artifact_id": artifact_id,
         "workspace_id": workspace_id,
-        "topic": topic.strip() or workspace["topic"],
-        "artifact_type": _normalize_artifact_type(artifact_type),
+        "topic": resolved_topic,
+        "artifact_type": resolved_type,
         "version": 1,
+        "generator": generator,
         "status": "active",
         "created_at": now,
         "updated_at": now,
         "record_ids": list(record_ids or []),
-        "doc": _seed_artifact_doc(topic.strip() or workspace["topic"], artifact_type, teaching_context),
+        "doc": doc,
     }
     _artifact_path(user_id, workspace_id, artifact_id).write_text(
         json.dumps(artifact, ensure_ascii=False, indent=2),
@@ -447,6 +473,39 @@ def create_learning_artifact(
     meta_payload["updated_at"] = now
     _write_json(meta_path, meta_payload)
     return artifact
+
+
+def _artifact_history_dir(user_id: str, workspace_id: str) -> Path:
+    path = _artifacts_dir(user_id, workspace_id) / "history"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _archive_artifact_version(user_id: str, workspace_id: str, artifact: dict[str, Any]) -> None:
+    """G2: snapshot the current artifact version before revision (undo support)."""
+    try:
+        version = int(artifact.get("version", 1) or 1)
+        path = _artifact_history_dir(user_id, workspace_id) / f"{artifact['artifact_id']}.v{version}.json"
+        if not path.exists():
+            path.write_text(json.dumps(artifact, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def load_artifact_version(
+    *,
+    user_id: str,
+    workspace_id: str,
+    artifact_id: str,
+    version: int,
+) -> dict[str, Any] | None:
+    path = _artifact_history_dir(user_id, workspace_id) / f"{artifact_id}.v{version}.json"
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
 
 
 def _extract_focus_phrase(instruction: str) -> str:
@@ -540,18 +599,33 @@ def update_learning_artifact(
     workspace_id = str(artifact["workspace_id"])
     doc = dict(artifact.get("doc") or {})
     artifact_type = _normalize_artifact_type(str(artifact.get("artifact_type", "flashcards")))
-    lowered = (instruction or "").strip().lower()
-    if artifact_type == "concept_map":
-        if any(word in lowered for word in ("remove", "delete")):
-            _remove_concept_node(doc, instruction)
+    # Keep the outgoing version for undo before touching the doc.
+    _archive_artifact_version(user_id, workspace_id, artifact)
+    # G2: LLM revision first; regex add/remove path remains the offline fallback.
+    reviser = "llm"
+    try:
+        from guru_engine import revise_artifact_doc
+        doc = revise_artifact_doc(
+            doc=doc,
+            topic=str(artifact.get("topic", "")),
+            artifact_type=artifact_type,
+            instruction=instruction,
+        )
+    except Exception:
+        reviser = "template"
+        lowered = (instruction or "").strip().lower()
+        if artifact_type == "concept_map":
+            if any(word in lowered for word in ("remove", "delete")):
+                _remove_concept_node(doc, instruction)
+            else:
+                _append_concept_node(doc, str(artifact.get("topic", "")), instruction)
         else:
-            _append_concept_node(doc, str(artifact.get("topic", "")), instruction)
-    else:
-        if any(word in lowered for word in ("remove", "delete")):
-            _remove_flashcard(doc, instruction)
-        else:
-            _append_flashcard(doc, str(artifact.get("topic", "")), instruction)
+            if any(word in lowered for word in ("remove", "delete")):
+                _remove_flashcard(doc, instruction)
+            else:
+                _append_flashcard(doc, str(artifact.get("topic", "")), instruction)
     artifact["doc"] = doc
+    artifact["generator"] = reviser
     artifact["version"] = int(artifact.get("version", 1) or 1) + 1
     artifact["updated_at"] = _now_iso()
     if record_ids:

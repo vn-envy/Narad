@@ -20,9 +20,10 @@ import { MadhubaniBorder } from './MadhubaniBorder'
 import { SplitPane } from './ui/split-pane'
 import { KarmaWorkspaceTab } from './KarmaWorkspaceTab'
 import { TapasyaTab } from './TapasyaTab'
+import { GurukulTab } from './GurukulTab'
 import { AVATAR_ABBREV, AVATAR_COLOURS, AVATAR_NAMES, DEVA } from '@/lib/avatara-constants'
 
-type TabId = 'darshan' | 'karma' | 'smriti' | 'divyadrishti' | 'tapasya'
+type TabId = 'darshan' | 'karma' | 'smriti' | 'divyadrishti' | 'tapasya' | 'gurukul'
 
 interface Props {
   open: boolean
@@ -47,6 +48,7 @@ const TABS: Array<{ id: TabId; label: string; icon: string; sanskrit: string }> 
   { id: 'smriti', label: 'Smriti', icon: '◎', sanskrit: 'स्मृति' },
   { id: 'divyadrishti', label: 'DivyaDrishti', icon: '◈', sanskrit: 'दिव्यदृष्टि' },
   { id: 'tapasya', label: 'Tapasya', icon: '✦', sanskrit: 'तपस्या' },
+  { id: 'gurukul', label: 'Gurukul', icon: '❋', sanskrit: 'गुरुकुल' },
 ]
 
 function headerSummary(tab: TabId): string {
@@ -61,6 +63,8 @@ function headerSummary(tab: TabId): string {
       return 'Metrics, runtime health, architecture scorecards, and capability visibility belong here and nowhere else.'
     case 'tapasya':
       return 'Tapas, Swapna, and self-evolution stay in one refinement chamber with explicit review and learning controls.'
+    case 'gurukul':
+      return 'The teaching chamber: topics decomposed into atoms, climbed rung by rung, with the Maharishi checking understanding as you go.'
   }
 }
 
@@ -76,6 +80,8 @@ function sectionRailTitle(tab: TabId): string {
       return 'Expand metrics visibility'
     case 'tapasya':
       return 'Expand Tapasya visibility'
+    case 'gurukul':
+      return 'Expand Gurukul visibility'
   }
 }
 
@@ -178,6 +184,9 @@ export function NaradDashboard({
     secondaryContent = undefined
   } else if (activeTab === 'tapasya') {
     primaryContent = <TapasyaTab userId={userId} />
+    secondaryContent = undefined
+  } else if (activeTab === 'gurukul') {
+    primaryContent = <GurukulTab userId={userId} />
     secondaryContent = undefined
   }
 

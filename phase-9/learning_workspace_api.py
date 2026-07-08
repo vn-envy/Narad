@@ -5,6 +5,12 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from guru_engine import (
+    due_reviews,
+    generate_syllabus,
+    grade_check_answer,
+    load_learner_state,
+)
 from learning_workspace import (
     append_learning_record,
     create_learning_artifact,
@@ -13,6 +19,7 @@ from learning_workspace import (
     list_records,
     list_workspaces,
     load_artifact,
+    load_artifact_version,
     load_workspace,
     merge_resources,
     update_glossary_terms,
@@ -58,6 +65,16 @@ class LearningArtifactUpdate(BaseModel):
     instruction: str
     workspace_id: Optional[str] = None
     record_ids: list[str] = Field(default_factory=list)
+
+
+class SyllabusGenerate(BaseModel):
+    topic: str = ""
+    force: bool = False
+
+
+class CheckAnswer(BaseModel):
+    atom_id: str
+    answer: str
 
 
 @learning_router.get("/workspaces")
@@ -159,6 +176,63 @@ async def post_learning_artifact(payload: LearningArtifactCreate, user_id: str =
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="learning workspace not found")
     return {"status": "ok", "artifact": artifact}
+
+
+# ── Gurukul (G1/G3): syllabus + mastery ───────────────────────────────────────
+
+@learning_router.post("/workspaces/{workspace_id}/syllabus")
+async def post_learning_syllabus(workspace_id: str, payload: SyllabusGenerate, user_id: str = "default"):
+    workspace = load_workspace(user_id=user_id, workspace_id=workspace_id)
+    if not workspace:
+        raise HTTPException(status_code=404, detail="learning workspace not found")
+    syllabus = generate_syllabus(
+        user_id=user_id,
+        workspace_id=workspace_id,
+        topic=payload.topic.strip() or str(workspace.get("topic", "")),
+        force=payload.force,
+    )
+    return {"status": "ok", "syllabus": syllabus}
+
+
+@learning_router.post("/workspaces/{workspace_id}/check")
+async def post_learning_check(workspace_id: str, payload: CheckAnswer, user_id: str = "default"):
+    workspace = load_workspace(user_id=user_id, workspace_id=workspace_id)
+    if not workspace:
+        raise HTTPException(status_code=404, detail="learning workspace not found")
+    grade = grade_check_answer(
+        user_id=user_id,
+        workspace_id=workspace_id,
+        atom_id=payload.atom_id,
+        answer=payload.answer,
+    )
+    return {"status": "ok", **grade}
+
+
+@learning_router.get("/workspaces/{workspace_id}/state")
+async def get_learning_state(workspace_id: str, user_id: str = "default"):
+    return {
+        "workspace_id": workspace_id,
+        "learner_state": load_learner_state(user_id=user_id, workspace_id=workspace_id),
+        "due_reviews": due_reviews(user_id=user_id, workspace_id=workspace_id),
+    }
+
+
+@learning_router.get("/artifacts/{artifact_id}/versions/{version}")
+async def get_learning_artifact_version(
+    artifact_id: str,
+    version: int,
+    workspace_id: str,
+    user_id: str = "default",
+):
+    artifact = load_artifact_version(
+        user_id=user_id,
+        workspace_id=workspace_id,
+        artifact_id=artifact_id,
+        version=version,
+    )
+    if not artifact:
+        raise HTTPException(status_code=404, detail="artifact version not found")
+    return artifact
 
 
 @learning_router.post("/artifacts/{artifact_id}/update")
