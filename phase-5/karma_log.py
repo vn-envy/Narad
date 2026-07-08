@@ -117,11 +117,37 @@ def _read_jsonl(path) -> list[dict]:
     return rows
 
 
+def _normalize_event(row: dict) -> dict:
+    """Present a stable superset schema regardless of which writer produced the row.
+
+    Two writers share the mutations ledger:
+      * karma_log.log_karma      → {action, sutra_id, avatar, detail, ...}
+      * smriti_core.log_mutation → {action, entity_type, entity_id, actor, detail, ...}
+    Consumers (/karma UI panels) index fields like sutra_id/avatar directly, so a
+    log_mutation row without them crashed the frontend. Fill each family from the
+    other so every row carries both.
+    """
+    row.setdefault("action", "unknown")
+    row.setdefault("detail", "")
+    row.setdefault("entity_type", "sutra")
+    if not row.get("sutra_id"):
+        row["sutra_id"] = str(row.get("entity_id", "") or "")
+    if not row.get("entity_id"):
+        row["entity_id"] = str(row.get("sutra_id", "") or "")
+    if not row.get("avatar"):
+        row["avatar"] = str(row.get("actor", "") or "system")
+    if not row.get("actor"):
+        row["actor"] = str(row.get("avatar", "") or "system")
+    return row
+
+
 def load_karma(limit: int = 100) -> list[dict]:
     """Load recent karma events, newest first.
 
     Merge-reads the legacy karma.jsonl and the unified mutations ledger,
     deduplicating by event id (dual-write era wrote the same record to both).
+    Every row is normalized to carry both the sutra-event and mutation-ledger
+    field families (see _normalize_event).
     """
     seen: set[str] = set()
     events: list[dict] = []
@@ -131,7 +157,7 @@ def load_karma(limit: int = 100) -> list[dict]:
             continue
         if rid:
             seen.add(rid)
-        events.append(row)
+        events.append(_normalize_event(row))
     events.sort(key=lambda x: x.get("ts", ""), reverse=True)
     return events[:limit]
 
@@ -141,7 +167,8 @@ def karma_summary() -> dict:
     events = load_karma(limit=1000)
     counts: dict[str, int] = {}
     for e in events:
-        counts[e["action"]] = counts.get(e["action"], 0) + 1
+        action = e.get("action", "unknown")
+        counts[action] = counts.get(action, 0) + 1
     return {
         "total_events": len(events),
         "by_action": counts,

@@ -4,12 +4,12 @@ import { avatarColour } from '@/lib/avatara-constants'
 import { relativeTime } from '@/lib/format-time'
 
 interface KarmaEvent {
-  id: string
-  ts: string
-  action: 'promoted' | 'accepted' | 'reverted' | 'expired'
-  sutra_id: string
-  avatar: string
-  detail: string
+  id?: string
+  ts?: string
+  action?: string
+  sutra_id?: string
+  avatar?: string
+  detail?: string
 }
 
 interface KarmaSummary {
@@ -95,7 +95,7 @@ export function KarmaPanel({ userId = 'default', compact = false }: Props) {
       {/* Counts row */}
       {Object.keys(byAction).length > 0 && (
         <div style={{
-          display: 'flex', gap: 8, padding: '10px 16px', flexShrink: 0,
+          display: 'flex', gap: 8, padding: '10px 16px', flexShrink: 0, flexWrap: 'wrap',
           borderBottom: '1px solid rgba(26,24,21,0.08)',
         }}>
           {Object.entries(byAction).map(([action, count]) => {
@@ -166,10 +166,12 @@ export function KarmaPanel({ userId = 'default', compact = false }: Props) {
           </p>
         )}
         {events.map((e, i) => {
-          const meta = ACTION_META[e.action] ?? { bg: '#78716c', color: '#fcfaf2', label: e.action, meaning: '' }
-          const avatarColor = avatarColour(e.avatar, 'var(--kajal)')
+          const action = e.action ?? 'unknown'
+          const meta = ACTION_META[action] ?? { bg: '#78716c', color: '#fcfaf2', label: action.replace(/_/g, ' '), meaning: '' }
+          const avatar = e.avatar || 'system'
+          const avatarColor = avatarColour(avatar, 'var(--kajal)')
           return (
-            <div key={e.id} style={{ display: 'flex', gap: 10, paddingBottom: 10 }}>
+            <div key={e.id ?? `evt-${i}`} style={{ display: 'flex', gap: 10, paddingBottom: 10 }}>
               {/* Timeline spine */}
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0, width: 14 }}>
                 <div style={{ width: 12, height: 12, borderRadius: '50%', background: meta.bg, flexShrink: 0, marginTop: 3 }} />
@@ -187,20 +189,22 @@ export function KarmaPanel({ userId = 'default', compact = false }: Props) {
                   <span style={{
                     fontSize: 9, fontWeight: 600, padding: '2px 6px', borderRadius: 3,
                     background: avatarColor, color: '#fcfaf2',
-                  }}>{e.avatar}</span>
+                  }}>{avatar}</span>
                   <span style={{
                     marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: 9,
                     color: 'rgba(26,24,21,0.35)',
-                  }}>{relativeTime(e.ts)}</span>
+                  }}>{relativeTime(e.ts ?? '')}</span>
                 </div>
                 {e.detail && (
                   <p style={{ fontSize: 11, margin: 0, lineHeight: 1.4, color: 'rgba(26,24,21,0.7)' }}>
                     {e.detail.slice(0, 120)}{e.detail.length > 120 ? '…' : ''}
                   </p>
                 )}
-                <p style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'rgba(26,24,21,0.28)', marginTop: 2, marginBottom: 0 }}>
-                  {e.sutra_id.slice(0, 8)}…
-                </p>
+                {e.sutra_id && (
+                  <p style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'rgba(26,24,21,0.28)', marginTop: 2, marginBottom: 0 }}>
+                    {e.sutra_id.slice(0, 8)}…
+                  </p>
+                )}
               </div>
             </div>
           )
