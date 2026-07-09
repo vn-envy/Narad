@@ -145,6 +145,17 @@ export TAVILY_API_KEY=tvly-...     # optional: Matsya web search
 narad-server                        # → http://127.0.0.1:8000
 ```
 
+### Voice (optional, fully local)
+
+Narad talks and listens without any cloud key. One extra install:
+
+```bash
+pip install -e ".[voice]"
+brew install espeak-ng ffmpeg
+```
+
+`[voice]` gives Kokoro-82M TTS (CPU-fast) + faster-whisper STT; `[voice-pro]` adds VoxCPM (GPU/Apple Silicon — higher quality, Hindi, voice cloning). Models download on first use. Click **voice** in the chat header for hands-free mode: speak, Narad answers aloud in the avatar's voice; talk over it to interrupt; toggle हिन्दी for Hindi output. Engine resolution is automatic (VoxCPM → Kokoro → Sarvam-if-key); check `GET /voice/status`. With nothing installed, voice input falls back to browser speech recognition and voice output uses Sarvam only if `SARVAM_API_KEY` is set. Tuning: `NARAD_WHISPER_MODEL` (tiny/base/small/medium), `NARAD_TTS_ENGINE` (auto/kokoro/voxcpm/sarvam), `NARAD_VOXCPM_MODEL`, `NARAD_VOICE_REF_DIR` (per-avatar `<avatar>.wav` + `.txt` for cloning).
+
 The server serves the built frontend itself (one origin, no CORS). Build it once:
 
 ```bash

@@ -118,6 +118,38 @@ tailscale serve status
 - [ ] 8.6 Kunji from phone: cards render; **do a Test** on a connected provider (don't paste real keys over the phone keyboard unless you want to)
 - [ ] 8.7 (Optional, ntfy push) Install ntfy app, subscribe to a private topic, then restart the server with `NTFY_URL=https://ntfy.sh NTFY_TOPIC=<your-topic> narad-server`; ask Rama to set a reminder a few minutes out → push arrives on the phone
 
+## 9. Voice in / voice out (local-first)
+
+Install once (in the venv):
+
+```bash
+pip install -e ".[voice]"
+brew install espeak-ng ffmpeg
+```
+
+Restart the server. First TTS/STT call downloads models (Kokoro ~330MB, whisper-small ~460MB) — expect a one-time delay.
+
+- [ ] 9.1 `curl http://127.0.0.1:8000/voice/status` → `tts.tiers` includes `kokoro`, `stt.available: true`
+- [ ] 9.2 Chat header → **voice** button → full-screen orb appears, browser asks for mic, state shows "listening"
+- [ ] 9.3 Say "what can you do?" → pause → transcript appears in quotes → orb goes thinking → reply is spoken aloud
+- [ ] 9.4 While it speaks, start talking loudly → playback stops and it listens again (barge-in)
+- [ ] 9.5 Ask "teach me binary search" by voice → guru lesson answered aloud in Krishna's voice; check question audible and sensible
+- [ ] 9.6 Toggle **हिन्दी** (top-left) → next reply is spoken in a Hindi voice
+- [ ] 9.7 Tap the orb → mic pauses (icon slashes); tap again → listening resumes
+- [ ] 9.8 Existing per-message speaker buttons in chat still work (old /tts path untouched)
+- [ ] 9.9 (Negative) `pip uninstall kokoro faster-whisper`, restart → voice mode falls back to browser speech recognition; /voice/tts returns a clear 503 hint unless SARVAM_API_KEY is set
+
+## 10. Fresh-system portability (the "different system" run)
+
+On a clean Apple Silicon Mac (or new user account):
+
+- [ ] 10.1 Prereqs only: Xcode CLT, Python ≥ 3.11, Node ≥ 20, git
+- [ ] 10.2 `git clone` → `python3 -m venv .venv && source .venv/bin/activate && pip install -e ".[voice]"` → completes with no manual patching
+- [ ] 10.3 `cd phase-4/frontend && npm ci && npm run build` → dist/ produced
+- [ ] 10.4 `narad-server` → UI loads at http://127.0.0.1:8000 with zero keys configured; degraded-mode messaging is honest (no crashes)
+- [ ] 10.5 Paste keys via Kunji tab only (no env exports) → chat works
+- [ ] 10.6 Rerun §2, §3, §4, §9 on the fresh machine — note anything that only worked on the dev Mac
+
 ---
 
 **Known gaps (don't file as bugs):** no first-run wizard yet (O4), tier picker
