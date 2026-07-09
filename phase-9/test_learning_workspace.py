@@ -13,6 +13,7 @@ import narad_paths  # noqa: F401  — registers all phase dirs; must precede pha
 
 # isort: split
 import guru_engine
+import guru_taxonomy
 import kala_scheduler
 import learning_workspace
 import vahana
@@ -104,6 +105,47 @@ class GuruReviewSchedulerTests(unittest.TestCase):
                 # before the review hour → nothing fires
                 dawn = datetime(2026, 7, 10, 5, 0)
                 self.assertEqual(kala_scheduler._fire_due_reviews(dawn, {}), 0)
+
+
+@unittest.skipUnless(guru_taxonomy.taxonomy_available(), "taxonomy not vendored")
+class GuruTaxonomyTests(unittest.TestCase):
+    def test_known_topic_builds_valid_acyclic_syllabus(self) -> None:
+        syllabus = guru_taxonomy.build_syllabus_atoms("multiplying fractions")
+        self.assertIsNotNone(syllabus)
+        self.assertEqual(guru_engine._validate_syllabus(syllabus), [])
+        self.assertGreaterEqual(len(syllabus["atoms"]), 2)
+        # prerequisites-first ordering: fresh frontier has no prereqs
+        self.assertEqual(guru_engine.frontier_atom(syllabus, {})["prerequisites"], [])
+        for atom in syllabus["atoms"]:
+            self.assertNotIn("{{", json.dumps(atom))
+
+    def test_unknown_topic_returns_none(self) -> None:
+        self.assertIsNone(guru_taxonomy.build_syllabus_atoms("transformer attention"))
+
+    def test_generate_syllabus_prefers_taxonomy_offline(self) -> None:
+        def _no_llm(*_a, **_k):
+            raise RuntimeError("offline")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            temp_root = Path(tmpdir)
+            with patch.object(learning_workspace, "LEARNING_DIR", temp_root), \
+                 patch.object(guru_engine, "LEARNING_DIR", temp_root), \
+                 patch.object(guru_engine, "llm_json", _no_llm):
+                workspace = learning_workspace.ensure_workspace(
+                    user_id="default", topic="multiplying fractions", mission="m", session_id="s",
+                )
+                syllabus = guru_engine.generate_syllabus(
+                    user_id="default", workspace_id=workspace["workspace_id"],
+                    topic="multiplying fractions",
+                )
+                self.assertEqual(syllabus["generator"], "taxonomy")
+                self.assertIn("os-taxonomy", syllabus.get("source", ""))
+                # unknown topic falls back to the deterministic template
+                syllabus2 = guru_engine.generate_syllabus(
+                    user_id="default", workspace_id=workspace["workspace_id"],
+                    topic="transformer attention", force=True,
+                )
+                self.assertEqual(syllabus2["generator"], "template")
 
 
 class LearningWorkspaceTests(unittest.TestCase):

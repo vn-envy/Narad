@@ -284,17 +284,30 @@ def generate_syllabus(
     except Exception:
         pass
 
-    generator = "llm"
+    # E1: taxonomy-first — curated prerequisite graph, keyless, no LLM.
+    generator = "taxonomy"
     data: dict | None = None
-    prompt = _SYLLABUS_PROMPT.format(topic=topic, packet=packet or "(none)", max_atoms=MAX_ATOMS)
-    for _ in range(2):  # one retry on schema failure
-        try:
-            candidate = llm_json(prompt, model=GURU_MODEL, source="guru_syllabus")
-            if not _validate_syllabus(candidate):
-                data = candidate
+    source = ""
+    try:
+        from guru_taxonomy import build_syllabus_atoms
+        candidate = build_syllabus_atoms(topic, max_atoms=MAX_ATOMS)
+        if candidate and not _validate_syllabus(candidate):
+            data = candidate
+            source = str(candidate.get("source", ""))
+    except Exception:
+        data = None
+
+    if data is None:
+        generator = "llm"
+        prompt = _SYLLABUS_PROMPT.format(topic=topic, packet=packet or "(none)", max_atoms=MAX_ATOMS)
+        for _ in range(2):  # one retry on schema failure
+            try:
+                candidate = llm_json(prompt, model=GURU_MODEL, source="guru_syllabus")
+                if not _validate_syllabus(candidate):
+                    data = candidate
+                    break
+            except Exception:
                 break
-        except Exception:
-            break
     if data is None:
         data = _fallback_syllabus(topic)
         generator = "template"
@@ -306,6 +319,8 @@ def generate_syllabus(
         "generator": generator,
         "atoms": data["atoms"],
     }
+    if source:
+        syllabus["source"] = source
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(syllabus, ensure_ascii=False, indent=2), encoding="utf-8")

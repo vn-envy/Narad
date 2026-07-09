@@ -356,6 +356,38 @@ def _check_packet_single_question() -> list[str]:
         return reasons
 
 
+def _check_taxonomy_syllabus() -> list[str]:
+    """E1: a taxonomy-derived syllabus must validate, stay acyclic, and teach
+    prerequisites first. Topic picked from the vendored data (version-proof)."""
+    import guru_engine
+    import guru_taxonomy
+    if not guru_taxonomy.taxonomy_available():
+        return ["taxonomy not vendored under data/taxonomy/"]
+    topics, prereq_edges = guru_taxonomy._dataset()
+    seed_id = max(
+        prereq_edges,
+        key=lambda tid: (len(prereq_edges[tid]), str(topics[tid].get("name", ""))),
+    )
+    topic_name = str(topics[seed_id]["name"])
+    with _guru_sandbox() as root:
+        workspace_id = _guru_workspace(root, topic_name)
+        syllabus = guru_engine.generate_syllabus(
+            user_id="golden", workspace_id=workspace_id, topic=topic_name,
+        )
+        reasons = list(guru_engine._validate_syllabus(syllabus))
+        if syllabus.get("generator") != "taxonomy":
+            reasons.append(f"expected taxonomy generator for {topic_name!r}, got {syllabus.get('generator')!r}")
+        atoms = syllabus.get("atoms") or []
+        if len(atoms) < 2:
+            reasons.append(f"expected a multi-atom taxonomy syllabus, got {len(atoms)}")
+        frontier = guru_engine.frontier_atom(syllabus, {})
+        if frontier is None or frontier.get("prerequisites"):
+            reasons.append("frontier atom should be prerequisite-free on a fresh syllabus")
+        if any("{{" in json.dumps(a) for a in atoms):
+            reasons.append("unrendered {{placeholder}} leaked into an atom")
+        return reasons
+
+
 _STRUCTURAL_CHECKS = {
     "syllabus_schema_valid": _check_syllabus_schema,
     "syllabus_acyclic": _check_syllabus_acyclic,
@@ -363,6 +395,7 @@ _STRUCTURAL_CHECKS = {
     "artifact_add_remove": _check_artifact_add_remove,
     "grading_mutates_state": _check_grading_mutates_state,
     "packet_single_check_question": _check_packet_single_question,
+    "taxonomy_syllabus_valid": _check_taxonomy_syllabus,
 }
 
 

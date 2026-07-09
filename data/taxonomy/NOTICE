@@ -1,0 +1,18 @@
+Marble Skill Taxonomy (os-taxonomy), version v1
+Source: https://github.com/withmarbleapp/os-taxonomy
+Produced by Marble (https://withmarble.com)
+
+Vendored files: topics.json, dependencies.json, manifest.json
+(verbatim copies; curriculum-standards.json and clusters.json are not
+vendored — see the source repository).
+
+Licensing (multi-licensed by upstream):
+- The database (collection, structure, IDs, relationships):
+  Open Database License (ODbL) 1.0 — see LICENSE-ODbL.
+- Marble-authored textual content (topic name/description/evidence/
+  assessmentPrompt, dependency reasons): CC BY-SA 4.0 — see
+  LICENSE-CC-BY-SA.
+
+Use in Narad: guru_taxonomy.py builds Gurukul syllabi ("produced work")
+from this data. Any redistributed derivative of the database itself
+must remain open under ODbL 1.0 with attribution to Marble.

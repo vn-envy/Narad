@@ -349,6 +349,14 @@
       "expect": {}
     },
     {
+      "id": "guru-08-taxonomy-syllabus",
+      "avatar": "Guru",
+      "mode": "structural",
+      "check": "taxonomy_syllabus_valid",
+      "prompt": "structural: taxonomy-derived syllabus (E1, os-taxonomy) validates, stays acyclic, and starts prerequisite-free",
+      "expect": {}
+    },
+    {
       "id": "guru-07-live-teach",
       "avatar": "Krishna",
       "strict": false,
