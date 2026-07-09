@@ -480,6 +480,11 @@ app.mount("/media", StaticFiles(directory=_MEDIA_DIR), name="media")
 
 @app.on_event("startup")
 async def _startup_runtime_contract() -> None:
+    try:  # Kunji (O5): stored keys → env before providers are probed; .env always wins
+        from kunji import apply_keys_to_env
+        apply_keys_to_env()
+    except Exception:
+        pass
     app.state.runtime_contract = collect_runtime_contract()
 
 # ── Dharma Gate — input-level topic blocking ──────────────────────────────────
@@ -1849,6 +1854,58 @@ async def set_tier_choice(payload: dict):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return {"ok": True, "choice": choice}
+
+
+@app.get("/connections")
+async def get_connections():
+    """Settings → Connections: one card per provider + subscription adapters (O5/S3)."""
+    from kunji import list_connections
+    from subscription_providers import subscriptions_payload
+    return {"connections": list_connections(), "subscriptions": subscriptions_payload()}
+
+
+@app.post("/connections")
+async def add_connection(payload: dict):
+    """Paste-a-key flow: auto-detect provider from prefix, live-test, store in keychain."""
+    from kunji import PROVIDERS, detect_provider_from_key, set_key, test_key
+    key = str(payload.get("key", "")).strip()
+    if not key:
+        raise HTTPException(status_code=400, detail="empty key")
+    provider = str(payload.get("provider", "")).strip() or detect_provider_from_key(key)
+    if not provider or provider not in PROVIDERS:
+        raise HTTPException(
+            status_code=400,
+            detail="couldn't recognise that key — pick the provider explicitly",
+        )
+    validate = bool(payload.get("validate", True))
+    tested, detail = test_key(provider, key) if validate else (False, "stored without live test")
+    if validate and not tested:
+        return {"ok": False, "provider": provider, "tested": False, "detail": detail}
+    entry = set_key(provider, key)
+    return {"ok": True, "tested": tested, "detail": detail, **entry}
+
+
+@app.post("/connections/{provider}/test")
+async def test_connection(provider: str):
+    from kunji import test_key
+    ok, detail = test_key(provider)
+    return {"ok": ok, "provider": provider, "detail": detail}
+
+
+@app.delete("/connections/{provider}")
+async def delete_connection(provider: str):
+    from kunji import delete_key
+    existed = delete_key(provider)
+    if not existed:
+        raise HTTPException(status_code=404, detail="no stored key for that provider")
+    return {"ok": True, "provider": provider, "action": "disconnected"}
+
+
+@app.post("/connections/import-env")
+async def import_env_connections():
+    """One-time .env → keychain migration (explicit, never silent)."""
+    from kunji import import_env_keys
+    return {"ok": True, "imported": import_env_keys()}
 
 
 @app.get("/karma")

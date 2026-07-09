@@ -166,8 +166,13 @@ def _has_cloud_key() -> bool:
 
 
 def _has_subscription() -> bool:
-    # S3 lands the real adapter; until then an env flag marks intent.
-    return bool(os.environ.get("NARAD_CLAUDE_SUBSCRIPTION", "").strip())
+    if os.environ.get("NARAD_CLAUDE_SUBSCRIPTION", "").strip():
+        return True  # explicit flag — the pre-S3 escape hatch, kept
+    try:
+        from subscription_providers import subscription_active
+        return subscription_active()
+    except Exception:
+        return False
 
 
 # ── Speed estimate (coarse, honest) ───────────────────────────────────────────

@@ -33,6 +33,7 @@ _PROVIDER_DEFAULTS: dict[str, int] = {
     "google": 1_000_000,
     "local": 32_000,
     "narad-local": 32_000,  # bundled llama-server (S1); O2 adds per-quant overrides
+    "narad-claude-sdk": 200_000,  # Claude plan credits via Agent SDK (S3)
     "unknown": 32_000,
 }
 
@@ -57,6 +58,8 @@ def detect_provider(model: str) -> str:
     lower = (model or "").lower()
     if "narad-local" in lower:
         return "narad-local"  # bundled llama-server tier (S1/O2)
+    if "narad-claude-sdk" in lower:
+        return "narad-claude-sdk"  # subscription plan credits (S3)
     if "deepseek" in lower:
         return "deepseek"
     if "gemini" in lower or "google" in lower:
@@ -87,6 +90,12 @@ def provider_available_for_model(model: str) -> bool:
         # tier engine can still *recommend* narad-local models; they only become
         # routable once the runtime is up.
         return bool(os.environ.get("NARAD_LOCAL_URL", "").strip())
+    if provider == "narad-claude-sdk":
+        try:
+            from subscription_providers import subscription_active
+            return subscription_active()
+        except Exception:
+            return False
     return False
 
 
@@ -141,6 +150,7 @@ def _fallback_candidates(model: str) -> list[str]:
         "anthropic": anthropic_defaults,
         "local": local_defaults,
         "narad-local": local_defaults,
+        "narad-claude-sdk": anthropic_defaults,
         "unknown": deepseek_defaults,
     }
     return [candidate for candidate in options.get(provider, []) if candidate and candidate != model]

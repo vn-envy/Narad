@@ -34,6 +34,7 @@ _DEFAULT_PRICES: dict[str, tuple[float, float]] = {
     "text-embedding-3-small": (0.02, 0.0),
     "ollama/":                (0.0, 0.0),  # local — free
     "narad-local/":           (0.0, 0.0),  # bundled local brain (S1) — free
+    "narad-claude-sdk/":      (0.0, 0.0),  # subscription plan credits (S3) — $0 marginal
 }
 
 _write_lock = threading.Lock()
