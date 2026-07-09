@@ -157,6 +157,8 @@ function GurukulInner({ userId }: { userId: string }) {
   const [grading, setGrading] = useState(false)
   const [grade, setGrade] = useState<Grade | null>(null)
   const [answerFocused, setAnswerFocused] = useState(false)
+  const [quizQueue, setQuizQueue] = useState<string[] | null>(null)
+  const [quizIndex, setQuizIndex] = useState(0)
 
   const loadWorkspaces = useCallback(async (): Promise<WorkspaceMeta[]> => {
     try {
@@ -201,6 +203,8 @@ function GurukulInner({ userId }: { userId: string }) {
       setSelectedAtomId(null)
       setGrade(null)
       setAnswer('')
+      setQuizQueue(null)
+      setQuizIndex(0)
       loadDetail(activeId)
     }
   }, [activeId, loadDetail])
@@ -219,6 +223,44 @@ function GurukulInner({ userId }: { userId: string }) {
   )
   const masteredCount = atoms.filter(a => learnerState[String(a.id)]?.status === 'mastered').length
   const allMastered = atoms.length > 0 && masteredCount === atoms.length
+
+  // G5.2 — spaced repetition: atoms whose next_review has come due
+  const dueAtomIds = useMemo(() => {
+    const cutoff = Date.now()
+    return orderedAtoms
+      .map(a => String(a.id))
+      .filter(id => {
+        const nextReview = learnerState[id]?.next_review
+        if (typeof nextReview !== 'string' || !nextReview) return false
+        const t = Date.parse(nextReview)
+        return Number.isFinite(t) && t <= cutoff
+      })
+  }, [orderedAtoms, learnerState])
+
+  const startQuiz = useCallback(() => {
+    if (dueAtomIds.length === 0) return
+    setQuizQueue(dueAtomIds)
+    setQuizIndex(0)
+    setSelectedAtomId(dueAtomIds[0])
+    setGrade(null)
+    setAnswer('')
+    setRung('plain')
+  }, [dueAtomIds])
+
+  const advanceQuiz = useCallback(() => {
+    if (!quizQueue) return
+    const next = quizIndex + 1
+    if (next >= quizQueue.length) {
+      setQuizQueue(null)
+      setQuizIndex(0)
+      return
+    }
+    setQuizIndex(next)
+    setSelectedAtomId(quizQueue[next])
+    setGrade(null)
+    setAnswer('')
+    setRung('plain')
+  }, [quizQueue, quizIndex])
 
   const createWorkspace = useCallback(async () => {
     const topic = newTopic.trim()
@@ -278,11 +320,12 @@ function GurukulInner({ userId }: { userId: string }) {
     if (generating || loading || grading) return 'thinking'
     if (!activeId || atoms.length === 0) return 'meditating'
     if (grade) return grade.correct ? 'celebrating' : 'reading'
+    if (quizQueue) return 'quizzing'
     if (allMastered) return 'blessing'
     if (answerFocused || answer.trim()) return 'quizzing'
     if (selectedAtom) return 'teaching'
     return 'idle'
-  }, [generating, loading, grading, activeId, atoms.length, grade, allMastered, answerFocused, answer, selectedAtom])
+  }, [generating, loading, grading, activeId, atoms.length, grade, quizQueue, allMastered, answerFocused, answer, selectedAtom])
 
   const bubble: string = useMemo(() => {
     if (generating) return 'Let me break this into pieces a child could hold…'
@@ -290,11 +333,12 @@ function GurukulInner({ userId }: { userId: string }) {
     if (grading) return 'Hmm, let me read your answer…'
     if (grade) return grade.correct ? (grade.feedback || 'Shabash! You have it.') : (grade.feedback || 'Not yet — walk with me once more.')
     if (!activeId || atoms.length === 0) return 'Name a topic, and we shall begin at the beginning.'
+    if (quizQueue) return `Review ${quizIndex + 1} of ${quizQueue.length} — answer from memory before peeking at the rungs.`
     if (allMastered) return 'You have mastered every atom. The student has become the river.'
     if (answerFocused || answer.trim()) return 'Take your time. Understanding cannot be rushed.'
     if (selectedAtom) return `Let us sit with “${selectedAtom.name ?? 'this idea'}”. Start at the rung that feels comfortable.`
     return 'Pick an atom from the tree, and we begin.'
-  }, [generating, loading, grading, grade, activeId, atoms.length, allMastered, answerFocused, answer, selectedAtom])
+  }, [generating, loading, grading, grade, activeId, atoms.length, quizQueue, quizIndex, allMastered, answerFocused, answer, selectedAtom])
 
   // ── render ────────────────────────────────────────────────────────────────────
   return (
@@ -313,11 +357,22 @@ function GurukulInner({ userId }: { userId: string }) {
             offline syllabus — connect a model &amp; regenerate
           </span>
         )}
+        {quizQueue && (
+          <span style={{ marginLeft: 'auto', fontSize: 10, padding: '3px 10px', borderRadius: 4, background: 'rgba(232,163,61,0.2)', color: 'var(--marigold)', fontWeight: 700 }}>
+            Reviewing {quizIndex + 1}/{quizQueue.length}
+          </span>
+        )}
+        {!quizQueue && dueAtomIds.length > 0 && (
+          <button
+            onClick={startQuiz}
+            style={{ marginLeft: 'auto', fontSize: 10, padding: '3px 10px', background: 'var(--marigold)', border: 'none', borderRadius: 4, color: 'var(--kajal)', fontWeight: 700, cursor: 'pointer' }}
+          >⟳ Review due ({dueAtomIds.length})</button>
+        )}
         {activeId && (
           <button
             onClick={() => generateSyllabus(true)}
             disabled={generating}
-            style={{ marginLeft: 'auto', fontSize: 10, padding: '2px 8px', background: 'rgba(245,235,215,0.08)', border: '1px solid rgba(245,235,215,0.15)', borderRadius: 4, color: 'rgba(245,235,215,0.55)', cursor: 'pointer' }}
+            style={{ marginLeft: quizQueue || dueAtomIds.length > 0 ? 8 : 'auto', fontSize: 10, padding: '2px 8px', background: 'rgba(245,235,215,0.08)', border: '1px solid rgba(245,235,215,0.15)', borderRadius: 4, color: 'rgba(245,235,215,0.55)', cursor: 'pointer' }}
           >{generating ? 'Generating…' : '↻ Regenerate syllabus'}</button>
         )}
       </div>
@@ -371,7 +426,7 @@ function GurukulInner({ userId }: { userId: string }) {
               return (
                 <button
                   key={id}
-                  onClick={() => { setSelectedAtomId(id); setGrade(null); setAnswer(''); setRung('eli5') }}
+                  onClick={() => { setSelectedAtomId(id); setGrade(null); setAnswer(''); setRung('eli5'); setQuizQueue(null); setQuizIndex(0) }}
                   style={{
                     display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left',
                     padding: '7px 8px', marginBottom: 4, marginLeft: depth * 10, maxWidth: `calc(100% - ${depth * 10}px)`,
@@ -470,6 +525,14 @@ function GurukulInner({ userId }: { userId: string }) {
                         <p style={{ margin: '8px 0 0', fontStyle: 'italic' }}>{grade.remediation}</p>
                       )}
                     </div>
+                  )}
+                  {quizQueue && grade && (
+                    <button
+                      onClick={advanceQuiz}
+                      style={{ marginTop: 10, fontSize: 12, padding: '7px 16px', borderRadius: 8, border: 'none', background: 'var(--marigold)', color: 'var(--kajal)', fontWeight: 700, cursor: 'pointer' }}
+                    >
+                      {quizIndex + 1 >= quizQueue.length ? '✓ Finish review' : `Next atom (${quizIndex + 2}/${quizQueue.length}) →`}
+                    </button>
                   )}
                 </div>
               )}

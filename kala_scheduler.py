@@ -29,7 +29,7 @@ from datetime import datetime, time as dtime
 from pathlib import Path
 from typing import Any
 
-from narad_config import EPISODE_DIR, HEALTH_DB, SCHEDULER_STATE_PATH
+from narad_config import EPISODE_DIR, HEALTH_DB, LEARNING_DIR, SCHEDULER_STATE_PATH
 
 log = logging.getLogger("narad.kala")
 
@@ -143,6 +143,81 @@ def _fire_due_reminders(now: datetime, state: dict, *, user_id: str = "default")
     return fired
 
 
+# ── Gurukul spaced-repetition reviews (G5) ────────────────────────────────────
+
+def _review_hour() -> int:
+    try:
+        return int(os.environ.get("NARAD_REVIEW_HOUR", "9")) % 24
+    except ValueError:
+        return 9
+
+
+def _users_with_learning_workspaces() -> list[str]:
+    try:
+        return sorted(p.name for p in LEARNING_DIR.iterdir() if p.is_dir())
+    except Exception:
+        return []
+
+
+def _fire_due_reviews(now: datetime, state: dict) -> int:
+    """One review digest per user per day: atoms due across their workspaces.
+
+    State-keyed like medication reminders ("review_digest" → {user: date}),
+    gated on NARAD_REVIEW_HOUR (default 09:00) so digests arrive at a humane
+    hour. Tapping the inbox item opens Gurukul quiz mode (G5.2).
+    """
+    from vahana import deliver
+
+    today = now.strftime("%Y-%m-%d")
+    if now.hour < _review_hour():
+        return 0
+    digests: dict[str, str] = state.setdefault("review_digest", {})
+
+    fired = 0
+    for user_id in _users_with_learning_workspaces():
+        if digests.get(user_id) == today:
+            continue
+        try:
+            from guru_engine import due_reviews
+            from learning_workspace import list_workspaces
+            due_by_topic: list[tuple[str, str, int]] = []  # (topic, workspace_id, count)
+            for meta in list_workspaces(user_id):
+                workspace_id = str(meta.get("workspace_id", "")).strip()
+                if not workspace_id:
+                    continue
+                due = due_reviews(user_id=user_id, workspace_id=workspace_id)
+                if due:
+                    topic = str(meta.get("topic", workspace_id))
+                    due_by_topic.append((topic, workspace_id, len(due)))
+            if not due_by_topic:
+                digests[user_id] = today  # nothing due — don't rescan all day
+                continue
+            total = sum(count for _, _, count in due_by_topic)
+            parts = ", ".join(
+                f"{count} atom{'s' if count != 1 else ''} in {topic}"
+                for topic, _, count in due_by_topic[:4]
+            )
+            deliver(
+                kind="reminder",
+                title=f"Gurukul review: {total} atom{'s' if total != 1 else ''} due",
+                body=f"Due for review — {parts}. Open Gurukul to quiz yourself.",
+                user_id=user_id,
+                source="kala_scheduler.guru_review",
+                priority="normal",
+                data={
+                    "review": [
+                        {"workspace_id": ws, "topic": topic, "due_count": count}
+                        for topic, ws, count in due_by_topic
+                    ],
+                },
+            )
+            digests[user_id] = today
+            fired += 1
+        except Exception as exc:
+            log.warning("Kala: review digest failed for %s: %s", user_id, exc)
+    return fired
+
+
 # ── Nightly Swapna ────────────────────────────────────────────────────────────
 
 def _swapna_hour() -> int:
@@ -203,20 +278,32 @@ def tick(now: datetime | None = None) -> dict:
     """One synchronous scheduler pass. Never raises."""
     now = now or datetime.now()
     state = _load_state()
-    fired = swapna_ran = 0
+    fired = swapna_ran = reviews_fired = 0
     try:
         fired = _fire_due_reminders(now, state)
     except Exception as exc:
         log.warning("Kala: reminder pass failed: %s", exc)
+    try:
+        reviews_fired = _fire_due_reviews(now, state)
+    except Exception as exc:
+        log.warning("Kala: review pass failed: %s", exc)
     try:
         swapna_ran = _run_nightly_swapna(now, state)
     except Exception as exc:
         log.warning("Kala: swapna pass failed: %s", exc)
     state["last_tick"] = now.isoformat(timespec="seconds")
     _save_state(state)
-    if fired or swapna_ran:
-        log.info("Kala tick: %d reminder(s) fired, %d swapna cycle(s)", fired, swapna_ran)
-    return {"fired": fired, "swapna_ran": swapna_ran, "ts": state["last_tick"]}
+    if fired or swapna_ran or reviews_fired:
+        log.info(
+            "Kala tick: %d reminder(s), %d review digest(s), %d swapna cycle(s)",
+            fired, reviews_fired, swapna_ran,
+        )
+    return {
+        "fired": fired,
+        "reviews_fired": reviews_fired,
+        "swapna_ran": swapna_ran,
+        "ts": state["last_tick"],
+    }
 
 
 async def run_scheduler_loop() -> None:

@@ -13,7 +13,9 @@ import narad_paths  # noqa: F401  — registers all phase dirs; must precede pha
 
 # isort: split
 import guru_engine
+import kala_scheduler
 import learning_workspace
+import vahana
 
 _SYLLABUS = {
     "workspace_id": "ws",
@@ -69,6 +71,39 @@ class TeachPatternTests(unittest.TestCase):
     def test_topic_extraction_strips_new_prefixes(self) -> None:
         self.assertEqual(learning_workspace.extract_learning_topic("i want to learn calculus"), "calculus")
         self.assertEqual(learning_workspace.extract_learning_topic("walk me through backprop"), "backprop")
+
+
+class GuruReviewSchedulerTests(unittest.TestCase):
+    def test_review_digest_fires_once_per_day(self) -> None:
+        from datetime import datetime
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            temp_root = Path(tmpdir)
+            delivered: list[dict] = []
+            with patch.object(learning_workspace, "LEARNING_DIR", temp_root), \
+                 patch.object(guru_engine, "LEARNING_DIR", temp_root), \
+                 patch.object(kala_scheduler, "LEARNING_DIR", temp_root), \
+                 patch.object(vahana, "deliver", side_effect=lambda **kw: delivered.append(kw) or {"id": "x"}):
+                workspace = learning_workspace.ensure_workspace(
+                    user_id="default", topic="softmax", mission="m", session_id="s",
+                )
+                ws_dir = temp_root / "default" / workspace["workspace_id"]
+                (ws_dir / "syllabus.json").write_text(json.dumps(_SYLLABUS), encoding="utf-8")
+                (ws_dir / "learner_state.json").write_text(json.dumps({
+                    "dot-product": {"status": "shaky", "next_review": "2020-01-01T00:00:00+00:00"},
+                }), encoding="utf-8")
+
+                state: dict = {}
+                noon = datetime(2026, 7, 9, 12, 0)
+                self.assertEqual(kala_scheduler._fire_due_reviews(noon, state), 1)
+                self.assertEqual(len(delivered), 1)
+                self.assertEqual(delivered[0]["kind"], "reminder")
+                self.assertIn("1 atom", delivered[0]["title"])
+                # same day → no second digest
+                self.assertEqual(kala_scheduler._fire_due_reviews(noon, state), 0)
+                # before the review hour → nothing fires
+                dawn = datetime(2026, 7, 10, 5, 0)
+                self.assertEqual(kala_scheduler._fire_due_reviews(dawn, {}), 0)
 
 
 class LearningWorkspaceTests(unittest.TestCase):
