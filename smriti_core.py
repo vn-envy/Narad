@@ -698,7 +698,7 @@ def architecture_scorecard() -> dict[str, Any]:
     baseline_tests = {
         "server_contract": "phase-1/test_server_contract.py",
         "runtime_contract": "phase-1/test_runtime_contract.py",
-        "smriti": "phase-2/test_smriti.py",
+        "smriti": "phase-1/test_smriti_vector_tiers.py",
         "tools": "phase-8/test_tool_smoke.py",
     }
     return {

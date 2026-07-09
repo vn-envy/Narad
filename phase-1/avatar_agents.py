@@ -712,6 +712,23 @@ def _make_avatar_tool(agent: LlmAgent, user_id: str = "default") -> FunctionTool
             _traj.total_ms = int((time.monotonic() - span._start) * 1000)
             span.finish(result_text, trajectory=_traj)
 
+            # M4.1 gap-fix: avatar spans run on their own models — without this,
+            # only supervisor turns + Tapas judges hit the cost ledger and
+            # delegated work (often the bulk of tokens) is invisible in /costs.
+            if span.meter.total > 0:
+                try:
+                    from cost_ledger import record as _record_cost
+                    _record_cost(
+                        source=f"avatar:{agent.name}",
+                        model=_model_id,
+                        prompt_tokens=span.meter.prompt,
+                        completion_tokens=span.meter.completion,
+                        user_id=user_id,
+                        session_id=_trace_session_id,
+                    )
+                except Exception:
+                    pass  # ledger is observability — never breaks the span
+
         # Track phase state + emit phase_transition trace event
         import re as _re_phase
         _pm = _re_phase.search(r"CURRENT_PHASE:\s*(\S+)", result_text, _re_phase.IGNORECASE)
