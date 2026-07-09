@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "description": "Golden-task set for nightly structural evals (M4.2). Assertions are structural — routed avatar, tools invoked, synthesis shape — never exact text. Placeholders: {fixture} → runner-created test file, {root} → repo root. strict:false marks routing-ambiguous prompts whose avatar mismatch is a warning, not a failure.",
+  "description": "Golden-task set for nightly structural evals (M4.2 + G7). Assertions are structural — routed avatar, tools invoked, synthesis shape — never exact text. Placeholders: {fixture} → runner-created test file, {root} → repo root. strict:false marks routing-ambiguous prompts whose avatar mismatch is a warning, not a failure. mode:'structural' tasks (guru group, G7) run offline in-process checks against guru_engine/learning_workspace — no LLM, no server; 'check' names the registered check in run_golden_tasks.py.",
   "tasks": [
     {
       "id": "matsya-01-doc-extract",
@@ -298,6 +298,62 @@
       "strict": false,
       "prompt": "Write a regex that matches ISO dates like 2026-07-06, and explain it in one sentence.",
       "expect": { "min_synthesis_chars": 40, "synthesis_regex": "\\\\d|\\[0-9\\]|\\d\\{4\\}" }
+    },
+
+    {
+      "id": "guru-01-syllabus-schema",
+      "avatar": "Guru",
+      "mode": "structural",
+      "check": "syllabus_schema_valid",
+      "prompt": "structural: generate_syllabus (offline path) produces a schema-valid syllabus with workspace_id/topic/generator/atoms",
+      "expect": {}
+    },
+    {
+      "id": "guru-02-syllabus-acyclic",
+      "avatar": "Guru",
+      "mode": "structural",
+      "check": "syllabus_acyclic",
+      "prompt": "structural: generated prerequisite graph is acyclic with valid refs, and the validator flags a synthetic cycle",
+      "expect": {}
+    },
+    {
+      "id": "guru-03-atom-rungs",
+      "avatar": "Guru",
+      "mode": "structural",
+      "check": "atom_rungs_nonempty",
+      "prompt": "structural: every atom carries four non-empty ELI5 rungs (eli5/plain/precise/formal)",
+      "expect": {}
+    },
+    {
+      "id": "guru-04-artifact-add-remove",
+      "avatar": "Guru",
+      "mode": "structural",
+      "check": "artifact_add_remove",
+      "prompt": "structural: update_learning_artifact honors one flashcard add and one remove (offline reviser)",
+      "expect": {}
+    },
+    {
+      "id": "guru-05-grading-mutates-state",
+      "avatar": "Guru",
+      "mode": "structural",
+      "check": "grading_mutates_state",
+      "prompt": "structural: grade_check_answer persists attempts/status/next_review to learner_state.json",
+      "expect": {}
+    },
+    {
+      "id": "guru-06-packet-check-question",
+      "avatar": "Guru",
+      "mode": "structural",
+      "check": "packet_single_check_question",
+      "prompt": "structural: workspace packet carries the frontier atom with exactly one check question",
+      "expect": {}
+    },
+    {
+      "id": "guru-07-live-teach",
+      "avatar": "Krishna",
+      "strict": false,
+      "prompt": "Teach me how binary search works. Start from the very first concept.",
+      "expect": { "min_synthesis_chars": 80, "synthesis_regex": "\\?" }
     }
   ]
 }
