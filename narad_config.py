@@ -53,6 +53,7 @@ SUTRAS_PATH:               Path = CONFIG_DIR / "sutras.jsonl"
 WEAK_SESSIONS_PATH:        Path = CONFIG_DIR / "weak_sessions.jsonl"
 KARMA_PATH:                Path = CONFIG_DIR / "karma.jsonl"
 SUTRA_OVERRIDES_PATH:      Path = CONFIG_DIR / "sutra_overrides.jsonl"
+SUTRA_DEMOTIONS_PATH:      Path = CONFIG_DIR / "sutra_demotions.jsonl"  # outcome strikes (M4.4)
 SANKALPAS_PATH:            Path = CONFIG_DIR / "sankalpas.jsonl"
 SANKALPA_OVERRIDES_PATH:   Path = CONFIG_DIR / "sankalpa_overrides.jsonl"
 SANKALPA_SESSION_LOG_PATH: Path = CONFIG_DIR / "session_log.jsonl"

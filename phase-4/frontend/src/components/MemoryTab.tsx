@@ -29,8 +29,9 @@ interface SutraEntry {
   id: string
   avatar: string
   query: string
+  rule?: string
   score: number
-  status: 'pending' | 'active' | 'reverted'
+  status: 'pending' | 'active' | 'demoted' | 'reverted'
   cooldown_remaining?: string | null
 }
 

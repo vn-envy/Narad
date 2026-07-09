@@ -36,7 +36,7 @@ interface SutraMetric {
   id: string
   avatar: string
   score: number
-  status: 'pending' | 'active' | 'reverted'
+  status: 'pending' | 'active' | 'demoted' | 'reverted'
 }
 
 function fmtCompact(value: number): string {

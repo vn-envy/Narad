@@ -322,6 +322,7 @@ async def recall_context(
     except Exception:
         project_context = ""
 
+    applied_sutra_ids: list[str] = []
     try:
         from sutra_engine import format_for_injection as format_sutras
         from sutra_engine import get_active_sutras
@@ -338,7 +339,14 @@ async def recall_context(
                 block = _fit_block("sutras", sutra_block)
                 if block:
                     blocks.append(block)
-                    provenance.append({"kind": "sutras", "count": len(active_sutras)})
+                    # M4.4: surface which sutras steered this run so Tapas can
+                    # strike them if the session's outcome scores poorly.
+                    applied_sutra_ids = [s.get("id", "") for s in active_sutras if s.get("id")]
+                    provenance.append({
+                        "kind": "sutras",
+                        "count": len(active_sutras),
+                        "ids": applied_sutra_ids,
+                    })
     except Exception:
         pass
 
@@ -378,6 +386,7 @@ async def recall_context(
     return {
         "context": context,
         "provenance": provenance,
+        "sutra_ids": applied_sutra_ids,  # M4.4: for outcome-based demotion
         "memory_path_count": len([p for p in provenance if p["kind"] != "project_context"]) + (1 if project_context else 0),
         "compaction_applied": compaction_applied,
         "token_budget": token_budget,
@@ -428,6 +437,7 @@ def promote_sutra(
     query: str,
     avatar: str,
     result: str,
+    applied_sutra_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     verdict = validate_sutra_candidate(avatar, result, evidence_count=1)
     if not verdict.allowed:
@@ -443,7 +453,10 @@ def promote_sutra(
 
     from tapas import process_session
 
-    outcome = process_session(session_id=session_id, query=query, avatar=avatar, result=result)
+    outcome = process_session(
+        session_id=session_id, query=query, avatar=avatar, result=result,
+        applied_sutra_ids=applied_sutra_ids or [],
+    )
     log_mutation(
         "tapas_processed",
         entity_type="sutra_candidate",

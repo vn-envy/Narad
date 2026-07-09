@@ -3,15 +3,17 @@ Phase 5 — Sutra Engine
 
 Reads sutras promoted by Tapas and manages their lifecycle:
   pending  → within COOLDOWN_HOURS of promotion (visible in UI, not yet injected)
-  active   → post-cooldown and not reverted (injected into avatar runs)
+  active   → post-cooldown, not reverted, not demoted (injected into avatar runs)
+  demoted  → accumulated SUTRA_DEMOTE_STRIKES outcome strikes since the last
+             user accept (M4.4 — never injected; user re-accept reactivates)
   reverted → user explicitly rejected (never injected)
 
 Key functions:
   get_active_sutras(avatar)       → list[dict] for prompt injection
   get_all_sutras()                → all sutras with computed status
-  accept_sutra(id)                → skip cooldown, promote to active immediately
+  accept_sutra(id)                → skip cooldown / clear demotion, activate now
   revert_sutra(id)                → mark as reverted forever
-  format_for_injection(sutras)    → prompt block string
+  format_for_injection(sutras)    → prompt block string (rule-aware, M4.4)
 """
 
 from __future__ import annotations
@@ -20,11 +22,13 @@ import json
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 
+from narad_config import SUTRA_DEMOTIONS_PATH as _DEMOTIONS_PATH
 from narad_config import SUTRA_OVERRIDES_PATH as _OVERRIDES_PATH
 from narad_config import SUTRAS_PATH as _SUTRAS_PATH
 
 COOLDOWN_HOURS = int(__import__("os").environ.get("SUTRA_COOLDOWN_HOURS", "24"))
 MAX_ACTIVE_PER_AVATAR = int(__import__("os").environ.get("SUTRA_MAX_ACTIVE", "5"))
+DEMOTE_STRIKES = int(__import__("os").environ.get("SUTRA_DEMOTE_STRIKES", "2"))
 
 
 def sutras_enabled() -> bool:
@@ -36,7 +40,7 @@ def sutras_enabled() -> bool:
     import os
     return os.environ.get("NARAD_SUTRAS", "on").strip().lower() not in ("off", "0", "false")
 
-SutraStatus = Literal["pending", "active", "reverted"]
+SutraStatus = Literal["pending", "active", "demoted", "reverted"]
 
 
 # ── Override store (accept / revert) ─────────────────────────────────────────
@@ -57,6 +61,56 @@ def _load_overrides() -> dict[str, str]:
     return out
 
 
+def _load_last_accept_ts() -> dict[str, str]:
+    """{sutra_id: ISO ts of the most recent 'accepted' override}. M4.4: strikes
+    older than the last accept don't count — re-accepting clears the slate."""
+    if not _OVERRIDES_PATH.exists():
+        return {}
+    out: dict[str, str] = {}
+    for line in _OVERRIDES_PATH.read_text().splitlines():
+        if not line.strip():
+            continue
+        try:
+            rec = json.loads(line)
+            if rec.get("action") == "accepted":
+                out[rec["sutra_id"]] = rec.get("ts", "")
+        except Exception:
+            continue
+    return out
+
+
+# ── Demotion strikes (M4.4) ───────────────────────────────────────────────────
+
+def _load_strikes() -> dict[str, list[str]]:
+    """{sutra_id: [strike ISO timestamps]} from Tapas' demotion log."""
+    if not _DEMOTIONS_PATH.exists():
+        return {}
+    out: dict[str, list[str]] = {}
+    for line in _DEMOTIONS_PATH.read_text().splitlines():
+        if not line.strip():
+            continue
+        try:
+            rec = json.loads(line)
+            sid = rec.get("sutra_id", "")
+            if sid:
+                out.setdefault(sid, []).append(rec.get("ts", ""))
+        except Exception:
+            continue
+    return out
+
+
+def _strikes_since_accept(sutra_id: str, strikes: dict[str, list[str]],
+                          accept_ts: dict[str, str]) -> int:
+    """Strikes newer than the sutra's last user accept (all strikes if never accepted)."""
+    stamps = strikes.get(sutra_id, [])
+    if not stamps:
+        return 0
+    floor = accept_ts.get(sutra_id, "")
+    if not floor:
+        return len(stamps)
+    return sum(1 for ts in stamps if ts > floor)
+
+
 def _write_override(sutra_id: str, action: Literal["accepted", "reverted"]) -> None:
     _OVERRIDES_PATH.parent.mkdir(parents=True, exist_ok=True)
     record = {
@@ -70,11 +124,20 @@ def _write_override(sutra_id: str, action: Literal["accepted", "reverted"]) -> N
 
 # ── Status resolution ─────────────────────────────────────────────────────────
 
-def _compute_status(sutra: dict, overrides: dict[str, str]) -> SutraStatus:
+def _compute_status(
+    sutra: dict,
+    overrides: dict[str, str],
+    strikes: dict[str, list[str]] | None = None,
+    accept_ts: dict[str, str] | None = None,
+) -> SutraStatus:
     sid = sutra.get("id", "")
     override = overrides.get(sid)
     if override == "reverted":
         return "reverted"
+    # M4.4: outcome strikes since the last accept demote — even a user-accepted
+    # sutra that keeps steering runs into failures gets pulled from injection.
+    if strikes and _strikes_since_accept(sid, strikes, accept_ts or {}) >= DEMOTE_STRIKES:
+        return "demoted"
     if override == "accepted":
         return "active"
 
@@ -106,6 +169,8 @@ def get_all_sutras() -> list[dict]:
     if not _SUTRAS_PATH.exists():
         return []
     overrides = _load_overrides()
+    strikes = _load_strikes()
+    accept_ts = _load_last_accept_ts()
     now = datetime.now(timezone.utc)
     result = []
     for line in _SUTRAS_PATH.read_text().splitlines():
@@ -120,9 +185,11 @@ def get_all_sutras() -> list[dict]:
             ttl_days = s.get("ttl_days", 90)
             if (now - ts).days > ttl_days:
                 continue
-            status = _compute_status(s, overrides)
+            status = _compute_status(s, overrides, strikes, accept_ts)
             s["status"] = status
             s["cooldown_remaining"] = _cooldown_remaining(s) if status == "pending" else None
+            if status == "demoted":
+                s["strike_count"] = _strikes_since_accept(s.get("id", ""), strikes, accept_ts)
             result.append(s)
         except Exception:
             continue
@@ -189,7 +256,11 @@ def get_pending_sutras(avatar: str | None = None) -> list[dict]:
 
 
 def accept_sutra(sutra_id: str) -> bool:
-    """Bypass the cooldown — sutra becomes active immediately. Returns success."""
+    """Bypass the cooldown — sutra becomes active immediately. Returns success.
+
+    M4.4: also reactivates a demoted sutra — strikes recorded before this
+    accept no longer count toward demotion (fresh slate; new strikes do).
+    """
     all_s = get_all_sutras()
     ids = {s["id"] for s in all_s}
     if sutra_id not in ids:
@@ -252,26 +323,37 @@ def _sanitize_sutra(text: str) -> str | None:
 def format_for_injection(sutras: list[dict]) -> str:
     """Format active sutras as a prompt block for injection into avatar context.
 
+    M4.4: distilled sutras (kind="rule") render as one imperative rule line —
+    no response replay. Legacy verbatim sutras keep the query/response form
+    until they expire (90-day TTL flushes them naturally).
+
     Sanitizes each sutra against prompt-injection patterns before inclusion.
     Sutras containing injection signals are silently dropped and logged to karma.
     """
     if not sutras:
         return ""
-    lines = ["[LEARNED PATTERNS — ranked by relevance to your current task]"]
+    lines = ["[LEARNED RULES — ranked by relevance to your current task]"]
     count = 0
     for s in sutras:
-        query_summary  = s.get("query",  "")[:250].strip()
-        result_snippet = s.get("result", "")[:500].strip()
-        score          = s.get("score", 0.0)
-        combined = f"{query_summary} {result_snippet}"
-        if _sanitize_sutra(combined) is None:
-            continue  # injection pattern detected — skip this sutra
-        count += 1
-        lines.append(f"\n{count}. Query (score {score:.2f}): {query_summary}")
-        lines.append(f"   Response: {result_snippet}")
+        score = s.get("score", 0.0)
+        if s.get("kind") == "rule" and s.get("rule"):
+            rule = " ".join(str(s["rule"]).split())[:300].strip()
+            if _sanitize_sutra(rule) is None:
+                continue  # injection pattern detected — skip this sutra
+            count += 1
+            lines.append(f"\n{count}. (confidence {score:.2f}) {rule}")
+        else:
+            query_summary  = s.get("query",  "")[:250].strip()
+            result_snippet = s.get("result", "")[:500].strip()
+            combined = f"{query_summary} {result_snippet}"
+            if _sanitize_sutra(combined) is None:
+                continue  # injection pattern detected — skip this sutra
+            count += 1
+            lines.append(f"\n{count}. Query (score {score:.2f}): {query_summary}")
+            lines.append(f"   Response: {result_snippet}")
     if count == 0:
         return ""
     lines.append(
-        "\n[Reference these patterns where relevant. Adapt to the current task — do not copy verbatim.]"
+        "\n[Apply these rules where relevant. Adapt to the current task — do not copy verbatim.]"
     )
     return "\n".join(lines)

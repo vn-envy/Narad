@@ -3,7 +3,7 @@ Phase 5 — Karma Log
 
 Append-only log of every mutation to the sutra bank.
 Events: promoted | accepted | reverted | expired | blocked_critique | blocked_injection
-        | blocked_hallucination
+        | blocked_hallucination | skipped_no_rule | demotion_strike (M4.4)
 
 Schema (one JSON per line):
   {

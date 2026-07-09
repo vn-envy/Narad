@@ -9,10 +9,13 @@ interface SutraEntry {
   avatar: string
   query: string
   result: string
+  kind?: string
+  rule?: string
   score: number
   score_reason: string
-  status: 'pending' | 'active' | 'reverted'
+  status: 'pending' | 'active' | 'demoted' | 'reverted'
   cooldown_remaining: string | null
+  strike_count?: number
 }
 
 interface SutraPayload {
@@ -120,6 +123,10 @@ export function TapasyaTab({ userId = 'default' }: Props) {
   )
   const activeSutras = useMemo(
     () => (sutraPayload?.sutras ?? []).filter(sutra => sutra.status === 'active'),
+    [sutraPayload],
+  )
+  const demotedSutras = useMemo(
+    () => (sutraPayload?.sutras ?? []).filter(sutra => sutra.status === 'demoted'),
     [sutraPayload],
   )
   const totalEvolutionPoints = useMemo(
@@ -257,10 +264,10 @@ export function TapasyaTab({ userId = 'default' }: Props) {
                   </div>
 
                   <div style={{ marginTop: 10, fontSize: 13, lineHeight: 1.6, color: 'var(--kajal)' }}>
-                    {sutra.query}
+                    {sutra.rule ?? sutra.query}
                   </div>
                   <div style={{ marginTop: 6, fontSize: 12, lineHeight: 1.55, color: 'rgba(26,24,21,0.55)' }}>
-                    {sutra.score_reason}
+                    {sutra.rule ? `From: ${sutra.query.slice(0, 160)}` : sutra.score_reason}
                   </div>
 
                   <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
@@ -303,6 +310,84 @@ export function TapasyaTab({ userId = 'default' }: Props) {
               )
             })}
           </div>
+
+          {demotedSutras.length > 0 && (
+            <>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginTop: 22 }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--sindoor)', fontFamily: 'var(--font-hero)' }}>
+                  Demoted Sutras
+                </div>
+                <div style={{ fontSize: 12, color: 'rgba(26,24,21,0.5)' }}>
+                  Pulled from injection after steering sessions into failures
+                </div>
+              </div>
+              <div style={{ display: 'grid', gap: 12, marginTop: 12 }}>
+                {demotedSutras.map(sutra => {
+                  const busyAccept = actioning === `accept:${sutra.id}`
+                  const accent = AVATAR_COLOURS[sutra.avatar as keyof typeof AVATAR_COLOURS] ?? 'var(--kajal)'
+                  return (
+                    <div
+                      key={sutra.id}
+                      style={{
+                        padding: '14px 16px',
+                        borderRadius: 16,
+                        border: '1px solid rgba(194,65,12,0.18)',
+                        background: 'rgba(194,65,12,0.04)',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <span style={{ padding: '3px 8px', borderRadius: 999, background: `${accent}20`, color: accent, fontSize: 10.5, fontWeight: 700 }}>
+                          {DEVA[sutra.avatar as keyof typeof DEVA] ?? '•'} {sutra.avatar}
+                        </span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--sindoor)' }}>
+                          {sutra.strike_count ?? 0} strikes
+                        </span>
+                      </div>
+                      <div style={{ marginTop: 10, fontSize: 13, lineHeight: 1.6, color: 'var(--kajal)' }}>
+                        {sutra.rule ?? sutra.query}
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+                        <button
+                          type="button"
+                          disabled={Boolean(actioning)}
+                          onClick={() => runSutraAction(sutra.id, 'accept')}
+                          style={{
+                            padding: '8px 12px',
+                            borderRadius: 10,
+                            border: 'none',
+                            background: 'var(--kajal)',
+                            color: 'var(--paper)',
+                            fontSize: 11.5,
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {busyAccept ? 'Reactivating…' : 'Reactivate'}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={Boolean(actioning)}
+                          onClick={() => runSutraAction(sutra.id, 'revert')}
+                          style={{
+                            padding: '8px 12px',
+                            borderRadius: 10,
+                            border: '1px solid rgba(194,65,12,0.25)',
+                            background: 'rgba(194,65,12,0.06)',
+                            color: 'var(--sindoor)',
+                            fontSize: 11.5,
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {actioning === `revert:${sutra.id}` ? 'Removing…' : 'Remove forever'}
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </>
+          )}
         </section>
 
         <section

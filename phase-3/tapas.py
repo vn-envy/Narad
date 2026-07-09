@@ -4,8 +4,11 @@ Tapas — Avatara's self-evolution layer.
 After every session, Tapas:
   1. Scores the output with an independent judge model (0.0–1.0)
   2. Deduplicates against existing sutras (cosine similarity gate)
-  3. Promotes high-scoring outputs to sutras.jsonl
-  4. Flags low-scoring sessions to weak_sessions.jsonl for prompt revision
+  3. Distills ONE transferable rule from the session (M4.4) and promotes it
+     to sutras.jsonl — no rule extractable → no promotion (fail closed)
+  4. Flags low-scoring sessions to weak_sessions.jsonl for prompt revision,
+     and strikes any sutras that were injected into the failing run (M4.4
+     demotion — outcome-based unlearning)
 
 Sutra schema (one JSON per line in sutras.jsonl):
   {
@@ -13,8 +16,10 @@ Sutra schema (one JSON per line in sutras.jsonl):
     "ts":          ISO timestamp,
     "session_id":  str,
     "avatar":      str,
-    "query":       str,
-    "result":      str (truncated to 800 chars),
+    "kind":        "rule" (M4.4; absent on legacy verbatim sutras),
+    "rule":        str  — one distilled imperative rule (≤ ~240 chars),
+    "query":       str  — kept for relevance ranking,
+    "result":      str  — short evidence snippet (300 chars; legacy: 1500),
     "score":       float 0.0–1.0,
     "score_reason":str,
     "ttl_days":    int  (default 90 — sutras expire)
@@ -46,6 +51,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from narad_config import SUTRA_DEMOTIONS_PATH as _DEMOTIONS_PATH
 from narad_config import SUTRAS_PATH as _SUTRAS_PATH
 from narad_config import WEAK_SESSIONS_PATH as _WEAK_PATH
 
@@ -261,6 +267,72 @@ def score_session(query: str, avatar: str, result: str) -> tuple[float, str, boo
         return 0.5, f"scoring unavailable: {exc}", True, True
 
 
+# ── Rule distillation (M4.4) ─────────────────────────────────────────────────
+
+_DISTILL_PROMPT = """\
+You are a knowledge distiller for an AI assistant's behavior bank.
+A session scored highly and is about to be saved as a learned pattern.
+Do NOT save the response verbatim. Extract ONE transferable rule instead.
+
+Avatar: {avatar}
+Query: {query}
+Response (excerpt): {result}
+
+A good rule is:
+- imperative ("For HDFC bank CSVs, map the narration column to description")
+- transferable to similar future tasks, not a restatement of this one answer
+- self-contained (no "as shown above", no references to this session)
+- at most 240 characters
+
+If the response is a one-off answer with no reusable technique, convention,
+or mapping behind it, there is no rule — say so.
+
+Return ONLY JSON: {{"rule": "<the rule>" }} or {{"rule": null}} if none exists.
+No markdown fences, no prose outside the JSON.
+"""
+
+_RULE_MAX_CHARS = 240
+
+
+def _distill_rule(query: str, avatar: str, result: str) -> tuple[str | None, str]:
+    """Distill one transferable rule from a promotable session.
+
+    Returns (rule, note). rule=None → nothing promotable (fail closed):
+    either the judge said no rule exists, or the distill call failed —
+    a verbatim replay is never written as a fallback.
+    """
+    try:
+        import litellm
+        prompt = _DISTILL_PROMPT.format(
+            avatar=avatar,
+            query=query[:600],
+            result=result[:1200],
+        )
+        kwargs: dict = dict(
+            model=_JUDGE_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2,
+            max_tokens=300,
+        )
+        if _JUDGE_API_BASE:
+            kwargs["api_base"] = _JUDGE_API_BASE
+        if _JUDGE_API_KEY:
+            kwargs["api_key"] = _JUDGE_API_KEY
+        response = _litellm_with_retry(litellm, kwargs)
+        _record_judge_cost(response, "tapas_distill")
+        raw = response.choices[0].message.content.strip()
+        data = _extract_judge_json(raw)
+        rule = data.get("rule")
+        if not rule or not str(rule).strip():
+            return None, "no transferable rule in session"
+        rule = " ".join(str(rule).split())[:_RULE_MAX_CHARS]
+        if len(rule) < 12:  # degenerate output ("ok", "yes", …)
+            return None, "distilled rule too short to be a rule"
+        return rule, ""
+    except Exception as exc:
+        return None, f"distillation unavailable: {exc}"
+
+
 # ── Constitutional AI self-critique (jnana pass) ─────────────────────────────
 
 _CRITIQUE_PROMPT = """\
@@ -283,8 +355,10 @@ Return JSON only: {{"pass": true/false, "concerns": "brief explanation or empty 
 def _cai_critique(avatar: str, task: str, result: str) -> tuple[bool, str]:
     """Run Constitutional AI self-critique on a candidate sutra.
 
-    Returns (passed: bool, concerns: str). Defaults to (True, '') on error
-    so scoring failures don't block all promotions.
+    Returns (passed: bool, concerns: str). Fails CLOSED (M4.4): if the
+    critique call errors, the candidate is NOT promoted — an unreviewed
+    pattern must never enter the behavior bank. The session can re-earn
+    promotion on a future run when the judge is reachable.
     """
     try:
         import litellm
@@ -308,8 +382,8 @@ def _cai_critique(avatar: str, task: str, result: str) -> tuple[bool, str]:
         raw  = response.choices[0].message.content.strip()
         data = _extract_judge_json(raw)
         return bool(data.get("pass", True)), str(data.get("concerns", ""))
-    except Exception:
-        return True, ""  # fail-open: don't block promotions on critique errors
+    except Exception as exc:
+        return False, f"critique unavailable — failing closed: {exc}"
 
 
 # ── Deduplication (cosine similarity) ────────────────────────────────────────
@@ -395,6 +469,43 @@ def _append(path: Path, record: dict) -> None:
         f.write(json.dumps(record) + "\n")
 
 
+# ── Demotion strikes (M4.4) ───────────────────────────────────────────────────
+
+def _strike_sutras(applied_sutra_ids: list[str], session_id: str, avatar: str,
+                   score: float, reason: str) -> int:
+    """Record one demotion strike per sutra that was injected into a failing run.
+
+    sutra_engine counts strikes (since the last user re-accept) and demotes at
+    SUTRA_DEMOTE_STRIKES. Best-effort; returns the number of strikes written.
+    """
+    written = 0
+    ts = datetime.now(timezone.utc).isoformat()
+    for sutra_id in applied_sutra_ids:
+        if not sutra_id:
+            continue
+        try:
+            _DEMOTIONS_PATH.parent.mkdir(parents=True, exist_ok=True)
+            _append(_DEMOTIONS_PATH, {
+                "sutra_id":   sutra_id,
+                "ts":         ts,
+                "session_id": session_id,
+                "avatar":     avatar,
+                "score":      score,
+                "reason":     reason[:200],
+            })
+            written += 1
+            try:
+                from karma_log import log_karma
+                log_karma("demotion_strike", sutra_id, avatar,
+                          f"Injected into failing session (score {score:.2f})",
+                          triggered_by=session_id, tapas_score=score)
+            except Exception:
+                pass
+        except Exception:
+            continue
+    return written
+
+
 # ── Main entry point ──────────────────────────────────────────────────────────
 
 def process_session(
@@ -402,10 +513,13 @@ def process_session(
     query: str,
     avatar: str,
     result: str,
+    applied_sutra_ids: list[str] | None = None,
 ) -> dict:
     """
     Score a session and promote or flag it.
-    Returns a dict with: score, reason, action (promoted|flagged|skipped)
+    applied_sutra_ids: sutras that were injected into this run — struck for
+    demotion if the session scores below FLAG_THRESHOLD (M4.4).
+    Returns a dict with: score, reason, action (promoted|flagged|skipped…)
     """
     score, reason, hallucination_free, sequence_correct = score_session(query, avatar, result)
     now = datetime.now(timezone.utc).isoformat()
@@ -429,14 +543,33 @@ def process_session(
                       hallucination_free=False)
         except Exception:
             pass
-        return {"score": 0.0, "reason": reason, "action": "blocked_hallucination"}
+        # M4.4: sutras injected into a hallucinating run take a strike —
+        # this is the exact poisoning loop demotion exists to break.
+        struck = _strike_sutras(applied_sutra_ids or [], session_id, avatar, 0.0, reason)
+        out = {"score": 0.0, "reason": reason, "action": "blocked_hallucination"}
+        if struck:
+            out["sutras_struck"] = struck
+        return out
 
     if score >= PROMOTE_THRESHOLD:
         if _is_duplicate(query, result):
             return {"score": score, "reason": reason, "action": "skipped_duplicate"}
 
-        # Jnana pass: Constitutional AI self-critique before promotion
-        critique_passed, concerns = _cai_critique(avatar, query, result)
+        # M4.4: distill ONE transferable rule — no rule, no promotion (fail closed).
+        rule, distill_note = _distill_rule(query, avatar, result)
+        if rule is None:
+            try:
+                from karma_log import log_karma
+                log_karma("skipped_no_rule", "n/a", avatar, distill_note[:160],
+                          triggered_by=session_id, tapas_score=score)
+            except Exception:
+                pass
+            return {"score": score, "reason": reason, "action": "skipped_no_rule",
+                    "distill_note": distill_note}
+
+        # Jnana pass: Constitutional AI self-critique on the distilled rule.
+        # Fails closed — a critique error blocks promotion.
+        critique_passed, concerns = _cai_critique(avatar, query, rule)
         if not critique_passed:
             try:
                 from karma_log import log_karma
@@ -452,8 +585,10 @@ def process_session(
             "ts":           now,
             "session_id":   session_id,
             "avatar":       avatar,
-            "query":        query[:600],
-            "result":       result[:1500],
+            "kind":         "rule",
+            "rule":         rule,
+            "query":        query[:600],          # kept for relevance ranking
+            "result":       result[:300],         # short evidence, not replay material
             "score":        score,
             "score_reason": reason,
             "ttl_days":     SUTRA_TTL_DAYS,
@@ -461,11 +596,11 @@ def process_session(
         _append(_SUTRAS_PATH, sutra)
         try:
             from karma_log import log_karma
-            log_karma("promoted", sutra["id"], avatar, query[:120],
+            log_karma("promoted", sutra["id"], avatar, rule[:120],
                       triggered_by=session_id, tapas_score=score, critique_passed=True)
         except Exception:
             pass
-        return {"score": score, "reason": reason, "action": "promoted"}
+        return {"score": score, "reason": reason, "action": "promoted", "rule": rule}
 
     elif score < FLAG_THRESHOLD:
         weak = {
@@ -478,7 +613,12 @@ def process_session(
             "reason":     reason,
         }
         _append(_WEAK_PATH, weak)
-        return {"score": score, "reason": reason, "action": "flagged"}
+        # M4.4: the sutras that steered this failing run take a strike each.
+        struck = _strike_sutras(applied_sutra_ids or [], session_id, avatar, score, reason)
+        out = {"score": score, "reason": reason, "action": "flagged"}
+        if struck:
+            out["sutras_struck"] = struck
+        return out
 
     return {"score": score, "reason": reason, "action": "none"}
 

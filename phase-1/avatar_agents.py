@@ -1054,14 +1054,18 @@ def _make_avatar_tool(agent: LlmAgent, user_id: str = "default") -> FunctionTool
         except Exception:
             pass  # audit failure never blocks execution
 
-        # Tapas: score and promote/flag — fire-and-forget, never blocks
+        # Tapas: score and promote/flag — fire-and-forget, never blocks.
+        # M4.4: pass the sutras that were injected into this run so a failing
+        # outcome strikes them toward demotion.
         import asyncio as _asyncio
+        _applied_sutra_ids = list(recall_packet.get("sutra_ids") or [])
         _asyncio.get_event_loop().call_soon(
             lambda: _asyncio.ensure_future(_run_tapas(
                 session_id=external_session_id or sid,
                 task=task,
                 avatar=agent.name,
                 result=result_text,
+                applied_sutra_ids=_applied_sutra_ids,
             ))
         )
 
@@ -1107,12 +1111,14 @@ def _learning_frozen() -> bool:
     return os.environ.get("NARAD_LEARNING_FREEZE", "").strip().lower() in ("1", "true", "on")
 
 
-async def _run_tapas(session_id: str, task: str, avatar: str, result: str) -> None:
+async def _run_tapas(session_id: str, task: str, avatar: str, result: str,
+                     applied_sutra_ids: list[str] | None = None) -> None:
     if _learning_frozen():
         return
     try:
         from smriti_core import promote_sutra
-        promote_sutra(session_id=session_id, query=task, avatar=avatar, result=result)
+        promote_sutra(session_id=session_id, query=task, avatar=avatar, result=result,
+                      applied_sutra_ids=applied_sutra_ids or [])
     except Exception:
         pass
 
