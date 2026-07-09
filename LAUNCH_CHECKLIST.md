@@ -45,12 +45,12 @@
 ## E. One truth (M3)
 
 - [x] **E1 —** Reconcile docs: 4 avatars everywhere (AGENTS.md rewritten code-verified; ARCHITECTURE.md, README, WORKFLOWS, docs/, phase-9 skill prompts fixed 2026-07-04). Notion cut entirely rather than re-labelled. *(Remaining: single `v0.x` version scheme — tracked in AUDIT-AND-ROADMAP.md.)*
-- [ ] **E2 —** README rewritten against the new package layout + checklist status.
+- [x] **E2 —** README rewritten against the new package layout + checklist status *(2026-07-09: accurate layout incl. harness-layer modules and real component names, `pip install -e .` + `narad-server` quick start, security defaults, phone/PWA section, Tauri in phase table)*.
 
 ## F. Launch verification
 
-- [ ] **F1 —** Fresh-machine dry run: `pip install -e . && narad-server` + `npm ci && npm run build` from clean checkout.
-- [ ] **F2 —** Security re-test of C1/C2 payloads; snapshot into `benchmarks/`.
+- [x] **F1 —** Fresh-machine dry run *(2026-07-09, isolated Linux sandbox: `narad-server` entry boots, serves PWA shell + manifest + icons same-origin, /health OK; `npm ci && npm run build` clean; full `pip install -e .` correctly refused on Python 3.10 by the `requires-python >= 3.11` gate — final confirmation on a ≥3.11 machine is a 2-minute run)*.
+- [x] **F2 —** Security re-test of C1/C2 payloads; snapshot: `benchmarks/security_retest_2026-07-09.json` *(executor suite 8/8; strict-mode 401/200 verified live; 0 regressions)*.
 
 ---
 

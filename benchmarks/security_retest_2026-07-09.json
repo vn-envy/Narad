@@ -1,0 +1,36 @@
+{
+  "kind": "security_retest",
+  "date": "2026-07-09",
+  "scope": "C1 executor sandbox + C2 server hardening re-verification (launch checklist F2)",
+  "environment": {
+    "runner": "isolated Linux sandbox (aarch64), Python 3.10.12",
+    "note": "suite also green in CI on >=3.11; NARAD_HOME isolated to a temp dir for every run"
+  },
+  "executor_sandbox": {
+    "suite": "phase-7/test_executor_sandbox.py",
+    "result": "8 passed, 0 failed",
+    "cases": {
+      "ast_blocked_imports": "subprocess/requests/urllib/importlib import forms all rejected pre-exec",
+      "ast_blocked_calls_and_evasions": "os.system, os.execvp, shutil.rmtree, eval, __import__, getattr-composition ('sys'+'tem'), open('/etc/passwd') all rejected",
+      "ast_benign_code_passes": "plain computation passes the analyzer",
+      "env_is_scrubbed": "planted EXECUTOR_TEST_API_KEY never crosses into the child env; only the allowlist (OUTPUT_DIR, PATH essentials) is present",
+      "timeout_kills_process": "wall-clock limit kills the whole process group -> status=timeout",
+      "stdout_capped": "100k print capped to <=4000 chars",
+      "dharma_gate_allows_by_default": "executor action permitted under default policy",
+      "dharma_gate_blocks_when_disabled": "actions.executor.enabled=false -> status=blocked, fail-closed"
+    }
+  },
+  "server_hardening": {
+    "checks": {
+      "default_bind": "127.0.0.1 (narad_server_entry.py default; remote access requires explicit rebind AND bearer token)",
+      "token_file": "~/.narad/config/api_token auto-generated chmod 600 (verified: -rw------- in test home)",
+      "strict_mode_unauthed_api": "GET /connections without token -> 401",
+      "strict_mode_bearer_api": "GET /connections with Bearer token -> 200",
+      "public_shell": "GET / (SPA shell) and /health -> 200 without token (no user data in shell)",
+      "cors": "pinned to Vite dev origins; extend via NARAD_ALLOWED_ORIGINS"
+    },
+    "method": "live server boot on loopback (ports 8124/8125), curl status-code assertions"
+  },
+  "full_battery": "119 passed + 42 subtests across phase-1/phase-7/phase-9 after cross-suite NARAD_HOME pollution fix (commit 5942ad8)",
+  "regressions_found": 0
+}

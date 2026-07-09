@@ -47,51 +47,59 @@ Full technical architecture: [ARCHITECTURE.md](./ARCHITECTURE.md)
 ## Repository layout
 
 ```
-phase-1/        FastAPI SSE server · Narad router · canonical 4-agent build · Six Sigma
-  server.py             POST /chat SSE stream + all endpoints (kanban, andon, 5s, quality)
-  narad_agent.py        Narad supervisor (DeepSeek V3)
-  avatar_agents.py      4 LlmAgent specialists + _make_avatar_tool (Smriti/Sutra/Sankalpa/AndonGate/Kanban)
-  model_config.py       Per-avatar model assignments (LiteLLM strings)
-  plan_models.py        PlanStep/Plan dataclasses + levels() topological sort
-  kanban.py             KanbanBoard — SQLite step lifecycle tracker (Phase 13)
-  andon.py              AndonGate quality gate + diagnostic fire-and-forget (Phase 13)
-  narad_5s.py           NaradShuddhi 5S filesystem health (Phase 13)
+(root)          The harness layer — shared by every phase
+  narad_paths.py          Single-source sys.path bootstrap (replaces scattered inserts)
+  narad_config.py         Canonical path constants (NARAD_HOME, TRACE_DIR, CONFIG_DIR, …)
+  narad_server_entry.py   `narad-server` console entry point (127.0.0.1:8000 by default)
+  dharma.py               Policy gates — fail-closed action permissions (executor, email, …)
+  smriti_core.py + smriti_*.py  Memory: episodes, commitments, vector tiers, recall ranking
+  guru_engine.py          Teaching: syllabus atoms, four rungs, mastery grading, reviews
+  tier_engine.py          Sopan: hardware detection → Gemma 4 ladder recommendation
+  kunji.py                Key management: prefix detect, live test, OS keychain storage
+  subscription_providers.py  Claude Agent SDK plan-credit adapter registry
+  cost_ledger.py          Per-model spend tracking (narad-local/ and subscription pinned $0)
+  kala_scheduler.py       Time-based loop — reminders, Swapna hour, due reviews
+  vahana.py               Notification channel (inbox + optional ntfy push to phone)
+
+phase-1/        FastAPI SSE server · Narad router · canonical 4-agent build
+  server.py               POST /chat SSE stream + all endpoints (learning, connections, tiers, karma)
+  narad_agent.py          Narad supervisor (DeepSeek V4)
+  avatar_agents.py        4 LlmAgent specialists + _make_avatar_tool (Smriti/Sutra/Sankalpa gates)
+  model_config.py         Per-avatar model assignments (LiteLLM strings, env-overridable)
+  model_registry.py       Provider detection, context windows, fallback candidates
+  runtime_contract.py     Startup checks → capabilities the UI renders honestly
+  context_governor.py     Token budgeting per model
+  kanban.py / andon.py / narad_5s.py   Six Sigma quality layer
 
 phase-2/        Memory · Search · Observability
-  smriti.py             LanceDB vector memory + FTS5; @lru_cache on _embed(); fallback logging
-  matsya_search.py      Tavily web search
-  yantra.py             JSONL session tracer; error_type classification
-  yantra_models.py      Trajectory/TurnRecord/ToolCall typed dataclasses
+  smriti.py               LanceDB vector memory + FTS5
+  matsya_search.py        Tavily web search
+  yantra.py               JSONL session tracer
 
 phase-3/        Self-evolution
-  tapas.py              Quality scoring + sutra promotion; 2-retry backoff; tapas_skipped event
+  tapas.py                Quality scoring + sutra promotion
 
-phase-4/        Frontend
+phase-4/        Frontend (React 18 · Vite 6 · Tailwind 4 · PWA)
   frontend/src/
-    hooks/useAvatara.ts            SSE state machine; clearSession(); bounded stepEvents
-    lib/avatara-constants.ts       Single source of truth — AVATAR_COLOURS, AVATAR_RGB, DEVA
-    lib/format-time.ts             Canonical relativeTime() utility
-    components/ChatPanel.tsx       Conversation interface + clear button
-    components/AwarenessBar.tsx    72 px right strip — pills + token counter (Phase 13)
-    components/DarshanDashboard.tsx 5-tab full-screen drawer (Phase 13)
-    components/DarshanPanel.tsx    Live four-agent call graph
-    components/SutraPanel.tsx      Learned patterns — revert confirmation + bulk accept
-    components/KarmaSheet.tsx      Audit trail sheet
-    components/KanbanBoardView.tsx 4-column Kanban board (Phase 13)
-    components/OpsView.tsx         Andon + 5S + DMAIC ops panel (Phase 13)
-    components/ParashuramTerminal.tsx Dev terminal overlay
+    hooks/useAvatara.ts             SSE state machine
+    lib/agent-contracts.ts          Avatar identity from contracts/agent-contracts.json
+    components/ChatPanel.tsx        Conversation surface + suggestion chips
+    components/AwarenessBar.tsx     Right-edge presence rail (Devanagari initials, Mahati strings)
+    components/MahatiLogo.tsx       The veena — four strings, plucked by the active avatāra
+    components/NaradDashboard.tsx   Tabbed drawer: Darshan · Karma · Smriti · DivyaDrishti · Tapasya · Gurukul · Kunji
+    components/GurukulTab.tsx       Teaching chamber — syllabus tree, lesson canvas, artifacts
+    components/KunjiTab.tsx         Connections — paste-a-key, provider cards, subscriptions
 
 phase-5/        Sutra engine · Karma log
-  sutra_engine.py       Sutra lifecycle (pending → active → reverted); injection sanitization
-  karma_log.py          Append-only mutation audit trail
+  sutra_engine.py         Sutra lifecycle (pending → active → reverted)
+  karma_log.py            Append-only mutation audit trail
 
 phase-6/        Sankalpa engine
-  sankalpa.py           Per-user style and intent modeling
+  sankalpa.py             Per-user style and intent modeling
 
 phase-7/        Code executor · Media generation
-  executor.py           Sandboxed Python subprocess runner
-  skills/
-    video_skill.py      create_video() — moviepy + Pillow (fallback after Veo)
+  executor.py             AST-analyzed, env-scrubbed, time/output-capped Python runner
+  skills/video_skill.py   create_video() — moviepy + Pillow
 
 phase-8/        Tier 1 skills (all core domains fully tooled)
   local_skill.py        scan_directory, move_to_trash, organize_by_type (Matsya/Parashurama support)
@@ -106,49 +114,65 @@ phase-8/        Tier 1 skills (all core domains fully tooled)
   finance_skill.py      import_csv, sync_gmail, budgets, goals, get_spend_patterns (Rama discipline)
   health_skill.py       log_symptom, set_medication_reminder, get_health_log (Rama/Krishna discipline)
 
-phase-9/        Project system · Smriti v2
-  scribe.py             Post-session wiki compiler
-  smriti_v2.py          Project-scoped Markdown wiki + get_project_context()
+phase-9/        Project system · Smriti v2 · skills · tests
+  scribe.py               Post-session wiki compiler
+  smriti_v2.py            Project-scoped Markdown wiki + get_project_context()
 
-narad_config.py         Canonical path constants (NARAD_HOME, TRACE_DIR, ARTIFACTS_DIR, CONFIG_DIR)
+contracts/agent-contracts.json   Single source of truth: 4 canonical agents, UI colors, tools
+benchmarks/                      Golden-task baselines + security re-test snapshots
+evals/golden_tasks.json          48+ structural CI checks (incl. guru group)
 ```
 
 Historical spikes (phase-0a routing eval, phase-0b ADK+SSE PoC) live on the `archive/spikes` branch.
 
 ---
 
-## Quick start (backend)
+## Quick start
+
+Requires Python ≥ 3.11 and Node ≥ 20.
 
 ```bash
-# From repo root
-python3.12 -m venv .venv
-.venv/bin/pip install -r phase-1/requirements.txt \
-                      -r phase-2/requirements.txt \
-                      -r phase-3/requirements.txt
+# From repo root — one install, one command
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e .
 
-# Required env vars (minimum)
-export GEMINI_API_KEY=...          # Smriti embeddings + Veo video
-export DEEPSEEK_API_KEY=sk-...     # router + avatāras + Tapas judge
+# Keys: EITHER paste them in the UI (Dashboard → Kunji tab — stored in your
+# OS keychain, live-tested) OR export the old way:
+export DEEPSEEK_API_KEY=dsk-...    # router + avatāras + Tapas judge
+export GEMINI_API_KEY=AIza...      # Smriti embeddings + media
+export TAVILY_API_KEY=tvly-...     # optional: Matsya web search
 
-# Optional (unlock full feature set)
-export TAVILY_API_KEY=tvly-...     # Matsya web search
-export OPENAI_API_KEY=sk-...       # Smriti fallback embeddings
-export EMAIL_ADDRESS=you@gmail.com
-export EMAIL_APP_PASSWORD=xxxx
-export CALDAV_URL=https://...
-
-cd phase-1 && ../.venv/bin/python3.12 -m uvicorn server:app --host 127.0.0.1 --port 8000
+narad-server                        # → http://127.0.0.1:8000
 ```
 
-Binds to loopback by default. For phone access, pair with `tailscale serve` (see AUDIT-AND-ROADMAP.md §7) rather than binding 0.0.0.0 — auth outside localhost requires `NARAD_AUTH=strict` + bearer token.
-
-## Quick start (frontend)
+The server serves the built frontend itself (one origin, no CORS). Build it once:
 
 ```bash
-cd phase-4/frontend
-npm install
-npm run dev        # → http://localhost:5173
+cd phase-4/frontend && npm ci && npm run build   # → dist/, auto-served by narad-server
+npm run dev                                       # or: live-reload dev mode on :5173
 ```
+
+### Security defaults
+
+- Binds `127.0.0.1` — nothing is exposed to the network unless you rebind.
+- Bearer token auto-generated at `~/.narad/config/api_token` (chmod 600). `NARAD_AUTH=local` (default) trusts loopback; `strict` requires the token on every request; `off` is for tests.
+- Dharma gates: executor runs, email send, and browser form-fill are policy-gated and fail closed; every decision lands in the Karma log.
+- Executor sandbox: AST import/call analysis, env scrubbed to an allowlist (no API keys cross), wall-clock and output caps.
+
+## From your phone
+
+The frontend is a PWA (installable, portrait, standalone) and the server is transport-agnostic. The supported phone path keeps the loopback bind:
+
+```bash
+# On the machine running narad-server (Mac/Linux), with Tailscale installed:
+tailscale serve --bg 8000
+```
+
+Then on your phone (same tailnet): open `https://<machine>.<tailnet>.ts.net` → everything works because `tailscale serve` proxies via loopback (passes `NARAD_AUTH=local`) and gives you real HTTPS. Add to Home Screen → Narad runs as a standalone app: chat with Narad, watch the avatāras pluck, open Gurukul lessons, manage keys in Kunji.
+
+Push notifications (reminders, due reviews, budget warnings) ride ntfy: install the ntfy app, subscribe to your topic, and set `NTFY_URL` + `NTFY_TOPIC` on the server. Vahana delivers to both the in-app inbox and your phone.
+
+Avoid `--host 0.0.0.0` on untrusted networks; if you must rebind, run `NARAD_AUTH=strict` so every request needs the bearer token.
 
 ---
 
@@ -172,7 +196,7 @@ npm run dev        # → http://localhost:5173
 | 12 | AssetOpsBench integration, typed traces, Markov spend patterns, health anomaly detection | ✅ Done |
 | 13 | Six Sigma quality layer — Kanban, Andon, 5S, DMAIC + Darshan Dashboard overhaul | ✅ Done |
 | 14 | Notion sync bridge | ❌ Cut (M0, 2026-07-04 — one-way stub, silent failures) |
-| 15 | Electron desktop packaging — local Gemma 4 E4B, offline-first, signed installer | 🔨 Next |
+| 15 | Desktop packaging (Tauri) — local Gemma 4 brain, offline-first, signed installer | 🔨 Next (O1/O2 in GURU-AND-ONBOARDING-PLAN.md) |
 
 ---
 
