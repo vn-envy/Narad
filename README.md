@@ -149,6 +149,8 @@ Historical spikes (phase-0a routing eval, phase-0b ADK+SSE PoC) live on the `arc
 
 Requires **Python ≥ 3.11**, **Node ≥ 20**, and git. Tested on macOS (Apple Silicon) and Linux.
 
+**No-terminal path (macOS):** double-click **`Start Narad.command`** in the repo folder. First run installs everything (venv + frontend build, a few minutes); after that it starts in seconds and opens your browser at http://127.0.0.1:8000 automatically. Close the window to stop. Or do it by hand:
+
 **1. Clone and install the backend**
 
 ```bash
