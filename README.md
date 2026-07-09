@@ -39,8 +39,7 @@ User → Narad (supervisor) → 1–3 avatāras (specialists)
         Sankalpa (style)       Karma (audit)
 ```
 
-Full design documents: [Narad-Plan/](../Narad-Plan/)  
-Full technical architecture: [ARCHITECTURE.md](./ARCHITECTURE.md)
+Full technical architecture: [ARCHITECTURE.md](./ARCHITECTURE.md) · Manual test plan: [docs/MANUAL_TESTPLAN_2026-07-09.md](./docs/MANUAL_TESTPLAN_2026-07-09.md)
 
 ---
 
@@ -127,41 +126,58 @@ Historical spikes (phase-0a routing eval, phase-0b ADK+SSE PoC) live on the `arc
 
 ---
 
-## Quick start
+## Setup
 
-Requires Python ≥ 3.11 and Node ≥ 20.
+Requires **Python ≥ 3.11**, **Node ≥ 20**, and git. Tested on macOS (Apple Silicon) and Linux.
+
+**1. Clone and install the backend**
 
 ```bash
-# From repo root — one install, one command
+git clone https://github.com/vn-envy/Narad.git && cd Narad
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
+```
 
-# Keys: EITHER paste them in the UI (Dashboard → Kunji tab — stored in your
-# OS keychain, live-tested) OR export the old way:
+**2. Build the frontend** (once — the server serves it itself, one origin, no CORS)
+
+```bash
+cd phase-4/frontend && npm ci && npm run build && cd ../..
+```
+
+**3. Run**
+
+```bash
+narad-server
+```
+
+Open http://127.0.0.1:8000.
+
+**4. Add keys** — paste them in the UI (Dashboard → **Kunji** tab; stored in your OS keychain, live-tested), or export the old way:
+
+```bash
 export DEEPSEEK_API_KEY=dsk-...    # router + avatāras + Tapas judge
 export GEMINI_API_KEY=AIza...      # Smriti embeddings + media
 export TAVILY_API_KEY=tvly-...     # optional: Matsya web search
-
-narad-server                        # → http://127.0.0.1:8000
 ```
+
+The server starts with zero keys and degrades honestly — the UI shows exactly which capabilities are live.
+
+For development, `npm run dev` in `phase-4/frontend` gives live reload on :5173.
 
 ### Voice (optional, fully local)
 
-Narad talks and listens without any cloud key. One extra install:
+Narad talks and listens without any cloud key:
 
 ```bash
-pip install -e ".[voice]"
-brew install espeak-ng ffmpeg
+pip install -e ".[voice]"          # Kokoro-82M TTS (CPU-fast) + faster-whisper STT
+brew install espeak-ng ffmpeg      # macOS; on Linux: apt install espeak-ng ffmpeg
 ```
 
-`[voice]` gives Kokoro-82M TTS (CPU-fast) + faster-whisper STT; `[voice-pro]` adds VoxCPM (GPU/Apple Silicon — higher quality, Hindi, voice cloning). Models download on first use. Click **voice** in the chat header for hands-free mode: speak, Narad answers aloud in the avatar's voice; talk over it to interrupt; toggle हिन्दी for Hindi output. Engine resolution is automatic (VoxCPM → Kokoro → Sarvam-if-key); check `GET /voice/status`. With nothing installed, voice input falls back to browser speech recognition and voice output uses Sarvam only if `SARVAM_API_KEY` is set. Tuning: `NARAD_WHISPER_MODEL` (tiny/base/small/medium), `NARAD_TTS_ENGINE` (auto/kokoro/voxcpm/sarvam), `NARAD_VOXCPM_MODEL`, `NARAD_VOICE_REF_DIR` (per-avatar `<avatar>.wav` + `.txt` for cloning).
+`[voice-pro]` instead adds VoxCPM (GPU/Apple Silicon — higher quality, Hindi, zero-shot voice cloning). Models download on first use (~800MB one time).
 
-The server serves the built frontend itself (one origin, no CORS). Build it once:
+Click **voice** in the chat header for hands-free mode: speak, Narad answers aloud in the avatar's voice; talk over it to interrupt; toggle हिन्दी for Hindi output. Engine resolution is automatic (VoxCPM → Kokoro → Sarvam cloud only if `SARVAM_API_KEY` is set — zero API credits by default); check `GET /voice/status`. With nothing installed, voice input falls back to browser speech recognition.
 
-```bash
-cd phase-4/frontend && npm ci && npm run build   # → dist/, auto-served by narad-server
-npm run dev                                       # or: live-reload dev mode on :5173
-```
+Tuning env vars: `NARAD_WHISPER_MODEL` (tiny/base/small/medium), `NARAD_TTS_ENGINE` (auto/kokoro/voxcpm/sarvam), `NARAD_VOXCPM_MODEL`, `NARAD_VOICE_REF_DIR` (per-avatar `<avatar>.wav` + `.txt` reference for cloning).
 
 ### Security defaults
 
