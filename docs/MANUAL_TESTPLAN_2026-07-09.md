@@ -12,13 +12,18 @@ phone: screenshot + the server terminal.
 
 ## 0. Setup (Mac, once)
 
+Needs Python ≥ 3.11. Run each line as-is — no trailing comments (zsh passes
+`#` and everything after it as literal arguments).
+
 ```bash
 cd <repo>
-python3 -m venv .venv && source .venv/bin/activate   # needs Python ≥ 3.11
+python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
 cd phase-4/frontend && npm ci && npm run build && cd ../..
-narad-server                                          # → http://127.0.0.1:8000
+narad-server
 ```
+
+Then open http://127.0.0.1:8000.
 
 - [ ] 0.1 `pip install -e .` completes without errors (first real ≥3.11 run — report any dependency failure)
 - [ ] 0.2 `narad-server` starts; terminal shows "Serving frontend from … dist"
@@ -81,7 +86,7 @@ Dashboard → **Gurukul** tab (after doing §3 so workspaces exist).
 
 ```bash
 TOKEN=$(cat ~/.narad/config/api_token)
-curl -s http://127.0.0.1:8000/tiers | python3 -m json.tool     # loopback: no token needed
+curl -s http://127.0.0.1:8000/tiers | python3 -m json.tool
 curl -s http://127.0.0.1:8000/costs | python3 -m json.tool
 ```
 
@@ -100,8 +105,10 @@ Prereq: Tailscale on Mac + phone, same tailnet.
 
 ```bash
 tailscale serve --bg 8000
-tailscale serve status        # shows your https://<mac>.<tailnet>.ts.net URL
+tailscale serve status
 ```
+
+`serve status` shows your `https://<mac>.<tailnet>.ts.net` URL.
 
 - [ ] 8.1 Phone browser → the ts.net URL → full Narad UI loads over HTTPS
 - [ ] 8.2 Chat works from phone: send a message, streaming + avatar pluck visible
