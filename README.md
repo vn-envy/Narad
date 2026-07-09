@@ -4,6 +4,14 @@
 
 Four canonical agents. One sage who plays them. Cloud now, local later, yours forever.
 
+![License](https://img.shields.io/badge/license-Apache--2.0-blue)
+![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)
+![Node](https://img.shields.io/badge/node-20%2B-339933?logo=node.js&logoColor=white)
+![Voice](https://img.shields.io/badge/voice-100%25%20local-e8590c)
+![Server](https://img.shields.io/badge/binds-127.0.0.1%20only-2b8a3e)
+
+![Narad — नमस्ते](docs/assets/chat.png)
+
 ---
 
 ## What this is
@@ -26,6 +34,17 @@ The Mahati now has four canonical strings in the shipped build. Narad summons th
 | Parashurama | परशुराम | Code, shell execution, SQL, automation, document output |
 
 **Narad** routes. **Smriti** remembers. **Tapas** learns. **Sankalpa** adapts. **Yantra** observes. **Karma** records. **Sutras** compound.
+
+---
+
+## A look around
+
+| | |
+|---|---|
+| ![Darshan dashboard](docs/assets/dashboard.png) | ![Gurukul teaching chamber](docs/assets/gurukul.png) |
+| **Darshan** — the live weave: which avatāras are awake, what was routed, token footprint | **Gurukul** — the teaching chamber: topics decomposed into atoms, climbed rung by rung |
+| ![Kunji key management](docs/assets/kunji.png) | ![Voice mode](docs/assets/voice.png) |
+| **Kunji** — paste a key once; auto-detected, live-tested, held in your OS keychain | **Voice mode** — hands-free, fully local: speak, Narad answers in the avatāra's voice |
 
 ---
 
