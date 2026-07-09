@@ -450,12 +450,12 @@ async def _bearer_auth(request, call_next):
     if _AUTH_MODE == "off" or request.method == "OPTIONS":
         return await call_next(request)
     path = request.url.path
-    # /connections/xai/oauth/callback is a browser redirect that can't carry a
-    # bearer header; it's safe — code+state are useless without the in-process
-    # PKCE verifier held by this server.
+    # /callback is the xAI OAuth browser redirect — it can't carry a bearer
+    # header; it's safe: code+state are useless without the in-process PKCE
+    # verifier held by this server.
     if (
         path == "/health"
-        or path == "/connections/xai/oauth/callback"
+        or path == "/callback"
         or path.startswith("/media/")
         or _is_public_shell_path(path)
     ):
@@ -1941,16 +1941,24 @@ async def import_env_connections():
 
 @app.post("/connections/xai/oauth/start")
 async def xai_oauth_start(request: Request):
-    """Begin the Grok sign-in: returns the authorize URL for the browser."""
+    """Begin the Grok sign-in: returns the authorize URL for the browser.
+
+    xAI's registered redirect URIs for the public Grok client are exactly
+    http://127.0.0.1:<port>/callback — host and path are fixed, only the
+    port is free. We reuse Narad's own port and serve /callback ourselves.
+    """
     import xai_oauth
     host = request.headers.get("host", "127.0.0.1:8000")
-    redirect_uri = f"http://{host}/connections/xai/oauth/callback"
+    port = host.rsplit(":", 1)[1] if ":" in host else "8000"
+    redirect_uri = f"http://127.0.0.1:{port}/callback"
     return {"ok": True, **xai_oauth.start_login(redirect_uri)}
 
 
-@app.get("/connections/xai/oauth/callback")
+@app.get("/callback")
 async def xai_oauth_callback(code: str = "", state: str = "", error: str = ""):
-    """Loopback redirect target — exchanges the code, then tells the user to close the tab."""
+    """xAI loopback redirect target — must be exactly /callback to match the
+    client's registered redirect URIs. Exchanges the code, then tells the
+    user to close the tab."""
     from fastapi.responses import HTMLResponse
 
     import xai_oauth

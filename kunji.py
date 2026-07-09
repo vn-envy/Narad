@@ -299,7 +299,7 @@ def _test_smallest_key(key: str) -> tuple[bool, str]:
         import httpx
 
         resp = httpx.get(
-            "https://waves-api.smallest.ai/api/v1/lightning-v2/get_voices",
+            "https://api.smallest.ai/waves/v1/lightning-v3.1/get_voices",
             headers={"Authorization": f"Bearer {key}"},
             timeout=15,
         )

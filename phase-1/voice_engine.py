@@ -50,14 +50,16 @@ _KOKORO_LANG_CODE = {"en": "a", "hi": "h"}  # kokoro pipeline lang codes
 # the first unused catalog voice so avatars always stay distinct.
 SMALLEST_VOICES: dict[str, str] = {
     "krishna":     "magnus",
-    "rama":        "aarush",
+    "rama":        "aarav",
     "parashurama": "james",
     "hanuman":     "arnav",
     "narad":       "raghav",
 }
-_SMALLEST_MODEL = os.environ.get("NARAD_SMALLEST_MODEL", "lightning-v3.1")
-_SMALLEST_BASE = "https://waves-api.smallest.ai/api/v1"
-_SMALLEST_CHUNK_CHARS = 240  # per-request text limit is ~250 chars
+# Unified TTS route (the old /waves/v1/lightning-v3.1/get_speech URLs were
+# retired 2026-07-14 and now return HTTP 410). Model is a body field.
+_SMALLEST_MODEL = os.environ.get("NARAD_SMALLEST_MODEL", "lightning_v3.1")
+_SMALLEST_BASE = "https://api.smallest.ai/waves/v1"
+_SMALLEST_CHUNK_CHARS = 240  # conservative per-request text size
 _SMALLEST_SAMPLE_RATE = 24_000
 
 # Optional per-avatar reference audio for VoxCPM zero-shot cloning:
@@ -184,8 +186,10 @@ class VoiceEngine:
         try:
             import httpx
 
+            # Catalog path uses the hyphenated model id (body field uses underscores).
+            catalog_model = _SMALLEST_MODEL.replace("_", "-", 1) if _SMALLEST_MODEL.startswith("lightning_") else _SMALLEST_MODEL
             resp = httpx.get(
-                f"{_SMALLEST_BASE}/{_SMALLEST_MODEL}/get_voices",
+                f"{_SMALLEST_BASE}/{catalog_model}/get_voices",
                 headers={"Authorization": f"Bearer {os.environ['SMALLEST_API_KEY'].strip()}"},
                 timeout=15,
             )
@@ -251,16 +255,19 @@ class VoiceEngine:
         with httpx.Client(timeout=30) as client:
             for chunk in self._chunk_text(text, _SMALLEST_CHUNK_CHARS):
                 resp = client.post(
-                    f"{_SMALLEST_BASE}/{_SMALLEST_MODEL}/get_speech",
+                    f"{_SMALLEST_BASE}/tts",
                     headers={
                         "Authorization": f"Bearer {key}",
                         "Content-Type": "application/json",
+                        "Accept": "audio/wav",  # required — omitting it can return empty audio
                     },
                     json={
                         "text": chunk,
                         "voice_id": voice,
+                        "model": _SMALLEST_MODEL,
                         "sample_rate": _SMALLEST_SAMPLE_RATE,
                         "output_format": "wav",
+                        "language": "hi" if lang == "hi" else "en",
                     },
                 )
                 resp.raise_for_status()
