@@ -16,17 +16,21 @@ import narad_paths  # noqa: F401  — registers all phase dirs; must precede pha
 # isort: split
 
 
+_RELOADED_MODULES = [
+    "narad_config",
+    "conversation_memory",
+    "dharma",
+    "smriti_core",
+    "swapna",
+]
+
+
 class CulturalCoreTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
+        self._prev_home = os.environ.get("NARAD_HOME")
         os.environ["NARAD_HOME"] = self.tmp.name
-        for name in [
-            "narad_config",
-            "conversation_memory",
-            "dharma",
-            "smriti_core",
-            "swapna",
-        ]:
+        for name in _RELOADED_MODULES:
             sys.modules.pop(name, None)
         import conversation_memory  # noqa: WPS433
         import dharma  # noqa: WPS433
@@ -42,7 +46,16 @@ class CulturalCoreTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
-        os.environ.pop("NARAD_HOME", None)
+        if self._prev_home is None:
+            os.environ.pop("NARAD_HOME", None)
+        else:
+            os.environ["NARAD_HOME"] = self._prev_home
+        # Un-pollute sys.modules: the reloads above bound these modules to the
+        # (now deleted) temp home; leaving them cached poisons later suites in
+        # the same pytest process (e.g. the phase-7 executor's lazy dharma
+        # import would read policy from a nonexistent dir → fail-closed block).
+        for name in _RELOADED_MODULES:
+            sys.modules.pop(name, None)
 
     def test_capture_episode_writes_canonical_episode_and_commitments(self) -> None:
         result = self.smriti_core.capture_episode(

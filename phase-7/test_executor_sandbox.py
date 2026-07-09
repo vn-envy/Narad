@@ -24,6 +24,14 @@ sys.path[:0] = [str(_r)]  # narad root hop
 import narad_paths  # noqa: F401  — registers all phase dirs; must precede phase imports
 
 # isort: split
+# Pytest imports every test module at collection before running any test, so an
+# earlier-collected suite may already have imported narad_config under a
+# different NARAD_HOME. Pop the chain so everything below re-binds to
+# _TEST_HOME — otherwise this module's DHARMA_POLICY_PATH and the dharma module
+# the executor lazily imports would point at different homes.
+for _name in ("executor", "dharma", "narad_config"):
+    sys.modules.pop(_name, None)
+
 from executor import _check_safety, execute_code  # noqa: E402
 
 from narad_config import DHARMA_POLICY_PATH  # noqa: E402

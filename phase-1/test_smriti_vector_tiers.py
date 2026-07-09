@@ -15,19 +15,23 @@ import narad_paths  # noqa: F401  — registers all phase dirs; must precede pha
 # isort: split
 
 
+_RELOADED_MODULES = [
+    "narad_config",
+    "smriti_core",
+    "smriti_indexer",
+    "smriti_recall_ranker",
+    "smriti_vector_store",
+    "smriti_v2",
+    "turbovec_policy",
+]
+
+
 class SmritiVectorTierTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
+        self._prev_home = os.environ.get("NARAD_HOME")
         os.environ["NARAD_HOME"] = self.tmp.name
-        for name in [
-            "narad_config",
-            "smriti_core",
-            "smriti_indexer",
-            "smriti_recall_ranker",
-            "smriti_vector_store",
-            "smriti_v2",
-            "turbovec_policy",
-        ]:
+        for name in _RELOADED_MODULES:
             sys.modules.pop(name, None)
         import smriti_v2  # noqa: WPS433
 
@@ -42,7 +46,16 @@ class SmritiVectorTierTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
-        os.environ.pop("NARAD_HOME", None)
+        if self._prev_home is None:
+            os.environ.pop("NARAD_HOME", None)
+        else:
+            os.environ["NARAD_HOME"] = self._prev_home
+        # Un-pollute sys.modules: the reloads above bound these modules to the
+        # (now deleted) temp home; leaving them cached poisons later suites in
+        # the same pytest process (e.g. the phase-7 executor's lazy dharma
+        # import would read policy from a nonexistent dir → fail-closed block).
+        for name in _RELOADED_MODULES:
+            sys.modules.pop(name, None)
 
     def test_semantic_memory_uses_vector_tier_with_exact_reread(self) -> None:
         self.smriti_core.capture_episode(
