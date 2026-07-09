@@ -21,9 +21,10 @@ import { SplitPane } from './ui/split-pane'
 import { KarmaWorkspaceTab } from './KarmaWorkspaceTab'
 import { TapasyaTab } from './TapasyaTab'
 import { GurukulTab } from './GurukulTab'
+import { KunjiTab } from './KunjiTab'
 import { AVATAR_ABBREV, AVATAR_COLOURS, AVATAR_NAMES, DEVA } from '@/lib/avatara-constants'
 
-type TabId = 'darshan' | 'karma' | 'smriti' | 'divyadrishti' | 'tapasya' | 'gurukul'
+type TabId = 'darshan' | 'karma' | 'smriti' | 'divyadrishti' | 'tapasya' | 'gurukul' | 'kunji'
 
 interface Props {
   open: boolean
@@ -49,6 +50,7 @@ const TABS: Array<{ id: TabId; label: string; icon: string; sanskrit: string }> 
   { id: 'divyadrishti', label: 'DivyaDrishti', icon: '◈', sanskrit: 'दिव्यदृष्टि' },
   { id: 'tapasya', label: 'Tapasya', icon: '✦', sanskrit: 'तपस्या' },
   { id: 'gurukul', label: 'Gurukul', icon: '❋', sanskrit: 'गुरुकुल' },
+  { id: 'kunji', label: 'Kunji', icon: '✧', sanskrit: 'कुंजी' },
 ]
 
 function headerSummary(tab: TabId): string {
@@ -65,6 +67,8 @@ function headerSummary(tab: TabId): string {
       return 'Tapas, Swapna, and self-evolution stay in one refinement chamber with explicit review and learning controls.'
     case 'gurukul':
       return 'The teaching chamber: topics decomposed into atoms, climbed rung by rung, with the Maharishi checking understanding as you go.'
+    case 'kunji':
+      return 'Keys and subscriptions live here: paste once, tested live, held in your system keychain — never shown again.'
   }
 }
 
@@ -82,6 +86,8 @@ function sectionRailTitle(tab: TabId): string {
       return 'Expand Tapasya visibility'
     case 'gurukul':
       return 'Expand Gurukul visibility'
+    case 'kunji':
+      return 'Expand Kunji visibility'
   }
 }
 
@@ -187,6 +193,9 @@ export function NaradDashboard({
     secondaryContent = undefined
   } else if (activeTab === 'gurukul') {
     primaryContent = <GurukulTab userId={userId} />
+    secondaryContent = undefined
+  } else if (activeTab === 'kunji') {
+    primaryContent = <KunjiTab />
     secondaryContent = undefined
   }
 
