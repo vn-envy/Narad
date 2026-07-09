@@ -385,6 +385,13 @@ try:
 except Exception as _tts_err:
     logging.getLogger("narad.server").warning("TTS router unavailable: %s", _tts_err)
 
+# ── Voice (local-first STT + tiered TTS) ─────────────────────────────────────
+try:
+    from voice_api import voice_router
+    app.include_router(voice_router)
+except Exception as _voice_err:
+    logging.getLogger("narad.server").warning("Voice router unavailable: %s", _voice_err)
+
 # ── Security floor: bearer auth + pinned CORS ─────────────────────────────────
 #
 # Auth modes (NARAD_AUTH env):

@@ -5,7 +5,7 @@ import type { TTSAvatar } from '../hooks/useTTS'
 import { MahatiLogo } from './MahatiLogo'
 import { ZigzagBank } from './Motifs'
 import { cn } from '@/lib/utils'
-import { Pencil, RotateCcw, Square, Copy, Check, Volume2, VolumeX, Loader, Paperclip, X } from 'lucide-react'
+import { Pencil, RotateCcw, Square, Copy, Check, Volume2, VolumeX, Loader, Paperclip, X, Mic } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { AVATAR_COLOURS, AVATAR_RGB, DEVA, isAvatarName } from '@/lib/avatara-constants'
@@ -277,6 +277,7 @@ interface Props {
   onSend: (query: string, images?: string[]) => void
   stop: () => void
   onClear?: () => void
+  onOpenVoice?: () => void
   activeArtifact?: ActiveArtifactSession | null
   onCloseArtifact?: () => void
 }
@@ -289,6 +290,7 @@ export function ChatPanel({
   onSend,
   stop,
   onClear,
+  onOpenVoice,
   activeArtifact,
   onCloseArtifact,
 }: Props) {
@@ -408,11 +410,22 @@ export function ChatPanel({
             नारद  अवतारा
           </span>
         </div>
+        {onOpenVoice && (
+          <button
+            onClick={onOpenVoice}
+            title="Voice mode — talk to Narad"
+            className="ml-auto z-10 flex items-center gap-1 px-2 py-1 rounded text-[11px] transition-opacity opacity-50 hover:opacity-100"
+            style={{ color: 'rgba(252,250,242,0.7)', background: 'rgba(252,250,242,0.08)', border: '1px solid rgba(252,250,242,0.15)' }}
+          >
+            <Mic size={12} />
+            voice
+          </button>
+        )}
         {onClear && messages.length > 0 && (
           <button
             onClick={onClear}
             title="Clear conversation"
-            className="ml-auto z-10 flex items-center gap-1 px-2 py-1 rounded text-[11px] transition-opacity opacity-50 hover:opacity-100"
+            className={`${onOpenVoice ? '' : 'ml-auto '}z-10 flex items-center gap-1 px-2 py-1 rounded text-[11px] transition-opacity opacity-50 hover:opacity-100`}
             style={{ color: 'rgba(252,250,242,0.7)', background: 'rgba(252,250,242,0.08)', border: '1px solid rgba(252,250,242,0.15)' }}
           >
             <RotateCcw size={12} />

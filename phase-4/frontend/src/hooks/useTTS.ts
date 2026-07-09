@@ -7,7 +7,7 @@ export const VOICE_AVATARS: TTSAvatar[] = ['Krishna', 'Rama', 'Parashurama']
 
 export type TTSState = 'idle' | 'loading' | 'playing' | 'error'
 
-function prepareText(raw: string): string {
+export function prepareText(raw: string): string {
   return raw
     .replace(/```[\s\S]*?```/g, '')
     .replace(/`[^`\n]+`/g, '')

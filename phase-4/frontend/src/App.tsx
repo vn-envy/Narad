@@ -19,6 +19,11 @@ const ToolWorkspacePanel = lazy(async () => {
   return { default: mod.ToolWorkspacePanel }
 })
 
+const VoiceMode = lazy(async () => {
+  const mod = await import('./components/VoiceMode')
+  return { default: mod.VoiceMode }
+})
+
 const USER_ID = 'default'
 
 export default function App() {
@@ -31,6 +36,7 @@ export default function App() {
   } = useAvatara(USER_ID)
 
   const [darshanOpen, setDarshanOpen] = useState(false)
+  const [voiceOpen, setVoiceOpen] = useState(false)
   const [capabilities, setCapabilities] = useState<RuntimeCapabilities | null>(null)
   const isMobile = useIsMobile()
 
@@ -82,6 +88,7 @@ export default function App() {
             onSend={send}
             stop={stop}
             onClear={clearSession}
+            onOpenVoice={() => setVoiceOpen(true)}
             activeArtifact={activeArtifactSession}
             onCloseArtifact={clearArtifact}
           />
@@ -147,6 +154,19 @@ export default function App() {
         capabilities={capabilities}
         onResumeSession={resumeSession}
       />
+
+      {/* Voice mode — hands-free voice-first overlay */}
+      {voiceOpen && (
+        <Suspense fallback={null}>
+          <VoiceMode
+            open={voiceOpen}
+            onClose={() => setVoiceOpen(false)}
+            messages={messages}
+            streaming={streaming}
+            onSend={send}
+          />
+        </Suspense>
+      )}
 
       <Toaster />
     </TooltipProvider>
