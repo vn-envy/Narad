@@ -17,12 +17,21 @@ from typing import Any
 
 from narad_config import LEARNING_DIR
 
+# Order matters for extract_learning_topic: longer prefixes first so the
+# stripped topic doesn't keep filler words ("on", "me").
 _TEACH_PATTERNS = (
     r"^teach me\b",
+    r"^can you teach me\b",
+    r"^can you teach\b",
+    r"^i want to learn\b",
+    r"^help me learn\b",
+    r"^walk me through\b",
+    r"^i'?m studying\b",
     r"^explain\b",
     r"^help me understand\b",
     r"^i don't understand\b",
     r"^quiz me on\b",
+    r"^quiz me\b",
     r"^help me study\b",
     r"^what is\b",
     r"^how does\b",
@@ -763,7 +772,44 @@ def suggest_glossary_entries(topic: str, explanation: str) -> dict[str, str]:
     return entries
 
 
-def build_workspace_packet(*, user_id: str, workspace_id: str, max_records: int = 3, max_chars: int = 2800) -> str:
+def _syllabus_packet_lines(user_id: str, workspace_id: str) -> list[str]:
+    """SYLLABUS PROGRESS + CURRENT TEACHING ATOM sections for the packet (G6.1).
+
+    Lazy guru_engine import; returns [] on any failure so the packet always builds.
+    """
+    try:
+        from guru_engine import frontier_atom, load_learner_state, load_syllabus, mastery_summary
+        syllabus = load_syllabus(user_id=user_id, workspace_id=workspace_id)
+        if not syllabus:
+            return []
+        state = load_learner_state(user_id=user_id, workspace_id=workspace_id)
+        counts = mastery_summary(syllabus, state)
+        lines = [
+            f"SYLLABUS PROGRESS: {counts['mastered']}/{counts['total']} atoms mastered"
+            + (f", {counts['shaky']} shaky" if counts["shaky"] else ""),
+            "",
+        ]
+        atom = frontier_atom(syllabus, state)
+        if atom is None:
+            lines.append("CURRENT TEACHING ATOM: (all atoms mastered — offer review or a harder angle)")
+            lines.append("")
+            return lines
+        status = str((state.get(str(atom.get("id", ""))) or {}).get("status", "untaught"))
+        check = atom.get("check") or {}
+        lines += [
+            f"CURRENT TEACHING ATOM: {atom.get('name', atom.get('id', ''))} [{atom.get('id', '')}] (status: {status})",
+            f"- Analogy: {str(atom.get('eli5', '')).strip()[:300]}",
+            f"- Plain: {str(atom.get('plain', '')).strip()[:300]}",
+            f"- Misconception to preempt: {str(atom.get('misconception', '')).strip()[:240]}",
+            f"- Check question to ask: {str(check.get('q', '')).strip()[:200]}",
+            "",
+        ]
+        return lines
+    except Exception:
+        return []
+
+
+def build_workspace_packet(*, user_id: str, workspace_id: str, max_records: int = 3, max_chars: int = 4500) -> str:
     workspace = load_workspace(user_id=user_id, workspace_id=workspace_id)
     if not workspace:
         return ""
@@ -774,6 +820,7 @@ def build_workspace_packet(*, user_id: str, workspace_id: str, max_records: int 
         workspace["mission"][:800].strip(),
         "",
     ]
+    lines += _syllabus_packet_lines(user_id, workspace_id)
     glossary = _parse_glossary_lines(workspace["glossary"])
     if glossary:
         lines.append("GLOSSARY:")

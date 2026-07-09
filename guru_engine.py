@@ -449,6 +449,53 @@ def grade_check_answer(
     return grade
 
 
+def frontier_atom(
+    syllabus: dict[str, Any] | None,
+    learner_state: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """First non-mastered atom whose prerequisites are all mastered (G6.1).
+
+    Atoms are already prerequisite-ordered by generation; walk in order and
+    return the first teachable atom. Returns None if everything is mastered
+    or the syllabus is missing/empty.
+    """
+    atoms = (syllabus or {}).get("atoms") or []
+    state = learner_state or {}
+
+    def _status(atom_id: str) -> str:
+        return str((state.get(atom_id) or {}).get("status", "untaught"))
+
+    for atom in atoms:
+        if not isinstance(atom, dict):
+            continue
+        atom_id = str(atom.get("id", ""))
+        if not atom_id or _status(atom_id) == "mastered":
+            continue
+        prereqs = [str(p) for p in (atom.get("prerequisites") or [])]
+        if all(_status(p) == "mastered" for p in prereqs):
+            return atom
+    return None
+
+
+def mastery_summary(
+    syllabus: dict[str, Any] | None,
+    learner_state: dict[str, Any] | None,
+) -> dict[str, int]:
+    """Counts for the packet's SYLLABUS PROGRESS line: total/mastered/shaky."""
+    atoms = (syllabus or {}).get("atoms") or []
+    state = learner_state or {}
+    counts = {"total": len(atoms), "mastered": 0, "shaky": 0}
+    for atom in atoms:
+        if not isinstance(atom, dict):
+            continue
+        status = str((state.get(str(atom.get("id", ""))) or {}).get("status", "untaught"))
+        if status == "mastered":
+            counts["mastered"] += 1
+        elif status == "shaky":
+            counts["shaky"] += 1
+    return counts
+
+
 def due_reviews(*, user_id: str, workspace_id: str) -> list[str]:
     """Atom ids whose next_review is in the past (for G5 scheduler integration)."""
     state = load_learner_state(user_id=user_id, workspace_id=workspace_id)
