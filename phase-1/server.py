@@ -191,7 +191,7 @@ def _json_loads_tolerant(s, /, *args, **kwargs):
 json.loads = _json_loads_tolerant
 # ─────────────────────────────────────────────────────────────────────────────
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -450,7 +450,15 @@ async def _bearer_auth(request, call_next):
     if _AUTH_MODE == "off" or request.method == "OPTIONS":
         return await call_next(request)
     path = request.url.path
-    if path == "/health" or path.startswith("/media/") or _is_public_shell_path(path):
+    # /connections/xai/oauth/callback is a browser redirect that can't carry a
+    # bearer header; it's safe — code+state are useless without the in-process
+    # PKCE verifier held by this server.
+    if (
+        path == "/health"
+        or path == "/connections/xai/oauth/callback"
+        or path.startswith("/media/")
+        or _is_public_shell_path(path)
+    ):
         return await call_next(request)
     client_host = request.client.host if request.client else ""
     if _AUTH_MODE == "local" and client_host in _LOCAL_CLIENTS:
@@ -490,6 +498,11 @@ async def _startup_runtime_contract() -> None:
     try:  # Kunji (O5): stored keys → env before providers are probed; .env always wins
         from kunji import apply_keys_to_env
         apply_keys_to_env()
+    except Exception:
+        pass
+    try:  # xAI OAuth: stored Grok token → XAI_API_KEY; a real env var always wins
+        import xai_oauth
+        xai_oauth.apply_to_env()
     except Exception:
         pass
     app.state.runtime_contract = collect_runtime_contract()
@@ -1922,6 +1935,50 @@ async def import_env_connections():
     """One-time .env → keychain migration (explicit, never silent)."""
     from kunji import import_env_keys
     return {"ok": True, "imported": import_env_keys()}
+
+
+# ── xAI OAuth (Grok via SuperGrok / X Premium+) ───────────────────────────────
+
+@app.post("/connections/xai/oauth/start")
+async def xai_oauth_start(request: Request):
+    """Begin the Grok sign-in: returns the authorize URL for the browser."""
+    import xai_oauth
+    host = request.headers.get("host", "127.0.0.1:8000")
+    redirect_uri = f"http://{host}/connections/xai/oauth/callback"
+    return {"ok": True, **xai_oauth.start_login(redirect_uri)}
+
+
+@app.get("/connections/xai/oauth/callback")
+async def xai_oauth_callback(code: str = "", state: str = "", error: str = ""):
+    """Loopback redirect target — exchanges the code, then tells the user to close the tab."""
+    from fastapi.responses import HTMLResponse
+
+    import xai_oauth
+    if error or not code:
+        body = f"<h2>Grok sign-in failed</h2><p>{error or 'no authorization code returned'}</p>"
+        return HTMLResponse(body, status_code=400)
+    try:
+        xai_oauth.finish_login(code, state)
+    except (ValueError, RuntimeError) as exc:
+        return HTMLResponse(f"<h2>Grok sign-in failed</h2><p>{exc}</p>", status_code=400)
+    return HTMLResponse(
+        "<h2>Grok connected ✓</h2><p>You can close this tab and return to Narad.</p>"
+    )
+
+
+@app.get("/connections/xai/oauth/status")
+async def xai_oauth_status():
+    import xai_oauth
+    return xai_oauth.status()
+
+
+@app.delete("/connections/xai/oauth")
+async def xai_oauth_disconnect():
+    import xai_oauth
+    existed = xai_oauth.disconnect()
+    if not existed:
+        raise HTTPException(status_code=404, detail="no Grok session to disconnect")
+    return {"ok": True, "provider": "xai-oauth", "action": "disconnected"}
 
 
 @app.get("/karma")

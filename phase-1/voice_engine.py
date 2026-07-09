@@ -2,12 +2,15 @@
 Voice engine — tiered local-first TTS + STT for Narad.
 
 Tiers (voice out), best available wins unless NARAD_TTS_ENGINE forces one:
-  1. voxcpm  — VoxCPM (pip: voxcpm). Highest quality, zero-shot cloning,
-               needs GPU/MPS. Model id via NARAD_VOXCPM_MODEL.
-  2. kokoro  — Kokoro-82M (pip: kokoro). Tiny, CPU-fast, runs anywhere.
-               English + Hindi voices.
-  3. sarvam  — Sarvam AI cloud API. Only used when SARVAM_API_KEY is set.
-               (Handled by voice_api falling back to tts_api.)
+  1. smallest — Smallest.ai Waves cloud TTS. Preferred when SMALLEST_API_KEY
+                is connected (via Kunji). 5 distinct avatar voices, multilingual
+                (English + Hindi native). Local tiers remain as fallback.
+  2. voxcpm   — VoxCPM (pip: voxcpm). Highest local quality, zero-shot cloning,
+                needs GPU/MPS. Model id via NARAD_VOXCPM_MODEL.
+  3. kokoro   — Kokoro-82M (pip: kokoro). Tiny, CPU-fast, runs anywhere.
+                English + Hindi voices.
+  4. sarvam   — Sarvam AI cloud API. Only used when SARVAM_API_KEY is set.
+                (Handled by voice_api falling back to tts_api.)
 
 Voice in:
   faster-whisper (pip: faster-whisper), CPU int8 by default. Model size via
@@ -40,6 +43,22 @@ KOKORO_VOICES: dict[str, dict[str, str]] = {
     "narad":       {"en": "am_liam",    "hi": "hm_omega"},
 }
 _KOKORO_LANG_CODE = {"en": "a", "hi": "h"}  # kokoro pipeline lang codes
+
+# Smallest.ai Waves — 5 distinct voices, one per avatar. Override any of them
+# with NARAD_SMALLEST_VOICE_<AVATAR> (e.g. NARAD_SMALLEST_VOICE_KRISHNA=raj).
+# If a preferred id is missing from the live catalog, the engine substitutes
+# the first unused catalog voice so avatars always stay distinct.
+SMALLEST_VOICES: dict[str, str] = {
+    "krishna":     "magnus",
+    "rama":        "aarush",
+    "parashurama": "james",
+    "hanuman":     "arnav",
+    "narad":       "raghav",
+}
+_SMALLEST_MODEL = os.environ.get("NARAD_SMALLEST_MODEL", "lightning-v3.1")
+_SMALLEST_BASE = "https://waves-api.smallest.ai/api/v1"
+_SMALLEST_CHUNK_CHARS = 240  # per-request text limit is ~250 chars
+_SMALLEST_SAMPLE_RATE = 24_000
 
 # Optional per-avatar reference audio for VoxCPM zero-shot cloning:
 #   $NARAD_VOICE_REF_DIR/<avatar>.wav  +  <avatar>.txt (its transcript)
@@ -79,6 +98,7 @@ class VoiceEngine:
         self._voxcpm: Any = None
         self._whisper: Any = None
         self._device: str | None = None
+        self._smallest_catalog: list[str] | None = None  # live voice ids, cached
 
     # ------------------------------------------------------------- capability
 
@@ -102,6 +122,8 @@ class VoiceEngine:
         """Available TTS engines, best first."""
         tiers: list[str] = []
         forced = os.environ.get("NARAD_TTS_ENGINE", "auto").lower()
+        if os.environ.get("SMALLEST_API_KEY", "").strip():
+            tiers.append("smallest")  # preferred when connected; locals stay as fallback
         if _has("voxcpm") and self.device() != "cpu":
             tiers.append("voxcpm")
         if _has("kokoro"):
@@ -142,6 +164,8 @@ class VoiceEngine:
             if tier == "sarvam":
                 break  # cloud fallback is handled by the API layer
             try:
+                if tier == "smallest":
+                    return self._tts_smallest(text, avatar, lang)
                 if tier == "voxcpm":
                     return self._tts_voxcpm(text, avatar)
                 if tier == "kokoro":
@@ -149,6 +173,107 @@ class VoiceEngine:
             except Exception:  # noqa: BLE001 — degrade to next tier
                 logger.exception("TTS tier %s failed; trying next", tier)
         raise RuntimeError("no local TTS engine available")
+
+    # ------------------------------------------------------- Smallest.ai Waves
+
+    def _smallest_voices_available(self) -> list[str]:
+        """Live voice-id catalog, fetched once. Empty list on any failure."""
+        if self._smallest_catalog is not None:
+            return self._smallest_catalog
+        voices: list[str] = []
+        try:
+            import httpx
+
+            resp = httpx.get(
+                f"{_SMALLEST_BASE}/{_SMALLEST_MODEL}/get_voices",
+                headers={"Authorization": f"Bearer {os.environ['SMALLEST_API_KEY'].strip()}"},
+                timeout=15,
+            )
+            if resp.status_code == 200:
+                payload = resp.json()
+                items = payload.get("voices", payload) if isinstance(payload, dict) else payload
+                if isinstance(items, list):
+                    voices = [
+                        v.get("voiceId") or v.get("voice_id") or v.get("id", "")
+                        for v in items
+                        if isinstance(v, dict)
+                    ]
+                    voices = [v for v in voices if v]
+        except Exception:  # noqa: BLE001 — catalog is a nicety, not a dependency
+            logger.exception("Smallest.ai voice catalog fetch failed")
+        self._smallest_catalog = voices
+        return voices
+
+    def _smallest_voice(self, avatar: str) -> str:
+        """env override > preferred map > first unused catalog voice. Always distinct."""
+        override = os.environ.get(f"NARAD_SMALLEST_VOICE_{avatar.upper()}", "").strip()
+        if override:
+            return override
+        preferred = SMALLEST_VOICES.get(avatar, SMALLEST_VOICES["narad"])
+        catalog = self._smallest_voices_available()
+        if not catalog or preferred in catalog:
+            return preferred
+        taken = set(SMALLEST_VOICES.values())
+        for candidate in catalog:
+            if candidate not in taken:
+                return candidate
+        return catalog[0]
+
+    @staticmethod
+    def _chunk_text(text: str, limit: int) -> list[str]:
+        """Split on sentence boundaries, hard-wrapping any oversized sentence."""
+        import re
+
+        sentences = re.split(r"(?<=[.!?।])\s+", text)
+        chunks: list[str] = []
+        current = ""
+        for sentence in sentences:
+            while len(sentence) > limit:  # pathological run-on — hard split
+                chunks.append(sentence[:limit])
+                sentence = sentence[limit:]
+            if len(current) + len(sentence) + 1 <= limit:
+                current = f"{current} {sentence}".strip()
+            else:
+                if current:
+                    chunks.append(current)
+                current = sentence
+        if current:
+            chunks.append(current)
+        return chunks or [text[:limit]]
+
+    def _tts_smallest(self, text: str, avatar: str, lang: str) -> dict[str, Any]:
+        import httpx
+        import numpy as np
+
+        key = os.environ["SMALLEST_API_KEY"].strip()
+        voice = self._smallest_voice(avatar)
+        pcm_parts: list[Any] = []
+        with httpx.Client(timeout=30) as client:
+            for chunk in self._chunk_text(text, _SMALLEST_CHUNK_CHARS):
+                resp = client.post(
+                    f"{_SMALLEST_BASE}/{_SMALLEST_MODEL}/get_speech",
+                    headers={
+                        "Authorization": f"Bearer {key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "text": chunk,
+                        "voice_id": voice,
+                        "sample_rate": _SMALLEST_SAMPLE_RATE,
+                        "output_format": "wav",
+                    },
+                )
+                resp.raise_for_status()
+                with wave.open(io.BytesIO(resp.content), "rb") as w:
+                    frames = w.readframes(w.getnframes())
+                pcm_parts.append(np.frombuffer(frames, dtype="<i2"))
+        pcm = np.concatenate(pcm_parts).astype("float32") / 32767.0
+        return {
+            "audio": _pcm_to_wav(pcm, _SMALLEST_SAMPLE_RATE),
+            "engine": "smallest",
+            "sample_rate": _SMALLEST_SAMPLE_RATE,
+            "voice": voice,
+        }
 
     def _tts_kokoro(self, text: str, avatar: str, lang: str) -> dict[str, Any]:
         import numpy as np

@@ -5,8 +5,9 @@ GET  /voice/status          → engine availability + active tiers
 POST /voice/tts   {text, avatar, lang?}   → {audio_b64, format, engine, ...}
 POST /voice/stt   multipart audio file    → {text, language, duration, engine}
 
-TTS resolves local tiers first (VoxCPM → Kokoro) and only falls back to the
-Sarvam cloud API when a key is configured — zero API credits by default.
+TTS prefers Smallest.ai Waves when a key is connected, then local tiers
+(VoxCPM → Kokoro), and only falls back to the Sarvam cloud API when a key
+is configured — zero API credits by default.
 STT uses local faster-whisper; when unavailable the frontend falls back to
 browser speech recognition.
 """
@@ -44,9 +45,10 @@ async def voice_tts(req: VoiceTTSRequest):
     if not clean:
         raise HTTPException(status_code=400, detail="Empty text")
 
-    # Local tiers first (run blocking synth off the event loop).
+    # Engine tiers first (Smallest.ai cloud when connected, then local; blocking
+    # synth runs off the event loop).
     tiers = voice_engine.tts_tiers()
-    if any(t in ("voxcpm", "kokoro") for t in tiers):
+    if any(t in ("smallest", "voxcpm", "kokoro") for t in tiers):
         try:
             out = await asyncio.to_thread(
                 voice_engine.synthesize, clean, req.avatar, req.lang

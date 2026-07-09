@@ -11,6 +11,11 @@ Per-avatar overrides via environment variables (each falls back to tier default)
 Tier aliases (used as fallbacks when per-avatar var is unset):
   DS_PRO_MODEL    — DeepSeek V4 Pro (reasoning, planning, code, analysis)
   DS_FLASH_MODEL  — DeepSeek V4 Flash (fast retrieval, prose, lighter tasks)
+  GROK_MODEL      — Grok via xAI OAuth / XAI_API_KEY (default xai/grok-4.3)
+
+Whole-brain switch: NARAD_BRAIN=grok flips all tier defaults onto Grok
+(sign in with SuperGrok / X Premium+ in Settings → Connections). Per-avatar
+vars still win, so mixed DeepSeek+Grok fleets stay one-line changes.
 
 Switching any avatar to a local model, OpenAI, or Claude is a one-line .env change.
 Example: KRISHNA_MODEL=ollama/llama3  or  KRISHNA_MODEL=claude-opus-4-7
@@ -25,13 +30,22 @@ import os
 
 DS_PRO   = os.environ.get("DS_PRO_MODEL",   "deepseek/deepseek-v4-pro")
 DS_FLASH = os.environ.get("DS_FLASH_MODEL", "deepseek/deepseek-v4-flash")
+GROK     = os.environ.get("GROK_MODEL",     "xai/grok-4.3")
+
+# NARAD_BRAIN=grok flips every tier default onto Grok (via xAI OAuth or
+# XAI_API_KEY). Per-avatar env vars still override individually — so mixed
+# fleets (e.g. Grok brain + DeepSeek Flash for retrieval) stay one-liners.
+if os.environ.get("NARAD_BRAIN", "").strip().lower() == "grok":
+    _TIER_PRO, _TIER_FLASH = GROK, GROK
+else:
+    _TIER_PRO, _TIER_FLASH = DS_PRO, DS_FLASH
 
 AVATAR_MODELS = {
-    "narad":       os.environ.get("NARAD_MODEL",       DS_FLASH),  # fast routing dispatch, not multi-turn reasoning
-    "matsya":      os.environ.get("MATSYA_MODEL",      DS_FLASH),  # retrieval, analysis, synthesis, local access
-    "rama":        os.environ.get("RAMA_MODEL",        DS_PRO),    # planning, calendar, personal data lifecycle
-    "krishna":     os.environ.get("KRISHNA_MODEL",     DS_FLASH),  # communication, creation, wellness
-    "parashurama": os.environ.get("PARASHURAMA_MODEL", DS_PRO),    # code, systems, quantitative modeling
+    "narad":       os.environ.get("NARAD_MODEL",       _TIER_FLASH),  # fast routing dispatch, not multi-turn reasoning
+    "matsya":      os.environ.get("MATSYA_MODEL",      _TIER_FLASH),  # retrieval, analysis, synthesis, local access
+    "rama":        os.environ.get("RAMA_MODEL",        _TIER_PRO),    # planning, calendar, personal data lifecycle
+    "krishna":     os.environ.get("KRISHNA_MODEL",     _TIER_FLASH),  # communication, creation, wellness
+    "parashurama": os.environ.get("PARASHURAMA_MODEL", _TIER_PRO),    # code, systems, quantitative modeling
 }
 
 
@@ -47,6 +61,8 @@ def _provider(model: str) -> str:
         return "google"
     if "deepseek" in m:
         return "deepseek"
+    if "grok" in m or "xai" in m:
+        return "xai"
     if "ollama" in m or "localhost" in m or "127.0.0.1" in m:
         return "local"
     return "unknown"
@@ -65,6 +81,7 @@ _CTX: dict[str, int] = {
     "openai":    128_000,
     "deepseek":  128_000,
     "google":  1_000_000,
+    "xai":       256_000,
     "local":      32_000,
     "unknown":    32_000,
 }

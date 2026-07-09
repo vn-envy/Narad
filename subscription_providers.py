@@ -141,19 +141,75 @@ class ClaudeAgentSDKAdapter:
         return anyio.from_thread.run(_run) if kwargs.get("_in_thread") else anyio.run(_run)
 
 
+class XaiOAuthAdapter:
+    """Grok via xAI OAuth — a SuperGrok / X Premium+ subscription sign-in.
+
+    Unlike the Claude adapter there is no SDK to install: the OAuth bearer
+    token works directly against the OpenAI-compatible api.x.ai endpoint,
+    so `installed` is always True and `signed_in` is the only real gate.
+    Models route through LiteLLM's `xai/` prefix once XAI_API_KEY is
+    exported by xai_oauth.apply_to_env().
+    """
+
+    name = "xai-oauth"
+    label = "Grok (SuperGrok / X Premium+)"
+    model_prefix = "xai/"
+    default_models = ["xai/grok-4.3"]
+
+    @staticmethod
+    def _oauth_signed_in() -> bool:
+        try:
+            import xai_oauth
+            return xai_oauth.signed_in()
+        except Exception:
+            return False
+
+    def signed_in(self) -> bool:
+        if os.environ.get("XAI_API_KEY", "").strip():
+            return True  # .env escape hatch — a real key always counts
+        return self._oauth_signed_in()
+
+    def available(self) -> bool:
+        return self.signed_in()
+
+    def status(self) -> SubscriptionStatus:
+        signed_in = self.signed_in()
+        if signed_in:
+            detail = "ready — Grok is available as an alternative brain (xai/grok-4.3)"
+        else:
+            detail = "not signed in — use Sign in with Grok (needs SuperGrok or X Premium+)"
+        return SubscriptionStatus(
+            provider=self.name,
+            label=self.label,
+            installed=True,  # no local runtime needed — pure HTTPS
+            signed_in=signed_in,
+            available=signed_in,
+            detail=detail,
+            models=self.default_models if signed_in else [],
+        )
+
+
 # ── Registry ──────────────────────────────────────────────────────────────────
 
-ADAPTERS: dict[str, ClaudeAgentSDKAdapter] = {
+ADAPTERS: dict[str, Any] = {
     ClaudeAgentSDKAdapter.name: ClaudeAgentSDKAdapter(),
+    XaiOAuthAdapter.name: XaiOAuthAdapter(),
 }
 
 
-def get_adapter(name: str) -> ClaudeAgentSDKAdapter | None:
+def get_adapter(name: str) -> Any | None:
     return ADAPTERS.get(name)
 
 
-def subscription_active() -> bool:
-    """True when any subscription adapter can actually serve completions."""
+def subscription_active(name: str | None = None) -> bool:
+    """True when a subscription adapter can actually serve completions.
+
+    Pass a name to check one provider — routing checks MUST do this, so a
+    Grok sign-in never falsely enables narad-claude-sdk models (or vice versa).
+    """
+    if name is not None:
+        adapter = ADAPTERS.get(name)
+        return bool(adapter and adapter.available())
     return any(adapter.available() for adapter in ADAPTERS.values())
 
 

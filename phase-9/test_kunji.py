@@ -214,9 +214,24 @@ class SubscriptionAdapterTests(unittest.TestCase):
 
     def test_subscriptions_payload_shape(self):
         payload = subs.subscriptions_payload()
-        self.assertEqual(len(payload), 1)
-        for field in ("provider", "label", "installed", "signed_in", "available", "detail"):
-            self.assertIn(field, payload[0])
+        self.assertEqual(len(payload), len(subs.ADAPTERS))
+        self.assertEqual(
+            {card["provider"] for card in payload}, {"claude-agent-sdk", "xai-oauth"}
+        )
+        for card in payload:
+            for field in ("provider", "label", "installed", "signed_in", "available", "detail"):
+                self.assertIn(field, card)
+
+    def test_subscription_active_is_provider_specific(self):
+        adapter = subs.get_adapter("xai-oauth")
+        with patch.object(adapter, "signed_in", return_value=True):
+            self.assertTrue(subs.subscription_active("xai-oauth"))
+            # a Grok sign-in must NOT enable the Claude adapter's routing
+            claude = subs.get_adapter("claude-agent-sdk")
+            with patch.object(claude, "_sdk_installed", return_value=False), \
+                 patch.object(claude, "_cli_auth_present", return_value=False):
+                os.environ.pop("NARAD_CLAUDE_SUBSCRIPTION", None)
+                self.assertFalse(subs.subscription_active("claude-agent-sdk"))
 
 
 class ProviderGlueTests(unittest.TestCase):

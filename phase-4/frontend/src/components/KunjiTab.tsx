@@ -45,6 +45,7 @@ const PREFIX_HINTS: Array<[string, string]> = [
   ['AIza', 'google'],
   ['dsk-', 'deepseek'],
   ['sk-', 'openai'],
+  ['eyJ', 'smallest'], // Smallest.ai keys are JWTs
 ]
 
 const INK = 'rgba(26,24,21,'
@@ -147,6 +148,53 @@ export function KunjiTab() {
         delete next[provider]
         return next
       })
+      await load()
+    } finally {
+      setBusy(null)
+    }
+  }, [load])
+
+  const signInGrok = useCallback(async () => {
+    setBusy('grok')
+    setNotice(null)
+    try {
+      const response = await apiFetch('/connections/xai/oauth/start', { method: 'POST' })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok || !data.authorize_url) {
+        setNotice('✕ could not start the Grok sign-in')
+        return
+      }
+      window.open(data.authorize_url, '_blank', 'noopener')
+      // Poll while the user finishes the flow in the other tab.
+      let remaining = 40 // ~2 minutes at 3s
+      const poll = window.setInterval(async () => {
+        remaining -= 1
+        try {
+          const statusResponse = await apiFetch('/connections/xai/oauth/status')
+          const status = await statusResponse.json().catch(() => ({}))
+          if (status.signed_in) {
+            window.clearInterval(poll)
+            setBusy(null)
+            setNotice('✓ Grok connected')
+            await load()
+            return
+          }
+        } catch { /* keep polling */ }
+        if (remaining <= 0) {
+          window.clearInterval(poll)
+          setBusy(null)
+        }
+      }, 3000)
+    } catch {
+      setNotice('✕ request failed — server unreachable')
+      setBusy(null)
+    }
+  }, [load])
+
+  const disconnectGrok = useCallback(async () => {
+    setBusy('grok:disconnect')
+    try {
+      await apiFetch('/connections/xai/oauth', { method: 'DELETE' })
       await load()
     } finally {
       setBusy(null)
@@ -374,9 +422,32 @@ export function KunjiTab() {
             </div>
             <div style={{ fontSize: 11, color: `${INK}0.55)`, marginTop: 8 }}>{sub.detail}</div>
             <div style={{ display: 'flex', gap: 12, marginTop: 8, fontSize: 10, color: `${INK}0.45)` }}>
-              <span>{sub.installed ? '✓ SDK installed' : '· SDK not installed'}</span>
+              {sub.provider !== 'xai-oauth' && (
+                <span>{sub.installed ? '✓ SDK installed' : '· SDK not installed'}</span>
+              )}
               <span>{sub.signed_in ? '✓ signed in' : '· not signed in'}</span>
             </div>
+            {sub.provider === 'xai-oauth' && (
+              <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+                {sub.signed_in ? (
+                  <button
+                    onClick={() => void disconnectGrok()}
+                    disabled={busy === 'grok:disconnect'}
+                    style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid rgba(224,90,43,0.30)', background: 'transparent', fontSize: 11, color: 'var(--sindoor)', cursor: 'pointer' }}
+                  >
+                    Disconnect
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => void signInGrok()}
+                    disabled={busy === 'grok'}
+                    style={{ padding: '6px 14px', borderRadius: 8, border: 'none', background: 'var(--sindoor)', fontSize: 11, fontWeight: 600, color: '#fcfaf2', cursor: 'pointer' }}
+                  >
+                    {busy === 'grok' ? 'waiting for sign-in…' : 'Sign in with Grok'}
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         ))}
       </div>

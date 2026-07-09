@@ -31,6 +31,7 @@ _PROVIDER_DEFAULTS: dict[str, int] = {
     "openai": 128_000,
     "deepseek": 128_000,
     "google": 1_000_000,
+    "xai": 256_000,  # grok-4.x family
     "local": 32_000,
     "narad-local": 32_000,  # bundled llama-server (S1); O2 adds per-quant overrides
     "narad-claude-sdk": 200_000,  # Claude plan credits via Agent SDK (S3)
@@ -62,6 +63,8 @@ def detect_provider(model: str) -> str:
         return "narad-claude-sdk"  # subscription plan credits (S3)
     if "deepseek" in lower:
         return "deepseek"
+    if "grok" in lower or "xai" in lower:
+        return "xai"
     if "gemini" in lower or "google" in lower:
         return "google"
     if "gpt" in lower or "openai" in lower or "o1" in lower or "o3" in lower:
@@ -83,6 +86,14 @@ def provider_available_for_model(model: str) -> bool:
         return bool(os.environ.get("OPENAI_API_KEY", "").strip())
     if provider == "anthropic":
         return bool(os.environ.get("ANTHROPIC_API_KEY", "").strip())
+    if provider == "xai":
+        if os.environ.get("XAI_API_KEY", "").strip():
+            return True  # .env escape hatch or an already-exported OAuth token
+        try:
+            from xai_oauth import get_access_token
+            return bool(get_access_token())  # auto-refreshes + exports XAI_API_KEY
+        except Exception:
+            return False
     if provider == "local":
         return bool(os.environ.get("OLLAMA_HOST", "").strip() or shutil.which("ollama"))
     if provider == "narad-local":
@@ -93,7 +104,7 @@ def provider_available_for_model(model: str) -> bool:
     if provider == "narad-claude-sdk":
         try:
             from subscription_providers import subscription_active
-            return subscription_active()
+            return subscription_active("claude-agent-sdk")
         except Exception:
             return False
     return False
@@ -143,11 +154,17 @@ def _fallback_candidates(model: str) -> list[str]:
         os.environ.get("DEEPSEEK_CONTEXT_FALLBACK_MODEL", "deepseek/deepseek-v4-pro"),
     ]
 
+    xai_defaults = [
+        os.environ.get("GOOGLE_CONTEXT_FALLBACK_MODEL", "gemini/gemini-2.5-pro"),
+        os.environ.get("DEEPSEEK_CONTEXT_FALLBACK_MODEL", "deepseek/deepseek-v4-pro"),
+    ]
+
     options = {
         "deepseek": deepseek_defaults,
         "openai": openai_defaults,
         "google": google_defaults,
         "anthropic": anthropic_defaults,
+        "xai": xai_defaults,
         "local": local_defaults,
         "narad-local": local_defaults,
         "narad-claude-sdk": anthropic_defaults,
