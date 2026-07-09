@@ -66,6 +66,7 @@ SWAPNA_INBOX_DIR:          Path = NARAD_HOME / "swapna" / "inbox"
 INBOX_DIR:                 Path = NARAD_HOME / "inbox"          # Vahana delivery (M3)
 COST_LEDGER_PATH:          Path = CONFIG_DIR / "cost_ledger.jsonl"  # usage → USD (M4.1)
 SCHEDULER_STATE_PATH:      Path = NARAD_HOME / "scheduler_state.json"
+ONBOARDING_PATH:           Path = CONFIG_DIR / "onboarding.json"     # tier choice etc. (S1)
 BENCHMARK_DIR:             Path = NARAD_HOME / "benchmarks"
 BASELINE_DIR:              Path = BENCHMARK_DIR / "baseline"
 

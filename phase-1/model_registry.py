@@ -32,6 +32,7 @@ _PROVIDER_DEFAULTS: dict[str, int] = {
     "deepseek": 128_000,
     "google": 1_000_000,
     "local": 32_000,
+    "narad-local": 32_000,  # bundled llama-server (S1); O2 adds per-quant overrides
     "unknown": 32_000,
 }
 
@@ -54,6 +55,8 @@ _PROVIDER_TOKEN_COUNT_PROVIDERS = {"google"}
 
 def detect_provider(model: str) -> str:
     lower = (model or "").lower()
+    if "narad-local" in lower:
+        return "narad-local"  # bundled llama-server tier (S1/O2)
     if "deepseek" in lower:
         return "deepseek"
     if "gemini" in lower or "google" in lower:
@@ -79,6 +82,11 @@ def provider_available_for_model(model: str) -> bool:
         return bool(os.environ.get("ANTHROPIC_API_KEY", "").strip())
     if provider == "local":
         return bool(os.environ.get("OLLAMA_HOST", "").strip() or shutil.which("ollama"))
+    if provider == "narad-local":
+        # Bundled llama-server (O2 launches it and sets the URL). Until then the
+        # tier engine can still *recommend* narad-local models; they only become
+        # routable once the runtime is up.
+        return bool(os.environ.get("NARAD_LOCAL_URL", "").strip())
     return False
 
 
@@ -132,6 +140,7 @@ def _fallback_candidates(model: str) -> list[str]:
         "google": google_defaults,
         "anthropic": anthropic_defaults,
         "local": local_defaults,
+        "narad-local": local_defaults,
         "unknown": deepseek_defaults,
     }
     return [candidate for candidate in options.get(provider, []) if candidate and candidate != model]

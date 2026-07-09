@@ -55,6 +55,8 @@ class RuntimeIssue:
 
 def _detect_provider(model: str) -> str:
     lower = (model or "").lower()
+    if "narad-local" in lower:
+        return "narad-local"  # bundled llama-server tier (S1/O2)
     if "deepseek" in lower:
         return "deepseek"
     if "gemini" in lower or "google" in lower:

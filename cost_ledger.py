@@ -33,6 +33,7 @@ _DEFAULT_PRICES: dict[str, tuple[float, float]] = {
     "deepseek-v4-flash":      (0.10, 0.40),
     "text-embedding-3-small": (0.02, 0.0),
     "ollama/":                (0.0, 0.0),  # local — free
+    "narad-local/":           (0.0, 0.0),  # bundled local brain (S1) — free
 }
 
 _write_lock = threading.Lock()

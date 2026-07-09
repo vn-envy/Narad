@@ -1832,6 +1832,25 @@ async def revert_sutra_endpoint(sutra_id: str):
     return {"ok": True, "sutra_id": sutra_id, "action": "reverted"}
 
 
+@app.get("/tiers")
+async def get_tiers():
+    """Hardware detection + tier/model recommendation (S1). Wizard + doctor consume this."""
+    from tier_engine import tiers_payload
+    return tiers_payload()
+
+
+@app.post("/tiers/choice")
+async def set_tier_choice(payload: dict):
+    from tier_engine import save_tier_choice
+    tier = str(payload.get("tier", "")).strip()
+    model = str(payload.get("model", "")).strip()
+    try:
+        choice = save_tier_choice(tier, model, source="user")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"ok": True, "choice": choice}
+
+
 @app.get("/karma")
 async def get_karma():
     from karma_log import karma_summary
