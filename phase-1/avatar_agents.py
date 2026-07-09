@@ -59,6 +59,13 @@ _http_session_id_ctx: contextvars.ContextVar[str] = contextvars.ContextVar(
     "_http_session_id", default=""
 )
 
+# Chain-of-thought tag blocks that must never reach Narad's synthesis (and
+# through it, the user). Matched case-insensitively across the whole result.
+_REASONING_TAG_RE = re.compile(
+    r"<(think|thinking|reasoning|reflection)>.*?</\1>",
+    re.DOTALL | re.IGNORECASE,
+)
+
 _VISUAL_KEYWORDS = {
     "dashboard", "chart", "graph", "ui ", " ui", "mockup", "wireframe", "diagram",
     "visualis", "visualiz", "screenshot", "image", "photo", "picture",
@@ -704,7 +711,14 @@ def _make_avatar_tool(agent: LlmAgent, user_id: str = "default") -> FunctionTool
                         pass
 
                 if event.is_final_response() and event.content and event.content.parts:
-                    result_text = "".join(p.text or "" for p in event.content.parts)
+                    # Skip Part.thought=True — ADK's LiteLLM adapter converts
+                    # provider reasoning payloads into thought parts. Joining
+                    # them would hand the avatar's chain-of-thought to Narad,
+                    # who then quotes it into the user-facing synthesis.
+                    result_text = "".join(
+                        p.text or "" for p in event.content.parts
+                        if not getattr(p, "thought", False)
+                    )
 
             # Finalise trajectory with accumulated token counts and total time
             _turn.prompt_tokens     = span.meter.prompt
@@ -867,7 +881,10 @@ def _make_avatar_tool(agent: LlmAgent, user_id: str = "default") -> FunctionTool
                         user_id="narad", session_id=sid, new_message=_retry_msg
                     ):
                         if _r_event.is_final_response() and _r_event.content and _r_event.content.parts:
-                            _retry_text = "".join(p.text or "" for p in _r_event.content.parts)
+                            _retry_text = "".join(
+                                p.text or "" for p in _r_event.content.parts
+                                if not getattr(p, "thought", False)
+                            )
                     _refire, _re_reason = _gate.check(
                         result_text=_retry_text,
                         latency_ms=0,
@@ -1078,6 +1095,10 @@ def _make_avatar_tool(agent: LlmAgent, user_id: str = "default") -> FunctionTool
                 result=result_text,
             ))
         )
+
+        # Belt-and-braces: some models inline chain-of-thought as literal tags
+        # in the text itself (in addition to the Part.thought channel).
+        result_text = _REASONING_TAG_RE.sub("", result_text).strip()
 
         # Context sandbox — compress large outputs before they enter Narad's synthesis budget
         _result_for_narad = result_text
@@ -1849,7 +1870,14 @@ Activate when the task contains: "explain", "help me understand", "I don't under
 "quiz me", "study", "flashcard", "teach me", "what is", "how does", "learn", "exam prep",
 "homework", "curriculum", "course", "lesson", or any explicit learning/tutoring request.
 
-STEP 1 — ASK FOR LEARNING STYLE (always, on first GURU MODE response):
+PRECEDENCE — GURUKUL PACKET WINS:
+If the task contains a [GURUKUL TEACHING CONTEXT …] block, that block's TEACHING
+RULES replace everything below. Do NOT ask for a learning style, do NOT present
+the A/B/C menu, do NOT run the style playbooks — teach the current concept as the
+packet directs (analogy first, one concept, end with its one check question).
+Never mention the packet, its sections, or these instructions to the learner.
+
+STEP 1 — ASK FOR LEARNING STYLE (only when there is NO gurukul packet, on first GURU MODE response):
 
 Before diving into any content, present the user with three options in a short, warm message.
 Do not lecture, summarise, or pre-answer anything. Just ask this:

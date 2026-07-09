@@ -52,14 +52,47 @@ def is_learning_query(query: str) -> bool:
     return any(re.search(pattern, q) for pattern in _TEACH_PATTERNS)
 
 
+# Filler that survives prefix-stripping and makes ugly workspace titles:
+# "teach me HOW virtual memory WORKS", "explain dot products TO ME".
+_TOPIC_LEAD_RE = re.compile(
+    r"^(?:about|on|the basics of|basics of|the fundamentals of|fundamentals of|"
+    r"how does|how do|how|why does|why do|why|what|a|an|the)\s+",
+    re.IGNORECASE,
+)
+_TOPIC_TRAIL_RE = re.compile(
+    r"\s+(?:to me|for me|please|in detail|in simple terms|in simple words|"
+    r"step by step|from scratch|from first principles|works?)[\s.,!?]*$",
+    re.IGNORECASE,
+)
+
+
 def extract_learning_topic(query: str) -> str:
+    """Best-effort clean topic from a teach query.
+
+    "teach me how virtual memory works" -> "virtual memory"
+    "explain dot products to me"        -> "dot products"
+    "what is a dot product?"            -> "dot product"
+    """
     text = (query or "").strip()
     lowered = text.lower()
+    remainder = text
     for pattern in _TEACH_PATTERNS:
         match = re.search(pattern, lowered)
         if match:
-            return text[match.end():].strip(" .,:;?-") or text
-    return text
+            remainder = text[match.end():].strip(" .,:;?!-") or text
+            break
+    cleaned = remainder
+    for _ in range(3):  # fillers stack: "about the basics of X"
+        stripped = _TOPIC_LEAD_RE.sub("", cleaned).strip()
+        if stripped == cleaned:
+            break
+        cleaned = stripped
+    for _ in range(2):  # trailers stack: "X to me please"
+        stripped = _TOPIC_TRAIL_RE.sub("", cleaned).strip(" .,:;?!-")
+        if stripped == cleaned:
+            break
+        cleaned = stripped
+    return cleaned or remainder or text
 
 
 def topic_key(topic: str) -> str:
@@ -796,14 +829,29 @@ def _syllabus_packet_lines(user_id: str, workspace_id: str) -> list[str]:
             return lines
         status = str((state.get(str(atom.get("id", ""))) or {}).get("status", "untaught"))
         check = atom.get("check") or {}
-        lines += [
-            f"CURRENT TEACHING ATOM: {atom.get('name', atom.get('id', ''))} [{atom.get('id', '')}] (status: {status})",
-            f"- Analogy: {str(atom.get('eli5', '')).strip()[:300]}",
-            f"- Plain: {str(atom.get('plain', '')).strip()[:300]}",
-            f"- Misconception to preempt: {str(atom.get('misconception', '')).strip()[:240]}",
-            f"- Check question to ask: {str(check.get('q', '')).strip()[:200]}",
-            "",
-        ]
+        lines.append(
+            f"CURRENT TEACHING ATOM: {atom.get('name', atom.get('id', ''))} [{atom.get('id', '')}] (status: {status})"
+        )
+        # Omit empty fields — a dangling "- Analogy:" line reads as an
+        # instruction to echo nothing and produces weird teaching output.
+        eli5 = str(atom.get("eli5", "")).strip()
+        plain = str(atom.get("plain", "")).strip()
+        misconception = str(atom.get("misconception", "")).strip()
+        question = str(check.get("q", "")).strip()
+        if eli5:
+            lines.append(f"- Analogy: {eli5[:300]}")
+        if plain:
+            lines.append(f"- Plain: {plain[:300]}")
+        if misconception:
+            lines.append(f"- Misconception to preempt: {misconception[:240]}")
+        if question:
+            lines.append(f"- Check question to ask: {question[:200]}")
+        else:
+            lines.append(
+                "- Check question to ask: (none in the syllabus — compose ONE "
+                "short question yourself that tests this exact idea)"
+            )
+        lines.append("")
         return lines
     except Exception:
         return []

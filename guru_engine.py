@@ -429,7 +429,12 @@ def grade_check_answer(
         None,
     )
     if atom is None:
-        return {"correct": False, "feedback": "Unknown concept atom.", "remediation": "", "state": None}
+        return {
+            "correct": False,
+            "feedback": "I couldn't match that answer to a concept in this syllabus — refresh the panel and try again.",
+            "remediation": "",
+            "state": None,
+        }
 
     check = atom.get("check") or {}
     try:

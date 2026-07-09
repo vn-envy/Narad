@@ -44,8 +44,18 @@ function MediaEmbed({ url }: { url: string }) {
   return null
 }
 
+// Skill-continuation markers like "[Continuing: check]" are internal machinery
+// that must survive in server-side history, but shouldn't render raw in chat.
+// Strip them here and show a subtle chip instead.
+const CONTINUING_RE = /\[Continuing:\s*([^\]]+)\]/gi
+
 function MarkdownMessage({ text }: { text: string }) {
-  const mediaUrls = Array.from(new Set(text.match(MEDIA_RE) ?? []))
+  const phases: string[] = []
+  const cleaned = text.replace(CONTINUING_RE, (_m, phase: string) => {
+    phases.push(phase.trim())
+    return ''
+  }).trim()
+  const mediaUrls = Array.from(new Set(cleaned.match(MEDIA_RE) ?? []))
   return (
     <>
       <ReactMarkdown
@@ -139,9 +149,26 @@ function MarkdownMessage({ text }: { text: string }) {
           hr: () => <hr className="my-3" style={{ borderColor: 'rgba(45,42,38,0.15)' }} />,
         }}
       >
-        {text}
+        {cleaned}
       </ReactMarkdown>
       {mediaUrls.map(url => <MediaEmbed key={url} url={url} />)}
+      {phases.length > 0 && (
+        <div className="mt-1.5 flex flex-wrap gap-1.5">
+          {phases.map((phase, i) => (
+            <span
+              key={`${phase}-${i}`}
+              className="font-mono text-[10px] px-2 py-0.5 rounded-full"
+              style={{
+                background: 'rgba(45,42,38,0.06)',
+                border: '1px solid rgba(45,42,38,0.12)',
+                color: 'rgba(45,42,38,0.55)',
+              }}
+            >
+              lesson continues · {phase}
+            </span>
+          ))}
+        </div>
+      )}
     </>
   )
 }

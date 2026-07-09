@@ -334,10 +334,10 @@ function GurukulInner({ userId }: { userId: string }) {
     if (grade) return grade.correct ? (grade.feedback || 'Shabash! You have it.') : (grade.feedback || 'Not yet — walk with me once more.')
     if (!activeId || atoms.length === 0) return 'Name a topic, and we shall begin at the beginning.'
     if (quizQueue) return `Review ${quizIndex + 1} of ${quizQueue.length} — answer from memory before peeking at the rungs.`
-    if (allMastered) return 'You have mastered every atom. The student has become the river.'
+    if (allMastered) return 'You have mastered every concept here. The student has become the river.'
     if (answerFocused || answer.trim()) return 'Take your time. Understanding cannot be rushed.'
     if (selectedAtom) return `Let us sit with “${selectedAtom.name ?? 'this idea'}”. Start at the rung that feels comfortable.`
-    return 'Pick an atom from the tree, and we begin.'
+    return 'Pick a concept from the tree, and we begin.'
   }, [generating, loading, grading, grade, activeId, atoms.length, quizQueue, quizIndex, allMastered, answerFocused, answer, selectedAtom])
 
   // ── render ────────────────────────────────────────────────────────────────────
@@ -349,7 +349,7 @@ function GurukulInner({ userId }: { userId: string }) {
         <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--paper)', letterSpacing: 1 }}>GURUKUL</span>
         {atoms.length > 0 && (
           <span style={{ marginLeft: 4, fontFamily: 'var(--font-mono)', fontSize: 10, color: 'rgba(245,235,215,0.45)' }}>
-            {masteredCount}/{atoms.length} atoms mastered
+            {masteredCount}/{atoms.length} mastered
           </span>
         )}
         {syllabus?.generator === 'template' && (
@@ -531,7 +531,7 @@ function GurukulInner({ userId }: { userId: string }) {
                       onClick={advanceQuiz}
                       style={{ marginTop: 10, fontSize: 12, padding: '7px 16px', borderRadius: 8, border: 'none', background: 'var(--marigold)', color: 'var(--kajal)', fontWeight: 700, cursor: 'pointer' }}
                     >
-                      {quizIndex + 1 >= quizQueue.length ? '✓ Finish review' : `Next atom (${quizIndex + 2}/${quizQueue.length}) →`}
+                      {quizIndex + 1 >= quizQueue.length ? '✓ Finish review' : `Next (${quizIndex + 2}/${quizQueue.length}) →`}
                     </button>
                   )}
                 </div>
@@ -541,8 +541,8 @@ function GurukulInner({ userId }: { userId: string }) {
             !loading && (
               <div style={{ padding: '10px 20px', fontSize: 12, color: 'rgba(26,24,21,0.4)' }}>
                 {atoms.length > 0
-                  ? 'Select a concept atom from the left to begin the lesson.'
-                  : 'Enter a topic on the left — the Guru will decompose it into atoms a five-year-old could climb.'}
+                  ? 'Select a concept from the left to begin the lesson.'
+                  : 'Enter a topic on the left — the Guru will break it into steps a five-year-old could climb.'}
               </div>
             )
           )}
