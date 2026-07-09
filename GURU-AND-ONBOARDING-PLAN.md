@@ -216,6 +216,23 @@ Tier names surface in the wizard as plain cards ("Free & private, on this device
 
 Roadmap mapping: G5–G7 = **M6 (Guru — completion)**; S1–S4 woven into **M5 (Pratham + Sopan)**. M4.4 remains the only open M4 item and slots before the packaging arc.
 
+## Part E — External adoptions (assessed 2026-07-09)
+
+Seven repos assessed; two clear the "great value" bar.
+
+**E1 — os-taxonomy as Guru ground truth** (~1 day, slots with G7)
+- [withmarbleapp/os-taxonomy](https://github.com/withmarbleapp/os-taxonomy): 1,590 micro-topics + 3,221 prerequisite edges, each with evidence + `assessmentPrompt`. License: ODbL 1.0 (data) + CC BY-SA 4.0 (docs) — attribution required; "produced work" carve-out permits our use.
+- Vendor the JSON into `data/taxonomy/` (attribution in NOTICE). `generate_syllabus` gains a taxonomy-first path: topic match → build syllabus from curated edges (keyless, works at T0/T1, no LLM); miss → existing LLM/template path. `assessmentPrompt` seeds check questions. G7 gains fixtures: taxonomy-derived syllabi must validate + stay acyclic.
+
+**E2 — recency skill, last30days pattern** (~2 days, post-S2, env-gated)
+- Pattern from [mvanhorn/last30days-skill](https://github.com/mvanhorn/last30days-skill) (MIT): zero-key sources only — Reddit public JSON, HN Algolia, Polymarket public API, GitHub API — scored by engagement, synthesized into one cited brief. New `samachar_skill.py` (Krishna), `NARAD_RECENCY=1`. No X/TikTok/ScrapeCreators tiers. Fits local-first honesty: no keys, degrades gracefully offline.
+
+**Deferred / skipped**
+- **browser-use** (MIT, Ollama-compatible): optional Ring-2 web-task module *after* O6 permission rings + S4 — heavy Chromium dependency, revisit then.
+- **openmed** (Apache 2.0): not our domain; noted idea — local PII scrub before T2–T4 cloud calls, only if users ask.
+- **financial-services** (Anthropic FSI plugins): methodology reference for finance prompts only; paid connectors, wrong skill format.
+- **open-design**, **remotion**: no fit / license friction; nothing to integrate.
+
 ## Decisions log
 
 1. **Tauri vs Electron** — plan recommends Tauri (size, signing); Electron only if we need Node-side integrations. *(open)*
