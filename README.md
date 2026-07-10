@@ -196,11 +196,11 @@ brew install espeak-ng ffmpeg      # macOS; on Linux: apt install espeak-ng ffmp
 
 `[voice-pro]` instead adds VoxCPM (GPU/Apple Silicon — higher quality, Hindi, zero-shot voice cloning). Models download on first use (~800MB one time).
 
-Click **voice** in the chat header for hands-free mode: speak, Narad answers aloud in the avatar's voice; talk over it to interrupt; toggle हिन्दी for Hindi output. Engine resolution is automatic (Smallest.ai when connected → VoxCPM → Kokoro → Sarvam cloud only if `SARVAM_API_KEY` is set — zero API credits by default); check `GET /voice/status`. With nothing installed, voice input falls back to browser speech recognition.
+Click **voice** in the chat header for hands-free mode: speak, Narad answers aloud in the avatar's voice; talk over it to interrupt; toggle हिन्दी for Hindi output. Engine resolution is automatic (Smallest.ai when connected → VoxCPM → Kokoro — zero API credits by default); check `GET /voice/status`. With nothing installed, voice input falls back to browser speech recognition.
 
 **Premium voices (optional):** paste a [Smallest.ai](https://waves.smallest.ai) key in Settings → Connections and every avatāra gets its own distinct Waves voice (English + Hindi), with the local engines as automatic fallback. Override any voice with `NARAD_SMALLEST_VOICE_<AVATAR>`.
 
-Tuning env vars: `NARAD_WHISPER_MODEL` (tiny/base/small/medium), `NARAD_TTS_ENGINE` (auto/smallest/kokoro/voxcpm/sarvam), `NARAD_VOXCPM_MODEL`, `NARAD_VOICE_REF_DIR` (per-avatar `<avatar>.wav` + `.txt` reference for cloning).
+Tuning env vars: `NARAD_WHISPER_MODEL` (tiny/base/small/medium), `NARAD_TTS_ENGINE` (auto/smallest/kokoro/voxcpm), `NARAD_VOXCPM_MODEL`, `NARAD_VOICE_REF_DIR` (per-avatar `<avatar>.wav` + `.txt` reference for cloning).
 
 ### Grok as an alternative brain (optional)
 

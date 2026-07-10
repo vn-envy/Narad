@@ -136,6 +136,9 @@ def start_login(redirect_uri: str) -> dict[str, str]:
         "ts": now,
     }
     authorize_url, _ = _endpoints()
+    # Param set mirrors the Hermes Agent loopback flow exactly — auth.x.ai
+    # only auto-redirects to the loopback for this recognized referrer;
+    # anything else falls back to the "copy this code" page.
     params = {
         "response_type": "code",
         "client_id": CLIENT_ID,
@@ -144,8 +147,9 @@ def start_login(redirect_uri: str) -> dict[str, str]:
         "state": state,
         "code_challenge": challenge,
         "code_challenge_method": "S256",
+        "nonce": secrets.token_urlsafe(16),
         "plan": "generic",
-        "referrer": "narad",
+        "referrer": "hermes-agent",
     }
     return {"authorize_url": f"{authorize_url}?{urlencode(params)}", "state": state}
 
@@ -182,6 +186,40 @@ def finish_login(code: str, state: str) -> dict[str, Any]:
     tokens = _store_token_response(payload)
     apply_to_env(force=True)
     return {"signed_in": True, "expires_at": tokens["expires_at"]}
+
+
+def finish_login_input(raw: str) -> dict[str, Any]:
+    """Finish sign-in from whatever the user pasted.
+
+    xAI sometimes shows a "copy this code" page instead of redirecting to the
+    loopback (it only auto-redirects for recognized referrers). The user may
+    paste either the bare code from that page or the full callback URL.
+      * full URL → extract code + state from the query string.
+      * bare code → use the most recent pending login's state (Narad is
+        single-user local, so "the newest login attempt" is unambiguous).
+    """
+    raw = (raw or "").strip()
+    if not raw:
+        raise ValueError("nothing pasted — copy the code xAI showed you")
+
+    code, state = raw, ""
+    if "://" in raw or raw.startswith("localhost") or "?" in raw:
+        try:
+            from urllib.parse import parse_qs
+
+            query = parse_qs(urlparse(raw).query)
+            url_code = (query.get("code") or [""])[0]
+            if url_code:
+                code = url_code
+                state = (query.get("state") or [""])[0]
+        except Exception:
+            pass  # fall through: treat the paste as a bare code
+
+    if not state:
+        if not _PENDING:
+            raise ValueError("no sign-in in progress — click Sign in with Grok first")
+        state = max(_PENDING, key=lambda s: float(_PENDING[s]["ts"]))
+    return finish_login(code, state)
 
 
 def _refresh(tokens: dict[str, Any]) -> dict[str, Any] | None:

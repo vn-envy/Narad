@@ -378,14 +378,7 @@ try:
 except Exception as _wiki_err:
     logging.getLogger("narad.server").warning("Project routers unavailable: %s", _wiki_err)
 
-# ── TTS (Sarvam voice) ────────────────────────────────────────────────────────
-try:
-    from tts_api import tts_router
-    app.include_router(tts_router)
-except Exception as _tts_err:
-    logging.getLogger("narad.server").warning("TTS router unavailable: %s", _tts_err)
-
-# ── Voice (local-first STT + tiered TTS) ─────────────────────────────────────
+# ── Voice (Smallest.ai + local-first STT/TTS) ────────────────────────────────
 try:
     from voice_api import voice_router
     app.include_router(voice_router)
@@ -1972,6 +1965,19 @@ async def xai_oauth_callback(code: str = "", state: str = "", error: str = ""):
     return HTMLResponse(
         "<h2>Grok connected ✓</h2><p>You can close this tab and return to Narad.</p>"
     )
+
+
+@app.post("/connections/xai/oauth/finish")
+async def xai_oauth_finish(payload: dict):
+    """Manual fallback: xAI sometimes shows a "copy this code" page instead of
+    redirecting to the loopback. The user pastes that code (or the full
+    callback URL) into Kunji and we finish the exchange here."""
+    import xai_oauth
+    raw = str(payload.get("code", "") or payload.get("code_or_url", ""))
+    try:
+        return {"ok": True, **xai_oauth.finish_login_input(raw)}
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.get("/connections/xai/oauth/status")

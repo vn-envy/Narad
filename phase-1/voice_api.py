@@ -6,8 +6,7 @@ POST /voice/tts   {text, avatar, lang?}   → {audio_b64, format, engine, ...}
 POST /voice/stt   multipart audio file    → {text, language, duration, engine}
 
 TTS prefers Smallest.ai Waves when a key is connected, then local tiers
-(VoxCPM → Kokoro), and only falls back to the Sarvam cloud API when a key
-is configured — zero API credits by default.
+(VoxCPM → Kokoro) — zero API credits by default.
 STT uses local faster-whisper; when unavailable the frontend falls back to
 browser speech recognition.
 """
@@ -19,10 +18,8 @@ import base64
 import os
 import tempfile
 
-import httpx
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel
-from tts_api import AVATAR_VOICES, _translate_to_hindi, _tts_call
 from voice_engine import voice_engine
 
 voice_router = APIRouter()
@@ -45,46 +42,29 @@ async def voice_tts(req: VoiceTTSRequest):
     if not clean:
         raise HTTPException(status_code=400, detail="Empty text")
 
-    # Engine tiers first (Smallest.ai cloud when connected, then local; blocking
-    # synth runs off the event loop).
+    # Smallest.ai cloud when connected, then local tiers; blocking synth runs
+    # off the event loop.
     tiers = voice_engine.tts_tiers()
-    if any(t in ("smallest", "voxcpm", "kokoro") for t in tiers):
-        try:
-            out = await asyncio.to_thread(
-                voice_engine.synthesize, clean, req.avatar, req.lang
-            )
-            return {
-                "audio_b64":   base64.b64encode(out["audio"]).decode(),
-                "format":      "wav",
-                "engine":      out["engine"],
-                "sample_rate": out["sample_rate"],
-                "avatar":      req.avatar,
-                "lang":        req.lang,
-            }
-        except RuntimeError:
-            pass  # fall through to cloud
-
-    # Cloud fallback (Sarvam) — only when a key is configured.
-    api_key = os.environ.get("SARVAM_API_KEY", "")
-    if not api_key:
+    if not tiers:
         raise HTTPException(
             status_code=503,
-            detail="No voice engine available. Install one: "
-                   "pip install 'narad-harness[voice]' (or set SARVAM_API_KEY).",
+            detail="No voice engine available. Connect a Smallest.ai key in "
+                   "Settings → Connections, or install a local engine: "
+                   "pip install 'narad-harness[voice]'.",
         )
-    speaker = AVATAR_VOICES.get(req.avatar.lower(), "abhilash")
-    async with httpx.AsyncClient(timeout=30) as client:
-        if req.lang == "hi":
-            hindi = await _translate_to_hindi(clean, api_key, client)
-            audio = await _tts_call(hindi, speaker, "hi-IN", api_key, client)
-        else:
-            audio = await _tts_call(clean[:490], speaker, "en-IN", api_key, client)
+    try:
+        out = await asyncio.to_thread(
+            voice_engine.synthesize, clean, req.avatar, req.lang
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     return {
-        "audio_b64": base64.b64encode(audio).decode(),
-        "format":    "wav",
-        "engine":    "sarvam",
-        "avatar":    req.avatar,
-        "lang":      req.lang,
+        "audio_b64":   base64.b64encode(out["audio"]).decode(),
+        "format":      "wav",
+        "engine":      out["engine"],
+        "sample_rate": out["sample_rate"],
+        "avatar":      req.avatar,
+        "lang":        req.lang,
     }
 
 

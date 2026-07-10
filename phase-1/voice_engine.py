@@ -9,8 +9,6 @@ Tiers (voice out), best available wins unless NARAD_TTS_ENGINE forces one:
                 needs GPU/MPS. Model id via NARAD_VOXCPM_MODEL.
   3. kokoro   — Kokoro-82M (pip: kokoro). Tiny, CPU-fast, runs anywhere.
                 English + Hindi voices.
-  4. sarvam   — Sarvam AI cloud API. Only used when SARVAM_API_KEY is set.
-                (Handled by voice_api falling back to tts_api.)
 
 Voice in:
   faster-whisper (pip: faster-whisper), CPU int8 by default. Model size via
@@ -130,8 +128,6 @@ class VoiceEngine:
             tiers.append("voxcpm")
         if _has("kokoro"):
             tiers.append("kokoro")
-        if os.environ.get("SARVAM_API_KEY"):
-            tiers.append("sarvam")
         if forced != "auto":
             return [t for t in tiers if t == forced]
         return tiers
@@ -157,14 +153,12 @@ class VoiceEngine:
 
     def synthesize(self, text: str, avatar: str, lang: str = "en") -> dict[str, Any]:
         """Blocking. Returns {audio: bytes, engine, sample_rate}. Raises RuntimeError
-        when no local engine can serve (caller may fall back to cloud)."""
+        when no engine can serve."""
         text = text.strip()[:MAX_TTS_CHARS]
         if not text:
             raise ValueError("empty text")
         avatar = avatar.lower()
         for tier in self.tts_tiers():
-            if tier == "sarvam":
-                break  # cloud fallback is handled by the API layer
             try:
                 if tier == "smallest":
                     return self._tts_smallest(text, avatar, lang)
@@ -174,7 +168,10 @@ class VoiceEngine:
                     return self._tts_kokoro(text, avatar, lang)
             except Exception:  # noqa: BLE001 — degrade to next tier
                 logger.exception("TTS tier %s failed; trying next", tier)
-        raise RuntimeError("no local TTS engine available")
+        raise RuntimeError(
+            "no TTS engine available — connect a Smallest.ai key or "
+            "pip install 'narad-harness[voice]'"
+        )
 
     # ------------------------------------------------------- Smallest.ai Waves
 

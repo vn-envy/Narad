@@ -76,6 +76,8 @@ export function KunjiTab() {
   const [busy, setBusy] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [testResults, setTestResults] = useState<Record<string, { ok: boolean; detail: string }>>({})
+  const [grokCode, setGrokCode] = useState('')
+  const [grokStarted, setGrokStarted] = useState(false)
 
   const load = useCallback(async () => {
     try {
@@ -165,6 +167,7 @@ export function KunjiTab() {
         return
       }
       window.open(data.authorize_url, '_blank', 'noopener')
+      setGrokStarted(true)
       // Poll while the user finishes the flow in the other tab.
       let remaining = 40 // ~2 minutes at 3s
       const poll = window.setInterval(async () => {
@@ -175,6 +178,7 @@ export function KunjiTab() {
           if (status.signed_in) {
             window.clearInterval(poll)
             setBusy(null)
+            setGrokStarted(false)
             setNotice('✓ Grok connected')
             await load()
             return
@@ -190,6 +194,32 @@ export function KunjiTab() {
       setBusy(null)
     }
   }, [load])
+
+  const finishGrok = useCallback(async () => {
+    if (!grokCode.trim()) return
+    setBusy('grok:finish')
+    setNotice(null)
+    try {
+      const response = await apiFetch('/connections/xai/oauth/finish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: grokCode.trim() }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (response.ok && data.signed_in) {
+        setNotice('✓ Grok connected')
+        setGrokCode('')
+        setGrokStarted(false)
+        await load()
+      } else {
+        setNotice(`✕ ${data.detail ?? 'Grok sign-in failed — try again'}`)
+      }
+    } catch {
+      setNotice('✕ request failed — server unreachable')
+    } finally {
+      setBusy(null)
+    }
+  }, [grokCode, load])
 
   const disconnectGrok = useCallback(async () => {
     setBusy('grok:disconnect')
@@ -446,6 +476,48 @@ export function KunjiTab() {
                     {busy === 'grok' ? 'waiting for sign-in…' : 'Sign in with Grok'}
                   </button>
                 )}
+              </div>
+            )}
+            {sub.provider === 'xai-oauth' && !sub.signed_in && grokStarted && (
+              <div style={{ marginTop: 10 }}>
+                <div style={{ fontSize: 10, color: `${INK}0.5)`, marginBottom: 6 }}>
+                  If xAI showed you a code instead of redirecting back, paste it here:
+                </div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <input
+                    value={grokCode}
+                    onChange={e => setGrokCode(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') void finishGrok() }}
+                    placeholder="paste the code from xAI"
+                    aria-label="Grok sign-in code"
+                    style={{
+                      flex: '1 1 160px',
+                      padding: '7px 10px',
+                      borderRadius: 8,
+                      border: `1px solid ${INK}0.14)`,
+                      background: 'var(--paper)',
+                      fontFamily: 'monospace',
+                      fontSize: 11,
+                      color: `${INK}0.85)`,
+                    }}
+                  />
+                  <button
+                    onClick={() => void finishGrok()}
+                    disabled={busy === 'grok:finish' || !grokCode.trim()}
+                    style={{
+                      padding: '7px 14px',
+                      borderRadius: 8,
+                      border: 'none',
+                      background: grokCode.trim() ? 'var(--sindoor)' : `${INK}0.12)`,
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: grokCode.trim() ? '#fcfaf2' : `${INK}0.45)`,
+                      cursor: grokCode.trim() ? 'pointer' : 'default',
+                    }}
+                  >
+                    {busy === 'grok:finish' ? 'finishing…' : 'Finish'}
+                  </button>
+                </div>
               </div>
             )}
           </div>

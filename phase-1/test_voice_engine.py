@@ -41,7 +41,7 @@ class VoiceEngineTest(unittest.TestCase):
 
     def test_synthesize_raises_cleanly_without_engines(self) -> None:
         eng = VoiceEngine()
-        if eng.tts_tiers() in ([], ["sarvam"]):
+        if not eng.tts_tiers():
             with self.assertRaises((RuntimeError, ValueError)):
                 eng.synthesize("hello", "krishna")
 

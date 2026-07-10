@@ -136,8 +136,8 @@ Restart the server. First TTS/STT call downloads models (Kokoro ~330MB, whisper-
 - [ ] 9.5 Ask "teach me binary search" by voice → guru lesson answered aloud in Krishna's voice; check question audible and sensible
 - [ ] 9.6 Toggle **हिन्दी** (top-left) → next reply is spoken in a Hindi voice
 - [ ] 9.7 Tap the orb → mic pauses (icon slashes); tap again → listening resumes
-- [ ] 9.8 Existing per-message speaker buttons in chat still work (old /tts path untouched)
-- [ ] 9.9 (Negative) `pip uninstall kokoro faster-whisper`, restart → voice mode falls back to browser speech recognition; /voice/tts returns a clear 503 hint unless SARVAM_API_KEY is set
+- [ ] 9.8 Existing per-message speaker buttons in chat still work (now served by /voice/tts)
+- [ ] 9.9 (Negative) `pip uninstall kokoro faster-whisper`, restart → voice mode falls back to browser speech recognition; /voice/tts returns a clear 503 hint unless a Smallest.ai key is connected
 
 ## 10. Fresh-system portability (the "different system" run)
 

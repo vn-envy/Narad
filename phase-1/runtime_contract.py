@@ -194,7 +194,14 @@ def tool_family_status() -> dict[str, dict[str, Any]]:
     shell_ok, shell_reason = _module_available("shell_skill")
     sql_ok, sql_reason = _module_available("sql_skill")
     video_ok, video_reason = _module_available("video_skill")
-    tts_ok, tts_reason = _module_available("tts_api")
+    try:
+        from voice_engine import voice_engine
+        tts_ok = bool(voice_engine.tts_tiers())
+        tts_reason = None if tts_ok else (
+            "No TTS engine — connect a Smallest.ai key or install a local engine"
+        )
+    except Exception as _tts_exc:  # noqa: BLE001 — availability probe only
+        tts_ok, tts_reason = False, str(_tts_exc)
 
     search_available = providers["tinyfish"]["available"] or providers["tavily"]["available"]
     media_provider_available = providers["google"]["available"] or providers["mimo"]["available"]
