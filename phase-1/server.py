@@ -480,6 +480,37 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ── xAI OAuth callback CORS (auto-completion) ─────────────────────────────────
+# auth.x.ai delivers the authorization code by fetch()ing the loopback
+# redirect_uri FROM THE BROWSER (that's how "it'll automatically detect a
+# successful completion" works). A cross-origin fetch from https://auth.x.ai
+# to http://127.0.0.1 needs a CORS preflight answered with
+# Access-Control-Allow-Private-Network — otherwise the browser blocks it and
+# xAI falls back to the manual "copy this code" page. Registered after (thus
+# outside) CORSMiddleware so the preflight never hits its origin allowlist.
+_XAI_CALLBACK_ORIGINS = frozenset({"https://auth.x.ai", "https://accounts.x.ai"})
+
+
+@app.middleware("http")
+async def _xai_callback_cors(request, call_next):
+    origin = request.headers.get("origin", "")
+    if request.url.path != "/callback" or origin not in _XAI_CALLBACK_ORIGINS:
+        return await call_next(request)
+    cors = {
+        "Access-Control-Allow-Origin": origin,
+        "Access-Control-Allow-Methods": "GET, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type",
+        "Access-Control-Allow-Private-Network": "true",
+        "Vary": "Origin",
+    }
+    if request.method == "OPTIONS":
+        from fastapi.responses import Response
+        return Response(status_code=204, headers=cors)
+    response = await call_next(request)
+    for name, value in cors.items():
+        response.headers[name] = value
+    return response
+
 # Serve generated media files (video + audio from Parashurama)
 from narad_config import ARTIFACTS_DIR as _MEDIA_DIR
 

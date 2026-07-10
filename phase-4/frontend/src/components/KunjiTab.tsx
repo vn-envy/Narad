@@ -478,10 +478,12 @@ export function KunjiTab() {
                 )}
               </div>
             )}
-            {sub.provider === 'xai-oauth' && !sub.signed_in && grokStarted && (
+            {sub.provider === 'xai-oauth' && !sub.signed_in && (
               <div style={{ marginTop: 10 }}>
                 <div style={{ fontSize: 10, color: `${INK}0.5)`, marginBottom: 6 }}>
-                  If xAI showed you a code instead of redirecting back, paste it here:
+                  {grokStarted
+                    ? 'If xAI showed you a code instead of finishing automatically, paste it here:'
+                    : 'Already have a code from xAI? Paste it here:'}
                 </div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   <input

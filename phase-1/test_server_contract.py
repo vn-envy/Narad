@@ -44,6 +44,30 @@ class ServerContractTests(unittest.TestCase):
         self.assertIn("fallback_graph", capabilities_payload["context_policy"])
         self.assertIn("memory_tiers", capabilities_payload)
 
+    def test_xai_callback_answers_private_network_preflight(self) -> None:
+        """auth.x.ai delivers the OAuth code via a browser fetch to /callback;
+        the preflight must be answered with CORS + PNA headers or xAI falls
+        back to the manual copy-this-code page."""
+        preflight = self.client.options("/callback", headers={
+            "Origin": "https://auth.x.ai",
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Private-Network": "true",
+        })
+        self.assertEqual(preflight.status_code, 204)
+        self.assertEqual(preflight.headers.get("access-control-allow-origin"), "https://auth.x.ai")
+        self.assertEqual(preflight.headers.get("access-control-allow-private-network"), "true")
+
+        # The actual GET carries the headers too (400 body: bogus state).
+        got = self.client.get("/callback?code=x&state=y", headers={"Origin": "https://auth.x.ai"})
+        self.assertEqual(got.headers.get("access-control-allow-origin"), "https://auth.x.ai")
+
+        # Foreign origins get nothing.
+        evil = self.client.options("/callback", headers={
+            "Origin": "https://evil.example",
+            "Access-Control-Request-Method": "GET",
+        })
+        self.assertIsNone(evil.headers.get("access-control-allow-origin"))
+
     def test_chat_returns_coherent_degraded_stream_without_adk(self) -> None:
         with self.client.stream("POST", "/chat", json={"query": "hello from test"}) as response:
             self.assertEqual(response.status_code, 200)
