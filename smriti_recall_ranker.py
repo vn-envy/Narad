@@ -14,7 +14,9 @@ log = logging.getLogger("narad.smriti")
 
 from narad_config import EPISODE_DIR
 from smriti_indexer import (
+    ensure_wiki_fts,
     fts_search_episodes,
+    fts_search_wiki_sections,
     schedule_index_refresh,
 )
 from smriti_vector_store import VectorMemoryRecord, memory_tier_diagnostics, search_records
@@ -260,6 +262,30 @@ def build_semantic_memory_context(
     return fitted
 
 
+def _wiki_fts_record(row: dict[str, Any], user_id: str) -> VectorMemoryRecord:
+    """Shape a wiki lexical hit like a vector record so ranking/fitting is uniform."""
+    content = row.get("content", "")
+    lines = [line for line in content.splitlines() if line.strip()]
+    return VectorMemoryRecord(
+        record_id=str(row.get("section_id", "")),
+        namespace="project_wiki",
+        tier="fts5",
+        user_id=user_id,
+        project_id=row.get("project_id") or "general",
+        source_kind="wiki_section",
+        source_path=str(row.get("source_path", "")),
+        source_ref=str(row.get("anchor", "")),
+        created_at=row.get("updated_at", ""),
+        updated_at=row.get("updated_at", ""),
+        preview=(lines[1] if len(lines) > 1 else content)[:180],
+        text=content[:1800],
+        content_hash="",
+        embedding_model="fts5",
+        dim=0,
+        metadata={"entity": row.get("entity", "")},
+    )
+
+
 def build_project_memory_context(
     *,
     query: str,
@@ -269,26 +295,29 @@ def build_project_memory_context(
     model: str = "deepseek/deepseek-v4-flash",
     limit: int = 5,
 ) -> dict[str, Any]:
-    # Background refresh only — inline wiki indexing once blocked a chat turn
-    # for 6+ minutes when a model switch re-embedded 516 sections.
+    # The wiki plane is lexical-only (FTS5) — no embeddings, no reload pass.
+    # Write paths index synchronously; the mtime-gated sweep here just catches
+    # out-of-band edits and costs one stat() per page when nothing changed.
+    try:
+        ensure_wiki_fts(user_id, project_id)
+    except Exception as exc:
+        log.warning("Smriti: wiki FTS backfill failed: %s", exc)
     schedule_index_refresh(user_id, project_id)
-    raw_hits = search_records(
-        user_id=user_id,
-        namespace="project_wiki",
-        query=query,
-        limit=max(limit * 2, 6),
-        project_id=project_id,
-    )
     hits = _rank_hits(
         query,
         [
             {
-                "record": hit.record,
-                "score": hit.score,
-                "backend": hit.backend,
-                "exact_text": _exact_reread(hit.record),
+                "record": record,
+                "score": 0.5,  # neutral base — lexical + recency differentiate
+                "backend": "fts5",
+                "exact_text": _exact_reread(record),
             }
-            for hit in raw_hits
+            for record in (
+                _wiki_fts_record(row, user_id)
+                for row in fts_search_wiki_sections(
+                    query, user_id=user_id, project_id=project_id, limit=max(limit * 2, 6)
+                )
+            )
         ],
     )
     fitted = _fit_blocks(

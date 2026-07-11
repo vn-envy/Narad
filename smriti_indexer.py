@@ -17,9 +17,7 @@ from smriti_vector_store import (
     _safe_slug,
     current_embedding_model,
     embed_text,
-    embed_texts,
     list_records,
-    sync_records,
     upsert_record,
 )
 
@@ -318,105 +316,148 @@ def _split_wiki_sections(text: str) -> list[tuple[str, str]]:
     return sections
 
 
-def ensure_project_wiki_indexed(user_id: str = "default", project_id: str = "general") -> None:
-    """Bring the wiki index up to date — re-embedding only changed sections.
+# ── Wiki FTS5 (lexical plane over project wiki pages) ───────────────────────
+# The wiki is NEVER embedded. It used to be — and one embedding-provider switch
+# re-embedded 516 sections serially, freezing chat routing for 6+ minutes.
+# Lexical FTS5 is indexed synchronously at write time (pure SQLite, no network),
+# so recall over the wiki is instant AND always fresh.
 
-    Unchanged sections (same content_hash under the current model) reuse their
-    stored embedding, and if nothing was added, changed, or deleted the sync
-    (and the turbovec index rebuild it triggers) is skipped entirely.
+
+def _wiki_fts_db_path(user_id: str) -> Path:
+    return SMRITI_MANIFEST_DIR / _safe_slug(user_id) / "wiki_fts.db"
+
+
+def _wiki_fts_conn(user_id: str) -> sqlite3.Connection:
+    path = _wiki_fts_db_path(user_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(path))
+    conn.execute(
+        """
+        CREATE VIRTUAL TABLE IF NOT EXISTS wiki_fts USING fts5(
+            section_id UNINDEXED,
+            project_id UNINDEXED,
+            entity UNINDEXED,
+            anchor UNINDEXED,
+            source_path UNINDEXED,
+            updated_at UNINDEXED,
+            content,
+            tokenize='porter unicode61'
+        )
+        """
+    )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS wiki_pages (path TEXT PRIMARY KEY, mtime REAL)"
+    )
+    return conn
+
+
+def fts_reindex_wiki_page(user_id: str, project_id: str, path: Path) -> int:
+    """Replace one page's sections in the lexical index. Called at write time."""
+    if not path.exists():
+        return 0
+    sections = _split_wiki_sections(path.read_text(encoding="utf-8"))
+    updated_at = _file_mtime_iso(path)
+    conn = _wiki_fts_conn(user_id)
+    try:
+        conn.execute("DELETE FROM wiki_fts WHERE source_path = ?", (str(path),))
+        for idx, (anchor, chunk) in enumerate(sections):
+            conn.execute(
+                "INSERT INTO wiki_fts(section_id, project_id, entity, anchor, "
+                "source_path, updated_at, content) VALUES (?,?,?,?,?,?,?)",
+                (
+                    _stable_id("wikifts", project_id, path.name, anchor, str(idx)),
+                    project_id,
+                    path.stem,
+                    anchor,
+                    str(path),
+                    updated_at,
+                    f"[{path.stem.upper()}]\n{chunk}".strip(),
+                ),
+            )
+        conn.execute(
+            "INSERT OR REPLACE INTO wiki_pages(path, mtime) VALUES (?, ?)",
+            (str(path), path.stat().st_mtime),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return len(sections)
+
+
+def ensure_wiki_fts(user_id: str = "default", project_id: str = "general") -> None:
+    """Backfill/repair the wiki lexical index — mtime-gated, no network.
+
+    Write paths reindex their own page synchronously; this sweep catches pages
+    written before the FTS plane existed or edited outside the API. Cost when
+    nothing changed: one stat() per page.
     """
     project_dir = WIKI_DIR / user_id / project_id
-    project_dir.mkdir(parents=True, exist_ok=True)
-    model = current_embedding_model()
-    existing = {
-        record.record_id: record
-        for record in list_records(
-            user_id=user_id, namespace="project_wiki", embedding_model=model
-        )
-        if record.project_id == project_id and record.source_kind == "wiki_section"
-    }
-
-    # Pass 1: collect sections, reusing unchanged embeddings. Pass 2: embed the
-    # changed sections in BATCHES — 516 serial embedding calls took 6+ minutes;
-    # batched it is a handful of API round-trips.
-    records: list[VectorMemoryRecord] = []
-    pending: list[dict[str, Any]] = []
+    if not project_dir.exists():
+        return
+    conn = _wiki_fts_conn(user_id)
+    try:
+        known = dict(conn.execute("SELECT path, mtime FROM wiki_pages").fetchall())
+        # Pages deleted on disk lose their index rows.
+        for stale in [p for p in known if p.startswith(str(project_dir)) and not Path(p).exists()]:
+            conn.execute("DELETE FROM wiki_fts WHERE source_path = ?", (stale,))
+            conn.execute("DELETE FROM wiki_pages WHERE path = ?", (stale,))
+        conn.commit()
+    finally:
+        conn.close()
     for page in sorted(project_dir.glob("*.md")):
-        text = page.read_text(encoding="utf-8")
-        for anchor, chunk in _split_wiki_sections(text):
-            chunk_text = f"[{page.stem.upper()}]\n{chunk}".strip()
-            record_id = _stable_id("wiki", project_id, page.name, anchor)
-            content_hash = _stable_id("hash", chunk_text)
-            previous = existing.get(record_id)
-            if (
-                previous is not None
-                and previous.content_hash == content_hash
-                and previous.embedding
-            ):
-                records.append(previous)  # unchanged — no embedding call
-                continue
-            pending.append({
-                "record_id": record_id,
-                "anchor": anchor,
-                "page": page,
-                "chunk": chunk,
-                "chunk_text": chunk_text,
-                "content_hash": content_hash,
-            })
+        if known.get(str(page)) != page.stat().st_mtime:
+            fts_reindex_wiki_page(user_id, project_id, page)
 
-    embedded = len(pending)
-    if pending:
-        vectors, embedding_model = embed_texts([item["chunk_text"] for item in pending])
-        for item, embedding in zip(pending, vectors):
-            page = item["page"]
-            records.append(
-                VectorMemoryRecord(
-                    record_id=item["record_id"],
-                    namespace="project_wiki",
-                    tier=select_memory_tier("project_wiki", created_at=_file_mtime_iso(page)),
-                    user_id=user_id,
-                    project_id=project_id,
-                    source_kind="wiki_section",
-                    source_path=str(page),
-                    source_ref=item["anchor"],
-                    created_at=_file_mtime_iso(page),
-                    updated_at=_file_mtime_iso(page),
-                    preview=item["chunk"].splitlines()[0][:180],
-                    text=item["chunk_text"][:1800],
-                    content_hash=item["content_hash"],
-                    embedding_model=embedding_model,
-                    dim=len(embedding),
-                    metadata={
-                        "entity": page.stem,
-                        "workspace_root": None,
-                        "section_anchor": item["anchor"],
-                    },
-                    embedding=embedding,
-                )
-            )
 
-    unchanged = embedded == 0 and {r.record_id for r in records} == set(existing)
-    if records and not unchanged:
-        sync_records(
-            user_id=user_id,
-            namespace="project_wiki",
-            records=records,
-            prune_project_id=project_id,
-            prune_source_kind="wiki_section",
-        )
-        if embedded:
-            log.info(
-                "Smriti index: embedded %d wiki section(s) for %s/%s",
-                embedded, user_id, project_id,
-            )
+def fts_search_wiki_sections(
+    query: str,
+    *,
+    user_id: str = "default",
+    project_id: str = "general",
+    limit: int = 8,
+) -> list[dict[str, Any]]:
+    """BM25 lexical search over wiki sections. Returns row dicts, best first.
+
+    Same token sanitisation as episode search — user text never reaches the
+    FTS5 syntax parser.
+    """
+    tokens = re.findall(r"\w+", query)[:12]
+    if not tokens or not _wiki_fts_db_path(user_id).exists():
+        return []
+    match = " OR ".join(f'"{token}"' for token in tokens)
+    conn = _wiki_fts_conn(user_id)
+    try:
+        rows = conn.execute(
+            "SELECT section_id, project_id, entity, anchor, source_path, updated_at, content "
+            "FROM wiki_fts WHERE wiki_fts MATCH ? AND project_id = ? "
+            "ORDER BY rank LIMIT ?",
+            (match, project_id, limit),
+        ).fetchall()
+    except Exception as exc:
+        log.warning("Smriti: wiki FTS search failed: %s", exc)
+        return []
+    finally:
+        conn.close()
+    return [
+        {
+            "section_id": row[0],
+            "project_id": row[1],
+            "entity": row[2],
+            "anchor": row[3],
+            "source_path": row[4],
+            "updated_at": row[5],
+            "content": row[6],
+        }
+        for row in rows
+    ]
 
 
 # ── Background refresh (single-flight) ───────────────────────────────────────
-# Indexing must NEVER run inline in a chat turn: a provider/model switch can
-# re-embed the entire wiki (500+ sections), which once blocked routing for
-# 6+ minutes. Recall paths call schedule_index_refresh() and proceed against
-# the existing index; the refresh lands for the next turn. Brand-new episodes
-# are still findable immediately via the FTS5 lexical plane, which is written
+# Episode embedding must NEVER run inline in a chat turn: a provider/model
+# switch can re-embed everything, which once blocked routing for 6+ minutes.
+# Recall paths call schedule_index_refresh() and proceed against the existing
+# index; the refresh lands for the next turn. Brand-new episodes and wiki
+# writes are findable immediately via their FTS5 lexical planes, written
 # synchronously at append time.
 
 _REFRESH_LOCK = threading.Lock()
@@ -424,10 +465,10 @@ _REFRESH_IN_FLIGHT: set[str] = set()
 
 
 def schedule_index_refresh(user_id: str = "default", project_id: str = "general") -> bool:
-    """Kick episode + wiki indexing on a daemon thread. Single-flight per
-    USER (not per project) so two refreshes never write the same episode
-    manifests concurrently; a skipped project is picked up on the next call.
-    Returns True if a new refresh was started."""
+    """Kick episode embedding + wiki FTS backfill on a daemon thread.
+    Single-flight per USER (not per project) so two refreshes never write the
+    same episode manifests concurrently; a skipped project is picked up on the
+    next call. Returns True if a new refresh was started."""
     key = user_id
     with _REFRESH_LOCK:
         if key in _REFRESH_IN_FLIGHT:
@@ -437,7 +478,7 @@ def schedule_index_refresh(user_id: str = "default", project_id: str = "general"
     def _run() -> None:
         try:
             ensure_user_episode_index(user_id)
-            ensure_project_wiki_indexed(user_id, project_id)
+            ensure_wiki_fts(user_id, project_id)
         except Exception as exc:  # visible, never fatal — recall stays lexical
             log.warning("Smriti background index refresh failed: %s", exc)
         finally:

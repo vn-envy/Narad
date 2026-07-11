@@ -89,12 +89,8 @@ class SmritiVectorTierTests(unittest.TestCase):
             project_id="proj_docs",
         )
 
-        # Recall no longer indexes the wiki inline (it schedules a background
-        # refresh), so index explicitly before asserting on tiered results.
-        import smriti_indexer
-
-        smriti_indexer.ensure_project_wiki_indexed("tester", "proj_docs")
-
+        # put_wiki_page indexes into the lexical FTS plane synchronously,
+        # so the page is recallable immediately — no embedding pass exists.
         packet = self.smriti_recall_ranker.build_project_memory_context(
             query="Which port should Narad keep using?",
             user_id="tester",

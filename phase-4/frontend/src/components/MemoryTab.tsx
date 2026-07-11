@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { apiFetch, apiUrl } from '@/lib/api'
+import { KnowledgeGraphPanel } from './KnowledgeGraphPanel'
 
 interface MemoryEntry {
   id: string
@@ -222,6 +223,8 @@ export function MemoryTab({ userId }: Props) {
           ))}
         </div>
       </div>
+
+      <KnowledgeGraphPanel userId={userId} />
 
       <div style={{ display: 'grid', gap: 16, marginTop: 16 }} className="xl:grid-cols-[0.9fr_1.35fr]">
         <div style={{ display: 'grid', gap: 16 }}>

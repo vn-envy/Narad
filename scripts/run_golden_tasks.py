@@ -438,12 +438,12 @@ def main() -> int:
         return 0
 
     live_tasks = [t for t in tasks if t.get("mode") != "structural"]
-    client = None
     if live_tasks:
         from dotenv import load_dotenv
         load_dotenv(ROOT / ".env")
-        import narad_paths  # noqa: F401 — registers phase dirs; must precede phase imports
         from fastapi.testclient import TestClient
+
+        import narad_paths  # noqa: F401 — registers phase dirs; must precede phase imports
 
         # isort: split
         import server  # noqa: E402

@@ -4,7 +4,6 @@ import { apiFetch, apiJson } from '@/lib/api'
 import type { ProjectExecution, ProjectListItem, ProjectStateStore, ProjectTask, ProjectWorkspace } from '@/lib/api'
 import { BacklogBoardPanel } from './BacklogBoardPanel'
 import { ExecutionPanel } from './ExecutionPanel'
-import { KarmaPanel } from './KarmaPanel'
 import { ProjectHomePanel } from './ProjectHomePanel'
 
 interface Props {
@@ -467,10 +466,6 @@ export function KarmaWorkspaceTab({ userId, currentSession, streaming }: Props) 
               onTaskCreate={handleTaskCreate}
               onTaskPatch={handleTaskPatch}
             />
-          </section>
-
-          <section style={{ minHeight: 0, overflow: 'hidden', borderRadius: 22, border: '1px solid rgba(26,24,21,0.08)', background: 'rgba(252,250,242,0.82)' }}>
-            <KarmaPanel userId={userId} compact />
           </section>
         </div>
       </div>

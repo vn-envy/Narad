@@ -379,12 +379,14 @@ try:
     from learning_workspace_api import learning_router
     from project_execution_api import project_execution_router, tasks_router
     from project_wiki_api import projects_router, sessions_router, wiki_router
+    from smriti_graph_api import graph_router
     app.include_router(wiki_router)
     app.include_router(projects_router)
     app.include_router(sessions_router)
     app.include_router(project_execution_router)
     app.include_router(tasks_router)
     app.include_router(learning_router)
+    app.include_router(graph_router)
 except Exception as _wiki_err:
     logging.getLogger("narad.server").warning("Project routers unavailable: %s", _wiki_err)
 

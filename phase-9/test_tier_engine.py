@@ -15,7 +15,6 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import narad_paths  # noqa: F401  (bootstraps cross-phase imports)
-
 import tier_engine
 from tier_engine import MODELS, TIERS, detect_hardware, recommend
 

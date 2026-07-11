@@ -116,10 +116,10 @@ def main() -> int:
 
     from dotenv import load_dotenv
     load_dotenv(ROOT / ".env")
-    import narad_paths  # noqa: F401 — registers phase dirs; must precede phase imports
-
     # How many sutras would arm ON actually inject? Zero → vacuous comparison.
     from sutra_engine import get_all_sutras
+
+    import narad_paths  # noqa: F401 — registers phase dirs; must precede phase imports
     active_by_avatar: dict[str, int] = {}
     for s in get_all_sutras():
         if s.get("status") == "active":
