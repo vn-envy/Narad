@@ -37,8 +37,8 @@ Learner state schema (learner_state.json in the workspace dir):
               "last_reviewed": ISO ts, "next_review": ISO ts} }
 
 Env:
-  GURU_MODEL          syllabus + artifact generation model (default deepseek/deepseek-v4-pro)
-  GURU_GRADER_MODEL   answer grading model (default deepseek/deepseek-v4-flash)
+  GURU_MODEL          syllabus + artifact generation model (default: the brain's pro tier)
+  GURU_GRADER_MODEL   answer grading model (default: the brain's flash tier)
 """
 
 from __future__ import annotations
@@ -53,8 +53,18 @@ from typing import Any
 
 from narad_config import LEARNING_DIR
 
-GURU_MODEL = os.environ.get("GURU_MODEL", "deepseek/deepseek-v4-pro")
-GURU_GRADER_MODEL = os.environ.get("GURU_GRADER_MODEL", "deepseek/deepseek-v4-flash")
+
+def _tier_default(kind: str) -> str:
+    """Guru defaults follow the resolved brain (DeepSeek or Grok)."""
+    try:
+        from model_config import TIER_FLASH, TIER_PRO
+        return TIER_PRO if kind == "pro" else TIER_FLASH
+    except Exception:
+        return "deepseek/deepseek-v4-pro" if kind == "pro" else "deepseek/deepseek-v4-flash"
+
+
+GURU_MODEL = os.environ.get("GURU_MODEL", "") or _tier_default("pro")
+GURU_GRADER_MODEL = os.environ.get("GURU_GRADER_MODEL", "") or _tier_default("flash")
 
 MAX_ATOMS = 12
 _RUNGS = ("eli5", "plain", "precise", "formal")

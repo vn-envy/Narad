@@ -17,6 +17,12 @@ Whole-brain switch: NARAD_BRAIN=grok flips all tier defaults onto Grok
 (sign in with SuperGrok / X Premium+ in Settings → Connections). Per-avatar
 vars still win, so mixed DeepSeek+Grok fleets stay one-line changes.
 
+When NARAD_BRAIN is unset the brain resolves itself: DeepSeek if its key
+exists AND the API accepts it, otherwise Grok when signed in. A rejected
+DeepSeek key (401/403, verdict cached on disk) also disables the provider
+for context-escalation fallbacks — signing into Grok is enough; no .env
+edit required.
+
 Switching any avatar to a local model, OpenAI, or Claude is a one-line .env change.
 Example: KRISHNA_MODEL=ollama/llama3  or  KRISHNA_MODEL=claude-opus-4-7
 
@@ -26,19 +32,153 @@ Eval result (phase-0a, 2026-05-02):
 """
 from __future__ import annotations
 
+import logging
 import os
+
+log = logging.getLogger("narad.models")
 
 DS_PRO   = os.environ.get("DS_PRO_MODEL",   "deepseek/deepseek-v4-pro")
 DS_FLASH = os.environ.get("DS_FLASH_MODEL", "deepseek/deepseek-v4-flash")
 GROK     = os.environ.get("GROK_MODEL",     "xai/grok-4.3")
 
+
+# ── Brain resolution ──────────────────────────────────────────────────────────
 # NARAD_BRAIN=grok flips every tier default onto Grok (via xAI OAuth or
 # XAI_API_KEY). Per-avatar env vars still override individually — so mixed
 # fleets (e.g. Grok brain + DeepSeek Flash for retrieval) stay one-liners.
-if os.environ.get("NARAD_BRAIN", "").strip().lower() == "grok":
+#
+# When NARAD_BRAIN is unset, the brain picks itself so a Grok sign-in "just
+# works": DeepSeek only when its key exists and the API accepts it, else Grok.
+
+def _hydrate_stored_credentials() -> None:
+    """Stored Kunji keys + Grok OAuth token → env (idempotent; .env wins).
+
+    The server startup event does this too, but brain resolution happens at
+    import — before the event fires — so hydrate here as well.
+    """
+    try:
+        from kunji import apply_keys_to_env
+        apply_keys_to_env()
+    except Exception:
+        pass
+    try:
+        import xai_oauth
+        xai_oauth.apply_to_env()
+    except Exception:
+        pass
+
+
+def _grok_available() -> bool:
+    if os.environ.get("XAI_API_KEY", "").strip():
+        return True
+    try:
+        from xai_oauth import signed_in
+        return signed_in()
+    except Exception:
+        return False
+
+
+def _probe_cache_path():
+    from pathlib import Path
+    try:
+        from narad_config import CONFIG_DIR
+        return CONFIG_DIR / "deepseek_key_probe.json"
+    except Exception:
+        return Path.home() / ".narad" / "config" / "deepseek_key_probe.json"
+
+
+def _deepseek_key_rejected(key: str) -> bool:
+    """True only when the API has positively rejected this key (401/403).
+
+    One cheap GET against /user/balance, verdict cached on disk by key
+    fingerprint: a rejected key stays rejected until it changes; a valid
+    verdict is trusted for 24h. Network trouble never flips the brain.
+    Kill switch: NARAD_BRAIN_PROBE=off skips the network entirely.
+    """
+    if os.environ.get("NARAD_BRAIN_PROBE", "").strip().lower() in {"0", "off", "false"}:
+        return False
+    import hashlib
+    import json
+    import time
+
+    fp = hashlib.sha256(key.encode()).hexdigest()[:16]
+    path = _probe_cache_path()
+    try:
+        cache = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(cache, dict):
+            cache = {}
+    except Exception:
+        cache = {}
+    entry = cache.get(fp) or {}
+    if entry.get("valid") is False:
+        return True
+    if entry.get("valid") is True and time.time() - float(entry.get("ts", 0)) < 86_400:
+        return False
+    try:
+        import httpx
+        base = os.environ.get("DEEPSEEK_API_BASE", "https://api.deepseek.com").rstrip("/")
+        resp = httpx.get(
+            f"{base}/user/balance",
+            headers={"Authorization": f"Bearer {key}"},
+            timeout=4.0,
+        )
+    except Exception:
+        return False  # can't tell — keep the configured brain
+    rejected = resp.status_code in (401, 403)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        cache[fp] = {"valid": not rejected, "ts": time.time()}
+        path.write_text(json.dumps(cache), encoding="utf-8")
+    except Exception:
+        pass
+    return rejected
+
+
+def _disable_provider(provider: str) -> None:
+    """Mark a provider unusable process-wide (model_registry honours this)."""
+    current = {
+        p.strip().lower()
+        for p in os.environ.get("NARAD_DISABLED_PROVIDERS", "").split(",")
+        if p.strip()
+    }
+    current.add(provider)
+    os.environ["NARAD_DISABLED_PROVIDERS"] = ",".join(sorted(current))
+
+
+def resolve_brain() -> tuple[str, str]:
+    """→ (brain, reason) with brain ∈ {"deepseek", "grok"}."""
+    explicit = os.environ.get("NARAD_BRAIN", "").strip().lower()
+    if explicit in {"grok", "xai"}:
+        return "grok", "NARAD_BRAIN=grok"
+    if explicit:
+        return "deepseek", f"NARAD_BRAIN={explicit}"
+    _hydrate_stored_credentials()
+    ds_key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
+    if not ds_key:
+        if _grok_available():
+            return "grok", "no DeepSeek key — using the Grok sign-in"
+        return "deepseek", "default"
+    if _grok_available() and _deepseek_key_rejected(ds_key):
+        _disable_provider("deepseek")
+        return "grok", "DeepSeek rejected its key (401) — using the Grok sign-in instead"
+    return "deepseek", "DeepSeek key present"
+
+
+_BRAIN, _BRAIN_REASON = resolve_brain()
+if _BRAIN == "grok":
     _TIER_PRO, _TIER_FLASH = GROK, GROK
+    if os.environ.get("NARAD_BRAIN", "").strip():
+        log.info("Brain: %s (%s)", GROK, _BRAIN_REASON)
+    else:
+        log.warning("Brain: %s (%s)", GROK, _BRAIN_REASON)
 else:
     _TIER_PRO, _TIER_FLASH = DS_PRO, DS_FLASH
+    log.info("Brain: %s (%s)", DS_PRO, _BRAIN_REASON)
+
+# Public tier aliases — follow the resolved brain. (DS_PRO / DS_FLASH always
+# name the DeepSeek models; use these when "same provider as the brain" is
+# what you actually mean.)
+TIER_PRO, TIER_FLASH = _TIER_PRO, _TIER_FLASH
 
 AVATAR_MODELS = {
     "narad":       os.environ.get("NARAD_MODEL",       _TIER_FLASH),  # fast routing dispatch, not multi-turn reasoning
@@ -136,8 +276,8 @@ def get_vision_model(avatar_name: str) -> tuple[str, str | None]:
 
 
 # ── Visual output task detection (UI / PPT / HTML deck generation) ────────────
-# Used to bump Krishna onto DeepSeek V4 Pro for visual artifact generation while
-# keeping the normal provider path on DeepSeek instead of swapping into Mimo.
+# Used to bump Krishna onto the brain's pro tier for visual artifact generation
+# while keeping the same provider instead of swapping into Mimo.
 
 _VISUAL_OUTPUT_KEYWORDS: frozenset[str] = frozenset({
     "slide deck", "slides", "presentation", "pitch deck", "ppt",
@@ -163,12 +303,12 @@ def is_visual_output_task(task: str) -> bool:
 def get_visual_output_model(avatar_name: str) -> tuple[str, str | None]:
     """Return (model, api_base_or_None) for visual output generation tasks.
 
-    Visual output tasks stay on DeepSeek by default to avoid cross-provider auth
-    failures mid-turn. A per-avatar override remains possible via
-    {AVATAR_NAME}_VISUAL_MODEL if we ever want a different same-provider path.
+    Visual output tasks stay on the brain's own pro tier to avoid
+    cross-provider auth failures mid-turn. A per-avatar override remains
+    possible via {AVATAR_NAME}_VISUAL_MODEL.
     """
     override = os.environ.get(f"{avatar_name.upper()}_VISUAL_MODEL", "")
-    return (override or DS_PRO, None)
+    return (override or TIER_PRO, None)
 
 
 def get_thinking_instructions(avatar_name: str) -> str:

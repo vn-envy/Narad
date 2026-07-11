@@ -31,7 +31,7 @@ from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.adk.tools import FunctionTool
 from google.genai import types as genai_types
-from model_config import AVATAR_MODELS, DS_PRO
+from model_config import AVATAR_MODELS, TIER_PRO
 from runtime_contract import (
     agent_runtime_status as _agent_runtime_status,
 )
@@ -296,11 +296,11 @@ def _make_avatar_tool(agent: LlmAgent, user_id: str = "default") -> FunctionTool
             )
         elif use_visual_out:
             _vlog.getLogger("narad.vision").info(
-                "%s: visual output mode → %s", agent.name, DS_PRO
+                "%s: visual output mode → %s", agent.name, TIER_PRO
             )
             run_agent = LlmAgent(
                 name=agent.name,
-                model=LiteLlm(model=DS_PRO),
+                model=LiteLlm(model=TIER_PRO),
                 instruction=agent.instruction,
                 tools=agent.tools,
             )

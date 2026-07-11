@@ -204,7 +204,7 @@ Tuning env vars: `NARAD_WHISPER_MODEL` (tiny/base/small/medium), `NARAD_TTS_ENGI
 
 ### Grok as an alternative brain (optional)
 
-Have SuperGrok or X Premium+? **Sign in with Grok** in Settings → Connections (OAuth — no API key to paste) and set `NARAD_BRAIN=grok` to run the whole avatāra fleet on `xai/grok-4.3` instead of DeepSeek. Per-avatar overrides (`KRISHNA_MODEL=xai/grok-4.3` etc.) let you mix providers freely; a real `XAI_API_KEY` in `.env` always wins over the stored OAuth token.
+Have SuperGrok or X Premium+? **Sign in with Grok** in Settings → Connections (OAuth — no API key to paste) — that's it. When no working DeepSeek key is configured (missing, or the API rejects it with 401), the whole avatāra fleet automatically runs on `xai/grok-4.3` at the next start. Set `NARAD_BRAIN=grok` to force Grok even alongside a working DeepSeek key. Per-avatar overrides (`KRISHNA_MODEL=xai/grok-4.3` etc.) let you mix providers freely; a real `XAI_API_KEY` in `.env` always wins over the stored OAuth token.
 
 ### Security defaults
 

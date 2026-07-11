@@ -76,8 +76,23 @@ def detect_provider(model: str) -> str:
     return "unknown"
 
 
+def _disabled_providers() -> set[str]:
+    """Providers marked unusable for this process (e.g. a key the API rejected).
+
+    Set by model_config's brain resolution via NARAD_DISABLED_PROVIDERS so
+    escalation fallbacks and epoch restores never route back into them.
+    """
+    return {
+        p.strip().lower()
+        for p in os.environ.get("NARAD_DISABLED_PROVIDERS", "").split(",")
+        if p.strip()
+    }
+
+
 def provider_available_for_model(model: str) -> bool:
     provider = detect_provider(model)
+    if provider in _disabled_providers():
+        return False
     if provider == "deepseek":
         return bool(os.environ.get("DEEPSEEK_API_KEY", "").strip())
     if provider == "google":

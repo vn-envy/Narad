@@ -752,9 +752,20 @@ def _working_state_context(state: dict[str, Any] | None) -> str:
 def _runtime_epoch_from_state(state: dict[str, Any] | None, fallback_model: str) -> RuntimeEpoch | None:
     if not state or not state.get("runtime_epoch_id"):
         return None
+    model = str(state.get("runtime_epoch_model") or fallback_model)
+    if model != fallback_model:
+        # Sessions persist their model, but the brain can change between runs
+        # (key revoked, Grok signed in/out). Never restore onto a provider
+        # that can no longer answer — rejoin the active brain instead.
+        try:
+            from model_registry import provider_available_for_model
+            if not provider_available_for_model(model):
+                model = fallback_model
+        except Exception:
+            pass
     return RuntimeEpoch(
         epoch_id=str(state["runtime_epoch_id"]),
-        model=str(state.get("runtime_epoch_model") or fallback_model),
+        model=model,
         turn_count=int(state.get("runtime_epoch_turn_count", 0) or 0),
         last_prompt_tokens=int(state.get("runtime_epoch_last_prompt_tokens", 0) or 0),
         peak_prompt_tokens=int(state.get("runtime_epoch_peak_prompt_tokens", 0) or 0),
