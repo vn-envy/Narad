@@ -33,6 +33,7 @@ export default function App() {
     activeArtifactSession, clearArtifact,
     pendingToolUi, clearToolUi,
     kanbanUpdate, andonAlert, clearSession, resumeSession,
+    guidedSession, answerGuided, skipGuided, exitGuided,
   } = useAvatara(USER_ID)
 
   const [darshanOpen, setDarshanOpen] = useState(false)
@@ -91,6 +92,10 @@ export default function App() {
             onOpenVoice={() => setVoiceOpen(true)}
             activeArtifact={activeArtifactSession}
             onCloseArtifact={clearArtifact}
+            guidedSession={guidedSession}
+            onGuidedAnswer={answerGuided}
+            onGuidedSkip={skipGuided}
+            onGuidedExit={() => exitGuided()}
           />
         </div>
 

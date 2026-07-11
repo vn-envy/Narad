@@ -37,6 +37,8 @@ export interface Message {
   usage?: TokenUsage
   avatarUsage?: Record<string, TokenUsage>
   avatarLatencies?: Record<string, number>
+  /** G7: present when this message is a guided-mode (guru) card, not prose. */
+  guru?: GuruPayload
 }
 
 export interface SessionInfo {
@@ -93,6 +95,55 @@ export interface ActiveArtifactSession {
     edges?: ArtifactConceptEdge[]
   }
 }
+
+// ── Guided mode (G7): /teach's step-by-step session loop ─────────────────────
+
+export interface GuidedQuiz {
+  type: 'mcq' | 'free'
+  question: string
+  options?: string[]
+}
+
+export interface GuidedProgress {
+  total: number
+  mastered: number
+  shaky: number
+  topic: string
+  mode: string
+}
+
+export interface GuidedStep {
+  kind: 'atom' | 'complete'
+  atom_id?: string
+  name?: string
+  narration?: string
+  artifact_html?: string
+  quiz?: GuidedQuiz
+  message?: string
+  progress: GuidedProgress
+  avatar: string
+}
+
+export interface GuidedGrade {
+  correct: boolean
+  feedback: string
+  remediation: string
+  grader?: string
+  choiceIndex?: number
+}
+
+export interface GuidedSessionMeta {
+  workspaceId: string
+  topic: string
+  mode: string
+  status: string
+}
+
+export type GuruPayload =
+  | { kind: 'step'; step: GuidedStep; grade?: GuidedGrade; answered?: boolean }
+  | { kind: 'complete'; message: string; progress?: GuidedProgress }
+  | { kind: 'exit'; message: string; progress?: GuidedProgress }
+  | { kind: 'info'; message: string }
 
 export interface ToolArtifact {
   type: string
@@ -157,6 +208,7 @@ interface AvatararState {
   pendingToolUi: PendingToolUi | null
   kanbanUpdate: KanbanUpdatePayload | null
   andonAlert: AndonAlertPayload | null
+  guidedSession: GuidedSessionMeta | null
 }
 
 const AVATAR_NAMES: AvatarName[] = ['Matsya', 'Rama', 'Krishna', 'Parashurama']
@@ -169,6 +221,32 @@ function initialAvatars(): Record<AvatarName, AvatarStatus> {
 
 const SESSION_KEY = 'avatara_messages'
 const CONVO_SESSION_KEY = 'avatara_convo_session_id'
+const GUIDED_KEY = 'narad_guided_session'
+
+/** Parse guided-mode slash commands. Returns null for normal chat messages. */
+export function parseGuidedCommand(query: string):
+  | { action: 'teach'; topic: string }
+  | { action: 'teach-empty' }
+  | { action: 'exit' }
+  | null {
+  const q = query.trim()
+  const teach = q.match(/^\/teach\b(?:\s+me\b)?(?:\s+about\b)?\s*(.*)$/i)
+  if (teach) {
+    const topic = (teach[1] ?? '').trim().replace(/[?.!]+$/, '').trim()
+    return topic ? { action: 'teach', topic } : { action: 'teach-empty' }
+  }
+  if (/^\/exit\b/i.test(q)) return { action: 'exit' }
+  return null
+}
+
+function loadGuidedSession(): GuidedSessionMeta | null {
+  try {
+    const raw = readStorage(GUIDED_KEY)
+    return raw ? (JSON.parse(raw) as GuidedSessionMeta) : null
+  } catch {
+    return null
+  }
+}
 
 function readStorage(key: string): string | null {
   try {
@@ -286,6 +364,7 @@ export function useAvatara(userId = 'default') {
     pendingToolUi: null,
     kanbanUpdate: null,
     andonAlert: null,
+    guidedSession: loadGuidedSession(),
   })
 
   // Set to Date.now() on the FIRST narad_synthesis chunk — intentionally excludes
@@ -393,8 +472,203 @@ export function useAvatara(userId = 'default') {
     abortRef.current?.abort()
   }, [])
 
+  // ── Guided mode (G7): /teach loop, deterministic server state machine ───────
+  // Ref mirrors state.guidedSession so send()'s closure never goes stale.
+  const guidedRef = useRef<GuidedSessionMeta | null>(loadGuidedSession())
+
+  const setGuided = useCallback((meta: GuidedSessionMeta | null) => {
+    guidedRef.current = meta
+    if (meta) writeStorage(GUIDED_KEY, JSON.stringify(meta))
+    else removeStorage(GUIDED_KEY)
+    setState(s => ({ ...s, guidedSession: meta }))
+  }, [])
+
+  const appendMessages = useCallback((newMessages: Message[]) => {
+    setState(s => ({ ...s, messages: [...s.messages, ...newMessages] }))
+  }, [])
+
+  /** Convert a server step payload into a guru chat message. */
+  const stepToMessage = useCallback((step: GuidedStep): Message => {
+    if (step.kind === 'complete') {
+      return {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        text: step.message ?? 'All atoms mastered.',
+        avatarsInvolved: ['Krishna'],
+        guru: { kind: 'complete', message: step.message ?? 'All atoms mastered.', progress: step.progress },
+      }
+    }
+    return {
+      id: crypto.randomUUID(),
+      role: 'assistant',
+      // text mirrors narration so copy + per-message speak buttons work as-is
+      text: step.narration ?? '',
+      avatarsInvolved: ['Krishna'],
+      guru: { kind: 'step', step },
+    }
+  }, [])
+
+  const guidedPost = useCallback(async (path: string, body: Record<string, unknown>) => {
+    const response = await apiFetch(apiUrl(path, { user_id: userId }), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      throw new Error(typeof data.detail === 'string' ? data.detail : `HTTP ${response.status}`)
+    }
+    return data
+  }, [userId])
+
+  const startGuided = useCallback(async (rawQuery: string, topic: string, mode = 'teach') => {
+    const userMsg: Message = { id: crypto.randomUUID(), role: 'user', text: rawQuery }
+    appendMessages([userMsg])
+    setState(s => ({ ...s, streaming: true, error: null }))
+    try {
+      const data = await guidedPost('/learning/guided/start', { topic, mode })
+      const session = data.session as { workspace_id: string; topic: string; mode: string; status: string }
+      const step = data.step as GuidedStep
+      if (step.kind === 'complete') {
+        setGuided(null)
+      } else {
+        setGuided({
+          workspaceId: session.workspace_id,
+          topic: session.topic,
+          mode: session.mode,
+          status: 'active',
+        })
+      }
+      const intro: Message[] = []
+      if (data.resumed && step.kind === 'atom') {
+        intro.push({
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          text: `Welcome back — resuming ${session.topic} where you left off.`,
+          avatarsInvolved: ['Krishna'],
+          guru: { kind: 'info', message: `Welcome back — resuming ${session.topic} where you left off.` },
+        })
+      }
+      appendMessages([...intro, stepToMessage(step)])
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not start the lesson.'
+      appendMessages([{
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        text: message,
+        avatarsInvolved: ['Krishna'],
+        guru: { kind: 'info', message },
+      }])
+    } finally {
+      setState(s => ({ ...s, streaming: false }))
+    }
+  }, [appendMessages, guidedPost, setGuided, stepToMessage])
+
+  const answerGuided = useCallback(async (messageId: string, answer?: string, choiceIndex?: number) => {
+    const meta = guidedRef.current
+    if (!meta) return
+    setState(s => ({ ...s, streaming: true }))
+    try {
+      const data = await guidedPost('/learning/guided/answer', {
+        workspace_id: meta.workspaceId,
+        answer: answer ?? '',
+        choice_index: choiceIndex ?? null,
+      })
+      const grade: GuidedGrade = {
+        correct: Boolean(data.grade?.correct),
+        feedback: String(data.grade?.feedback ?? ''),
+        remediation: String(data.grade?.remediation ?? ''),
+        grader: data.grade?.grader ? String(data.grade.grader) : undefined,
+        choiceIndex,
+      }
+      // Stamp the grade onto the quiz card that was answered.
+      setState(s => ({
+        ...s,
+        messages: s.messages.map(m =>
+          m.id === messageId && m.guru?.kind === 'step'
+            ? { ...m, guru: { ...m.guru, grade, answered: grade.correct || m.guru.step.quiz?.type === 'mcq' } }
+            : m
+        ),
+      }))
+      if (data.advanced && data.step) {
+        const step = data.step as GuidedStep
+        if (step.kind === 'complete') setGuided(null)
+        appendMessages([stepToMessage(step)])
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Grading failed — try again.'
+      setState(s => ({ ...s, error: message }))
+    } finally {
+      setState(s => ({ ...s, streaming: false }))
+    }
+  }, [appendMessages, guidedPost, setGuided, stepToMessage])
+
+  const skipGuided = useCallback(async () => {
+    const meta = guidedRef.current
+    if (!meta) return
+    setState(s => ({ ...s, streaming: true }))
+    try {
+      const data = await guidedPost('/learning/guided/skip', { workspace_id: meta.workspaceId })
+      const step = data.step as GuidedStep
+      if (step.kind === 'complete') setGuided(null)
+      appendMessages([stepToMessage(step)])
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not skip.'
+      setState(s => ({ ...s, error: message }))
+    } finally {
+      setState(s => ({ ...s, streaming: false }))
+    }
+  }, [appendMessages, guidedPost, setGuided, stepToMessage])
+
+  const exitGuided = useCallback(async (rawQuery?: string) => {
+    const meta = guidedRef.current
+    if (!meta) return
+    if (rawQuery) {
+      appendMessages([{ id: crypto.randomUUID(), role: 'user', text: rawQuery }])
+    }
+    try {
+      const data = await guidedPost('/learning/guided/exit', { workspace_id: meta.workspaceId })
+      const message = String(data.message ?? 'Guru mode closed.')
+      appendMessages([{
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        text: message,
+        avatarsInvolved: ['Krishna'],
+        guru: { kind: 'exit', message, progress: data.progress as GuidedProgress | undefined },
+      }])
+    } catch {
+      // Exit must never trap the user — clear locally even if the server call failed.
+    } finally {
+      setGuided(null)
+    }
+  }, [appendMessages, guidedPost, setGuided])
+
   const send = useCallback(async (query: string, images: string[] = []) => {
     if (!query.trim() || state.streaming) return
+
+    // G7: slash commands route to the guided-mode state machine, not /chat.
+    const guidedCmd = parseGuidedCommand(query)
+    if (guidedCmd?.action === 'teach') {
+      await startGuided(query.trim(), guidedCmd.topic)
+      return
+    }
+    if (guidedCmd?.action === 'teach-empty') {
+      appendMessages([
+        { id: crypto.randomUUID(), role: 'user', text: query.trim() },
+        {
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          text: 'Tell me what to teach — for example: /teach me virtual memory',
+          avatarsInvolved: ['Krishna'],
+          guru: { kind: 'info', message: 'Tell me what to teach — for example: /teach me virtual memory' },
+        },
+      ])
+      return
+    }
+    if (guidedCmd?.action === 'exit' && guidedRef.current) {
+      await exitGuided(query.trim())
+      return
+    }
 
     // Append user message
     const userMsg: Message = { id: crypto.randomUUID(), role: 'user', text: query }
@@ -959,7 +1233,7 @@ export function useAvatara(userId = 'default') {
         error: lastErr ?? 'Connection lost — check that the server is reachable.',
       }))
     }
-  }, [state.streaming, state.activeArtifactSession, userId])
+  }, [state.streaming, state.activeArtifactSession, userId, startGuided, exitGuided, appendMessages])
 
   const clearArtifact = useCallback(() => {
     setState(s => ({ ...s, activeArtifactSession: null }))
@@ -1029,6 +1303,8 @@ export function useAvatara(userId = 'default') {
     const previousSessionId = convoSessionId.current
     removeStorage(SESSION_KEY)
     removeStorage(CONVO_SESSION_KEY)
+    removeStorage(GUIDED_KEY)
+    guidedRef.current = null
     if (previousSessionId) {
       apiFetch(apiUrl(`/thread/${previousSessionId}`, { user_id: userId }), { method: 'DELETE' }).catch(() => {})
     }
@@ -1043,8 +1319,12 @@ export function useAvatara(userId = 'default') {
       avatars:        initialAvatars(),
       pendingToolUi:  null,
       activeArtifactSession: null,
+      guidedSession:  null,
     }))
   }, [userId])
 
-  return { ...state, send, stop, clearArtifact, clearToolUi, clearAndon, clearSession, resumeSession }
+  return {
+    ...state, send, stop, clearArtifact, clearToolUi, clearAndon, clearSession, resumeSession,
+    answerGuided, skipGuided, exitGuided,
+  }
 }

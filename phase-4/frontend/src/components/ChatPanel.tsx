@@ -1,11 +1,12 @@
 import { useState, useRef, useEffect } from 'react'
-import type { ActiveArtifactSession, Message, AvatarName, AvatarStatus, TokenUsage } from '../hooks/useAvatara'
+import type { ActiveArtifactSession, Message, AvatarName, AvatarStatus, TokenUsage, GuidedSessionMeta } from '../hooks/useAvatara'
 import { useTTS, VOICE_AVATARS } from '../hooks/useTTS'
 import type { TTSAvatar } from '../hooks/useTTS'
 import { MahatiLogo } from './MahatiLogo'
 import { ZigzagBank } from './Motifs'
+import { GuruMessage } from './GuruCards'
 import { cn } from '@/lib/utils'
-import { Pencil, RotateCcw, Square, Copy, Check, Volume2, VolumeX, Loader, Paperclip, X, Mic } from 'lucide-react'
+import { Pencil, RotateCcw, Square, Copy, Check, Volume2, VolumeX, Loader, Paperclip, X, Mic, GraduationCap } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { AVATAR_COLOURS, AVATAR_RGB, DEVA, isAvatarName } from '@/lib/avatara-constants'
@@ -13,7 +14,7 @@ import { AVATAR_COLOURS, AVATAR_RGB, DEVA, isAvatarName } from '@/lib/avatara-co
 const SUGGESTIONS: Array<{ label: string; prompt: string }> = [
   { label: 'Plan my week',        prompt: 'Plan my week from my calendar and open tasks.' },
   { label: 'Research a topic',    prompt: 'Research the latest on ' },
-  { label: 'Draft an email',      prompt: 'Draft an email to ' },
+  { label: 'Teach me something',  prompt: '/teach me ' },
   { label: 'Automate something',  prompt: 'Write a script that ' },
 ]
 
@@ -280,6 +281,10 @@ interface Props {
   onOpenVoice?: () => void
   activeArtifact?: ActiveArtifactSession | null
   onCloseArtifact?: () => void
+  guidedSession?: GuidedSessionMeta | null
+  onGuidedAnswer?: (messageId: string, answer?: string, choiceIndex?: number) => void
+  onGuidedSkip?: () => void
+  onGuidedExit?: () => void
 }
 
 export function ChatPanel({
@@ -293,6 +298,10 @@ export function ChatPanel({
   onOpenVoice,
   activeArtifact,
   onCloseArtifact,
+  guidedSession,
+  onGuidedAnswer,
+  onGuidedSkip,
+  onGuidedExit,
 }: Props) {
   const [input, setInput] = useState('')
   const [pendingImages, setPendingImages] = useState<string[]>([])
@@ -325,6 +334,24 @@ export function ChatPanel({
   useEffect(() => {
     if (nearBottomRef.current) scrollToBottom()
     else setShowJump(true)
+  }, [messages])
+
+  // G7: guru mode defaults to voice — auto-speak each new atom's narration in
+  // Krishna's voice. History restored on page load is seeded as already-spoken
+  // so a refresh never replays old lessons.
+  const spokenRef = useRef<Set<string> | null>(null)
+  useEffect(() => {
+    if (spokenRef.current === null) {
+      spokenRef.current = new Set(messages.filter(m => m.guru).map(m => m.id))
+      return
+    }
+    const last = messages[messages.length - 1]
+    if (!last?.guru || spokenRef.current.has(last.id)) return
+    spokenRef.current.add(last.id)
+    if (last.guru.kind === 'step' && last.guru.step.narration) {
+      tts.speak(last.guru.step.narration, 'Krishna', last.id, 'en')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages])
 
   const attachImages = (files: FileList) => {
@@ -438,6 +465,33 @@ export function ChatPanel({
         </div>
       </div>
 
+      {/* G7: guru-mode banner — visible whenever a guided session is active */}
+      {guidedSession && (
+        <div
+          className="flex items-center gap-2 px-4 py-1.5 flex-shrink-0"
+          style={{
+            background: 'rgba(29,78,216,0.07)',
+            borderBottom: '1px solid rgba(29,78,216,0.18)',
+          }}
+        >
+          <GraduationCap size={12} style={{ color: '#1d4ed8' }} />
+          <span className="font-mono text-[10.5px] uppercase tracking-wider" style={{ color: '#1d4ed8' }}>
+            Guru mode
+          </span>
+          <span className="text-[11.5px] truncate flex-1" style={{ color: 'var(--kajal)', fontFamily: 'var(--font-body)', opacity: 0.75 }}>
+            {guidedSession.topic}
+          </span>
+          <button
+            onClick={() => onGuidedExit?.()}
+            className="text-[10.5px] font-mono px-2 py-0.5 rounded opacity-60 hover:opacity-100 transition-opacity"
+            style={{ color: '#1d4ed8', border: '1px solid rgba(29,78,216,0.3)' }}
+            title="Exit guru mode (or type /exit)"
+          >
+            exit
+          </button>
+        </div>
+      )}
+
       {/* Messages */}
       <div className="relative flex-1 min-h-0">
       <div
@@ -477,6 +531,25 @@ export function ChatPanel({
         )}
 
         {messages.map(msg => {
+          // G7: guided-mode cards render as their own wide block, not a bubble.
+          if (msg.role === 'assistant' && msg.guru) {
+            return (
+              <div key={msg.id} className="w-full max-w-[92%] self-start">
+                <GuruMessage
+                  payload={msg.guru}
+                  busy={streaming}
+                  speaking={tts.playingId === `${msg.id}:en` && tts.state !== 'idle'}
+                  onAnswer={(answer, choiceIndex) => onGuidedAnswer?.(msg.id, answer, choiceIndex)}
+                  onSkip={() => onGuidedSkip?.()}
+                  onReplayVoice={() => {
+                    const narration = msg.guru?.kind === 'step' ? msg.guru.step.narration : msg.text
+                    if (narration) tts.speak(narration, 'Krishna', msg.id, 'en')
+                  }}
+                />
+              </div>
+            )
+          }
+
           const primaryAvatar = msg.avatarsInvolved?.[0]
           const avatarClass = primaryAvatar
             ? `avatar-glass-${primaryAvatar.toLowerCase()}`

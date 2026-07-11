@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+import guided_mode
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
@@ -75,6 +76,21 @@ class SyllabusGenerate(BaseModel):
 class CheckAnswer(BaseModel):
     atom_id: str
     answer: str
+
+
+class GuidedStart(BaseModel):
+    topic: str
+    mode: str = "teach"
+
+
+class GuidedAnswer(BaseModel):
+    workspace_id: str
+    answer: str = ""
+    choice_index: Optional[int] = None
+
+
+class GuidedWorkspaceRef(BaseModel):
+    workspace_id: str
 
 
 @learning_router.get("/workspaces")
@@ -248,3 +264,66 @@ async def post_learning_artifact_update(artifact_id: str, payload: LearningArtif
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="learning artifact not found")
     return {"status": "ok", "artifact": artifact}
+
+
+# ── Guided mode (G7): /teach's step-by-step session loop ─────────────────────
+
+@learning_router.get("/guided/modes")
+async def get_guided_modes():
+    return {
+        "modes": [
+            {"mode": name, "label": cfg["label"], "avatar": cfg["avatar"]}
+            for name, cfg in guided_mode.MODES.items()
+        ]
+    }
+
+
+@learning_router.post("/guided/start")
+async def post_guided_start(payload: GuidedStart, user_id: str = "default"):
+    try:
+        result = guided_mode.start_session(
+            user_id=user_id, mode=payload.mode, topic=payload.topic,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"status": "ok", **result}
+
+
+@learning_router.get("/guided/session/{workspace_id}")
+async def get_guided_session(workspace_id: str, user_id: str = "default"):
+    result = guided_mode.get_session(user_id=user_id, workspace_id=workspace_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="no guided session for this workspace")
+    return {"status": "ok", **result}
+
+
+@learning_router.post("/guided/answer")
+async def post_guided_answer(payload: GuidedAnswer, user_id: str = "default"):
+    try:
+        result = guided_mode.submit_answer(
+            user_id=user_id,
+            workspace_id=payload.workspace_id,
+            answer=payload.answer,
+            choice_index=payload.choice_index,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"status": "ok", **result}
+
+
+@learning_router.post("/guided/skip")
+async def post_guided_skip(payload: GuidedWorkspaceRef, user_id: str = "default"):
+    try:
+        result = guided_mode.skip_atom(user_id=user_id, workspace_id=payload.workspace_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"status": "ok", **result}
+
+
+@learning_router.post("/guided/exit")
+async def post_guided_exit(payload: GuidedWorkspaceRef, user_id: str = "default"):
+    try:
+        result = guided_mode.exit_session(user_id=user_id, workspace_id=payload.workspace_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"status": "ok", **result}
