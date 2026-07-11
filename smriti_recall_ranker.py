@@ -14,9 +14,8 @@ log = logging.getLogger("narad.smriti")
 
 from narad_config import EPISODE_DIR
 from smriti_indexer import (
-    ensure_project_wiki_indexed,
-    ensure_user_episode_index,
     fts_search_episodes,
+    schedule_index_refresh,
 )
 from smriti_vector_store import VectorMemoryRecord, memory_tier_diagnostics, search_records
 
@@ -208,7 +207,11 @@ def build_semantic_memory_context(
     limit: int = 4,
 ) -> dict[str, Any]:
     try:
-        ensure_user_episode_index(user_id)
+        # Never index inline — a model switch can re-embed everything and once
+        # stalled routing for 6+ minutes. Refresh in the background; this turn
+        # recalls against the existing index (new episodes are still reachable
+        # via the FTS5 lexical plane written at append time).
+        schedule_index_refresh(user_id, project_id)
         raw_hits = search_records(
             user_id=user_id,
             namespace="episodic_summary",
@@ -266,7 +269,9 @@ def build_project_memory_context(
     model: str = "deepseek/deepseek-v4-flash",
     limit: int = 5,
 ) -> dict[str, Any]:
-    ensure_project_wiki_indexed(user_id, project_id)
+    # Background refresh only — inline wiki indexing once blocked a chat turn
+    # for 6+ minutes when a model switch re-embedded 516 sections.
+    schedule_index_refresh(user_id, project_id)
     raw_hits = search_records(
         user_id=user_id,
         namespace="project_wiki",

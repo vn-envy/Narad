@@ -103,12 +103,16 @@ def _local_embed(text: str, dim: int = _LOCAL_DIM) -> list[float]:
     return _l2_normalize(buckets)
 
 
-def _embed(text: str) -> list[float]:
-    """Embed via the selected provider. Raises EmbeddingUnavailableError on failure."""
+def _embed_many(texts: list[str]) -> list[list[float]]:
+    """Embed a batch via the selected provider — ONE API call per batch.
+
+    Raises EmbeddingUnavailableError on failure. Batching matters: indexing
+    516 wiki sections serially took 6+ minutes; batched it is a few calls.
+    """
     global _embed_unavailable_until
     provider = _SMRITI_EMBED_PROVIDER
     if provider == "local":
-        return _local_embed(text)
+        return [_local_embed(text) for text in texts]
 
     now = time.time()
     if _embed_unavailable_until and now < _embed_unavailable_until:
@@ -116,6 +120,8 @@ def _embed(text: str) -> list[float]:
             f"embedding provider {provider} cooling down until "
             f"{datetime.fromtimestamp(_embed_unavailable_until, tz=timezone.utc).isoformat()}"
         )
+
+    clipped = [text[:4000] for text in texts]
 
     if provider == "gemini":
         try:
@@ -127,10 +133,10 @@ def _embed(text: str) -> list[float]:
             client = _genai.Client(api_key=api_key)
             resp = client.models.embed_content(
                 model="gemini-embedding-001",
-                contents=text[:4000],
+                contents=clipped,
                 config=_gtypes.EmbedContentConfig(output_dimensionality=768),
             )
-            return resp.embeddings[0].values
+            return [e.values for e in resp.embeddings]
         except Exception as exc:
             message = str(exc).lower()
             if any(token in message for token in ("quota", "resource_exhausted", "429", "rate limit")):
@@ -157,8 +163,10 @@ def _embed(text: str) -> list[float]:
         if not api_key:
             raise RuntimeError(f"SMRITI_EMBEDDING_MODEL={provider} but no API key is set")
         client = _openai.OpenAI(api_key=api_key, base_url=base_url)
-        resp = client.embeddings.create(model="text-embedding-3-small", input=text[:4000])
-        return resp.data[0].embedding
+        resp = client.embeddings.create(model="text-embedding-3-small", input=clipped)
+        # The API may return out of order — index field is authoritative.
+        ordered = sorted(resp.data, key=lambda item: item.index)
+        return [item.embedding for item in ordered]
     except Exception as exc:
         _embed_unavailable_until = max(
             _embed_unavailable_until,
@@ -166,6 +174,11 @@ def _embed(text: str) -> list[float]:
         )
         log.warning("Smriti: %s embedding failed (visible, no fallback): %s", provider, exc)
         raise EmbeddingUnavailableError(str(exc)) from exc
+
+
+def _embed(text: str) -> list[float]:
+    """Embed via the selected provider. Raises EmbeddingUnavailableError on failure."""
+    return _embed_many([text])[0]
 
 
 def _safe_slug(value: str) -> str:
@@ -185,6 +198,29 @@ def embed_text(text: str) -> tuple[list[float], str]:
         return vector, f"local-hash-v1-{len(vector)}"
     vector = _l2_normalize(list(map(float, _embed(text[:4000]))))
     return vector, f"smriti-{_safe_slug(provider)}-{len(vector)}"
+
+
+_EMBED_BATCH_SIZE = int(os.environ.get("SMRITI_EMBED_BATCH_SIZE", "64"))
+
+
+def embed_texts(texts: list[str]) -> tuple[list[list[float]], str]:
+    """Batch variant of embed_text — same vectors and model id, far fewer calls.
+
+    Chunks the input so provider batch limits are respected. Raises
+    EmbeddingUnavailableError on failure — callers surface it, never mask it.
+    """
+    if not texts:
+        return [], current_embedding_model()
+    provider = _SMRITI_EMBED_PROVIDER
+    if provider == "local":
+        vectors = [_local_embed(text) for text in texts]
+        return vectors, f"local-hash-v1-{len(vectors[0])}"
+    vectors = []
+    for start in range(0, len(texts), max(_EMBED_BATCH_SIZE, 1)):
+        chunk = texts[start : start + max(_EMBED_BATCH_SIZE, 1)]
+        for raw in _embed_many(chunk):
+            vectors.append(_l2_normalize(list(map(float, raw))))
+    return vectors, f"smriti-{_safe_slug(provider)}-{len(vectors[0])}"
 
 
 _MODEL_CACHE: dict[str, str] = {}

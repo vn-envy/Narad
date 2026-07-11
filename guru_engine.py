@@ -124,6 +124,16 @@ def _record_cost(response: Any, source: str, model: str) -> None:
         pass
 
 
+# Hard ceiling per completion call — litellm's default is 600s, which turns
+# one wedged provider request into a 10-minute stall.
+_LLM_TIMEOUT_S = float(os.environ.get("NARAD_LLM_TIMEOUT_S", "120"))
+
+# Reasoning models (deepseek-v4-pro) count thinking tokens against max_tokens.
+# A budget that fits the JSON alone starves: content comes back EMPTY or
+# truncated mid-object. On such failures we retry with a doubled budget.
+_LLM_MAX_TOKENS_CEILING = 8192
+
+
 def llm_json(
     prompt: str,
     *,
@@ -137,6 +147,7 @@ def llm_json(
     import litellm
 
     delay = 1.0
+    budget = max_tokens
     last_error: Exception | None = None
     for attempt in range(max_retries + 1):
         try:
@@ -144,14 +155,20 @@ def llm_json(
                 model=model,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=temperature,
-                max_tokens=max_tokens,
+                max_tokens=budget,
+                timeout=_LLM_TIMEOUT_S,
             )
             _record_cost(response, source, model)
-            return _extract_json(response.choices[0].message.content.strip())
+            content = (response.choices[0].message.content or "").strip()
+            return _extract_json(content)
         except Exception as error:  # transient API or parse error — retry once more
             last_error = error
             if attempt == max_retries:
                 break
+            if isinstance(error, (json.JSONDecodeError, ValueError, AttributeError)):
+                # Empty/truncated output = token starvation, not a flaky API.
+                # Same budget would fail identically — grow it instead.
+                budget = min(budget * 2, _LLM_MAX_TOKENS_CEILING)
             time.sleep(delay)
             delay *= 2
     raise last_error or RuntimeError("llm_json failed")
@@ -302,7 +319,11 @@ def generate_syllabus(
         prompt = _SYLLABUS_PROMPT.format(topic=topic, packet=packet or "(none)", max_atoms=MAX_ATOMS)
         for _ in range(2):  # one retry on schema failure
             try:
-                candidate = llm_json(prompt, model=GURU_MODEL, source="guru_syllabus")
+                # 6000: a full syllabus is ~4-5k chars of JSON, and reasoning
+                # models spend budget thinking first — 3000 starved to ''.
+                candidate = llm_json(
+                    prompt, model=GURU_MODEL, source="guru_syllabus", max_tokens=6000,
+                )
                 if not _validate_syllabus(candidate):
                     data = candidate
                     break

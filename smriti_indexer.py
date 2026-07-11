@@ -4,6 +4,7 @@ import json
 import logging
 import re
 import sqlite3
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,7 @@ from smriti_vector_store import (
     _safe_slug,
     current_embedding_model,
     embed_text,
+    embed_texts,
     list_records,
     sync_records,
     upsert_record,
@@ -334,8 +336,11 @@ def ensure_project_wiki_indexed(user_id: str = "default", project_id: str = "gen
         if record.project_id == project_id and record.source_kind == "wiki_section"
     }
 
+    # Pass 1: collect sections, reusing unchanged embeddings. Pass 2: embed the
+    # changed sections in BATCHES — 516 serial embedding calls took 6+ minutes;
+    # batched it is a handful of API round-trips.
     records: list[VectorMemoryRecord] = []
-    embedded = 0
+    pending: list[dict[str, Any]] = []
     for page in sorted(project_dir.glob("*.md")):
         text = page.read_text(encoding="utf-8")
         for anchor, chunk in _split_wiki_sections(text):
@@ -350,29 +355,41 @@ def ensure_project_wiki_indexed(user_id: str = "default", project_id: str = "gen
             ):
                 records.append(previous)  # unchanged — no embedding call
                 continue
-            embedding, embedding_model = embed_text(chunk_text)
-            embedded += 1
+            pending.append({
+                "record_id": record_id,
+                "anchor": anchor,
+                "page": page,
+                "chunk": chunk,
+                "chunk_text": chunk_text,
+                "content_hash": content_hash,
+            })
+
+    embedded = len(pending)
+    if pending:
+        vectors, embedding_model = embed_texts([item["chunk_text"] for item in pending])
+        for item, embedding in zip(pending, vectors):
+            page = item["page"]
             records.append(
                 VectorMemoryRecord(
-                    record_id=record_id,
+                    record_id=item["record_id"],
                     namespace="project_wiki",
                     tier=select_memory_tier("project_wiki", created_at=_file_mtime_iso(page)),
                     user_id=user_id,
                     project_id=project_id,
                     source_kind="wiki_section",
                     source_path=str(page),
-                    source_ref=anchor,
+                    source_ref=item["anchor"],
                     created_at=_file_mtime_iso(page),
                     updated_at=_file_mtime_iso(page),
-                    preview=chunk.splitlines()[0][:180],
-                    text=chunk_text[:1800],
-                    content_hash=content_hash,
+                    preview=item["chunk"].splitlines()[0][:180],
+                    text=item["chunk_text"][:1800],
+                    content_hash=item["content_hash"],
                     embedding_model=embedding_model,
                     dim=len(embedding),
                     metadata={
                         "entity": page.stem,
                         "workspace_root": None,
-                        "section_anchor": anchor,
+                        "section_anchor": item["anchor"],
                     },
                     embedding=embedding,
                 )
@@ -392,3 +409,40 @@ def ensure_project_wiki_indexed(user_id: str = "default", project_id: str = "gen
                 "Smriti index: embedded %d wiki section(s) for %s/%s",
                 embedded, user_id, project_id,
             )
+
+
+# ── Background refresh (single-flight) ───────────────────────────────────────
+# Indexing must NEVER run inline in a chat turn: a provider/model switch can
+# re-embed the entire wiki (500+ sections), which once blocked routing for
+# 6+ minutes. Recall paths call schedule_index_refresh() and proceed against
+# the existing index; the refresh lands for the next turn. Brand-new episodes
+# are still findable immediately via the FTS5 lexical plane, which is written
+# synchronously at append time.
+
+_REFRESH_LOCK = threading.Lock()
+_REFRESH_IN_FLIGHT: set[str] = set()
+
+
+def schedule_index_refresh(user_id: str = "default", project_id: str = "general") -> bool:
+    """Kick episode + wiki indexing on a daemon thread. Single-flight per
+    USER (not per project) so two refreshes never write the same episode
+    manifests concurrently; a skipped project is picked up on the next call.
+    Returns True if a new refresh was started."""
+    key = user_id
+    with _REFRESH_LOCK:
+        if key in _REFRESH_IN_FLIGHT:
+            return False
+        _REFRESH_IN_FLIGHT.add(key)
+
+    def _run() -> None:
+        try:
+            ensure_user_episode_index(user_id)
+            ensure_project_wiki_indexed(user_id, project_id)
+        except Exception as exc:  # visible, never fatal — recall stays lexical
+            log.warning("Smriti background index refresh failed: %s", exc)
+        finally:
+            with _REFRESH_LOCK:
+                _REFRESH_IN_FLIGHT.discard(key)
+
+    threading.Thread(target=_run, name=f"smriti-index-{key}", daemon=True).start()
+    return True

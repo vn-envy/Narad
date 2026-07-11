@@ -209,6 +209,16 @@ except Exception as _adk_exc:
     Event = Any  # type: ignore[assignment]
     _ADK_IMPORT_ERROR = f"google.adk unavailable: {_adk_exc}"
 
+# ── LLM latency floor ─────────────────────────────────────────────────────────
+# litellm's default request timeout is 600s: one wedged provider call stalls
+# routing for 10 minutes with zero feedback. Bound EVERY completion in this
+# process (Narad router, avatars, guru) to a sane ceiling. Env-tunable.
+try:
+    import litellm as _litellm
+    _litellm.request_timeout = float(os.environ.get("NARAD_LLM_TIMEOUT_S", "120"))
+except Exception:
+    pass
+
 _AGENT_RUNTIME_IMPORT_ERROR: str | None = None
 try:
     from avatar_agents import AGENT_TOOL_NAMES, _images_ctx
@@ -529,7 +539,24 @@ async def _startup_runtime_contract() -> None:
         xai_oauth.apply_to_env()
     except Exception:
         pass
-    app.state.runtime_contract = collect_runtime_contract()
+    app.state.runtime_contract = None
+
+    # Contract collection imports every optional skill module (docling → torch,
+    # browser stack, ...) and can take tens of seconds on a cold start. Warm it
+    # on a daemon thread so the server answers requests immediately; /health
+    # and /capabilities collect on demand if they land before warmup finishes.
+    def _warm_contract() -> None:
+        try:
+            app.state.runtime_contract = collect_runtime_contract()
+        except Exception:
+            logging.getLogger("narad.server").warning(
+                "runtime contract warmup failed", exc_info=True
+            )
+
+    import threading
+    threading.Thread(
+        target=_warm_contract, name="runtime-contract-warmup", daemon=True
+    ).start()
 
 # ── Dharma Gate — input-level topic blocking ──────────────────────────────────
 import re as _re_gate

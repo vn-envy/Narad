@@ -14,6 +14,7 @@ from smriti_embed import (  # noqa: F401  — re-exported for callers
     EmbeddingUnavailableError,
     current_embedding_model,
     embed_text,
+    embed_texts,
 )
 
 try:
@@ -116,10 +117,14 @@ def _load_records(path: Path) -> dict[str, VectorMemoryRecord]:
 
 
 def _write_records(path: Path, records: list[VectorMemoryRecord]) -> None:
+    # Atomic replace: indexing runs on a background thread while recall reads —
+    # readers must never see a half-written manifest.
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as fh:
+    tmp = path.with_name(path.name + ".tmp")
+    with tmp.open("w", encoding="utf-8") as fh:
         for record in sorted(records, key=lambda item: (item.updated_at, item.record_id)):
             fh.write(json.dumps(record.to_dict(), ensure_ascii=False) + "\n")
+    tmp.replace(path)
 
 
 def _mark_dirty(index_dir: Path) -> None:

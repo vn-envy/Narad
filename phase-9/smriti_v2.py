@@ -23,7 +23,7 @@ from typing import Any
 
 # ── Storage ────────────────────────────────────────────────────────────────────
 from narad_config import WIKI_DIR
-from smriti_indexer import ensure_project_wiki_indexed
+from smriti_indexer import schedule_index_refresh
 from smriti_recall_ranker import build_project_memory_context
 
 try:
@@ -171,7 +171,9 @@ async def add_episode(
     entry = _format_wiki_entry(avatar, task, result)
     _append_to_wiki(user_id, entity_type, entry, project_id)
     try:
-        ensure_project_wiki_indexed(user_id, project_id)
+        # Daemon thread, single-flight — scribe runs inside the server's event
+        # loop, and inline indexing here once froze it for minutes.
+        schedule_index_refresh(user_id, project_id)
     except Exception:
         pass
 
