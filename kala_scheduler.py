@@ -4,10 +4,11 @@ Kala — Narad's in-process scheduler (M3.2).
 One asyncio loop (started at server startup) ticks every
 NARAD_SCHEDULER_INTERVAL seconds (default 60) and:
 
-  1. Fires due medication reminders — parses the free-text `schedule`
-     column of health.db medication_reminders ("once daily, 8am",
-     "twice daily 8am and 9:30pm", "evening") into times-of-day and
-     delivers each at most once per day via vahana.deliver().
+  1. Fires due medication reminders — for every family profile, parses the
+     free-text `schedule` column of that profile's own health.db
+     medication_reminders ("once daily, 8am", "twice daily 8am and 9:30pm",
+     "evening") into times-of-day and delivers each to that profile at most
+     once per day via vahana.deliver().
      Missed slots earlier today (server was down) still fire once,
      annotated with their original time — never silently dropped.
   2. Delivers due Teach Anything reviews.
@@ -106,8 +107,29 @@ def _active_medication_reminders(db_path: Path | None = None) -> list[dict]:
         return []
 
 
-def _fire_due_reminders(now: datetime, state: dict, *, user_id: str = "default") -> int:
-    """Fire every (reminder, time) slot due today and not yet delivered."""
+def _family_profile_ids() -> list[str]:
+    """Registered family profiles; the single-user owner when there is no registry yet."""
+    try:
+        from family_profiles import FAMILY_PROFILES_PATH, list_profiles
+
+        # Never bootstrap the registry from a background tick.
+        profiles = list_profiles() if FAMILY_PROFILES_PATH.exists() else []
+        profile_ids = [str(profile.get("user_id") or "") for profile in profiles]
+    except Exception as exc:
+        log.warning("Kala: could not list family profiles: %s", exc)
+        profile_ids = []
+    return [profile_id for profile_id in profile_ids if profile_id] or ["default"]
+
+
+def _profile_health_db(profile_id: str) -> Path:
+    """The profile's own health.db, scoped exactly as health_skill scopes it."""
+    from profile_context import profile_data_path
+
+    return profile_data_path("health.db", profile_id=profile_id, legacy_default=HEALTH_DB)
+
+
+def _fire_due_reminders(now: datetime, state: dict) -> int:
+    """Fire every profile's (reminder, time) slots due today and not yet delivered."""
     from vahana import deliver
 
     today = now.strftime("%Y-%m-%d")
@@ -118,28 +140,38 @@ def _fire_due_reminders(now: datetime, state: dict, *, user_id: str = "default")
     done_today = set(delivered.setdefault(today, []))
 
     fired = 0
-    for rem in _active_medication_reminders():
-        for hhmm in parse_schedule_times(rem.get("schedule", "")):
-            key = f"med:{rem['id']}:{hhmm}"
-            if key in done_today:
-                continue
-            hour, minute = map(int, hhmm.split(":"))
-            fire_at = datetime.combine(now.date(), dtime(hour, minute))
-            if fire_at > now:
-                continue
-            late = (now - fire_at).total_seconds() > 15 * 60
-            note = f" (scheduled {hhmm})" if late else ""
-            deliver(
-                kind="reminder",
-                title=f"Medication: {rem['med_name']}",
-                body=f"Take {rem['med_name']} {rem['dose']} — {rem['schedule']}{note}",
-                user_id=user_id,
-                source="kala_scheduler.medication",
-                priority="high",
-                data={"reminder_id": rem["id"], "slot": hhmm},
-            )
-            done_today.add(key)
-            fired += 1
+    for profile_id in _family_profile_ids():
+        try:
+            reminders = _active_medication_reminders(_profile_health_db(profile_id))
+        except Exception as exc:
+            log.warning("Kala: skipped reminders for profile %s: %s", profile_id, exc)
+            continue
+        for rem in reminders:
+            for hhmm in parse_schedule_times(rem.get("schedule", "")):
+                # Reminder ids restart at 1 in every profile's database, so the
+                # de-duplication key is profile-scoped. The owner's pre-family
+                # keys still count, so an upgrade never repeats today's doses.
+                key = f"med:{profile_id}:{rem['id']}:{hhmm}"
+                legacy_key = f"med:{rem['id']}:{hhmm}" if profile_id == "default" else key
+                if key in done_today or legacy_key in done_today:
+                    continue
+                hour, minute = map(int, hhmm.split(":"))
+                fire_at = datetime.combine(now.date(), dtime(hour, minute))
+                if fire_at > now:
+                    continue
+                late = (now - fire_at).total_seconds() > 15 * 60
+                note = f" (scheduled {hhmm})" if late else ""
+                deliver(
+                    kind="reminder",
+                    title=f"Medication: {rem['med_name']}",
+                    body=f"Take {rem['med_name']} {rem['dose']} — {rem['schedule']}{note}",
+                    user_id=profile_id,
+                    source="kala_scheduler.medication",
+                    priority="high",
+                    data={"reminder_id": rem["id"], "slot": hhmm, "profile_id": profile_id},
+                )
+                done_today.add(key)
+                fired += 1
     delivered[today] = sorted(done_today)
     return fired
 
