@@ -44,6 +44,31 @@ const VoiceMode = lazy(async () => {
 
 const ACTIVE_WORKFLOW_KEY = 'narad_active_workflow_run'
 
+// A path binds to one chat thread, never to the device: a message carries
+// workflow_run_id only inside the thread the path was continued in.
+interface WorkflowBinding {
+  runId: string
+  sessionId: string | null
+}
+
+function loadWorkflowBinding(key: string): WorkflowBinding | null {
+  try {
+    const stored = JSON.parse(localStorage.getItem(key) || 'null') as Partial<WorkflowBinding> | null
+    if (!stored?.runId) return null
+    return { runId: String(stored.runId), sessionId: stored.sessionId ? String(stored.sessionId) : null }
+  } catch {
+    // Storage is optional; a bare run id from the old device-wide binding is dropped.
+    return null
+  }
+}
+
+function storeWorkflowBinding(key: string, binding: WorkflowBinding | null) {
+  try {
+    if (binding) localStorage.setItem(key, JSON.stringify(binding))
+    else localStorage.removeItem(key)
+  } catch { /* storage is optional */ }
+}
+
 export default function App() {
   const [profileSession, setActiveProfileSession] = useState<FamilyProfileSession | null>(() => getProfileSession())
   const [checkingSession, setCheckingSession] = useState(Boolean(profileSession))
@@ -114,7 +139,7 @@ function NaradSession({ profile, onSwitchProfile }: { profile: FamilyProfile; on
     currentSession, send, stop, stepEvents, sessionTotals,
     activeArtifactSession, clearArtifact,
     pendingToolUi, clearToolUi,
-    andonAlert, clearSession,
+    andonAlert, clearSession, resumeSession,
     guidedSession, answerGuided, skipGuided, exitGuided,
   } = useAvatara(userId)
 
@@ -122,9 +147,20 @@ function NaradSession({ profile, onSwitchProfile }: { profile: FamilyProfile; on
   const [voiceOpen, setVoiceOpen] = useState(false)
   const [capabilities, setCapabilities] = useState<RuntimeCapabilities | null>(null)
   const [activeWorkflow, setActiveWorkflow] = useState<WorkflowRun | null>(null)
+  const [workflowBinding, setWorkflowBinding] = useState<WorkflowBinding | null>(() => loadWorkflowBinding(activeWorkflowKey))
+  const [pendingContinue, setPendingContinue] = useState<{ runId: string; prompt: string; sessionId: string } | null>(null)
   const [onboardingStatus, setOnboardingStatus] = useState<OnboardingStatus | null>(null)
   const [setupOpen, setSetupOpen] = useState(false)
   const isMobile = useIsMobile()
+  // The chat thread the next message goes to (null for a fresh, unsent thread).
+  const threadSessionId = currentSession?.sessionId
+    ?? [...messages].reverse().find(message => message.sessionId)?.sessionId
+    ?? null
+  const bindingRunId = workflowBinding?.runId ?? null
+  // The bound path applies only inside its own thread.
+  const threadWorkflowRunId = workflowBinding && (!workflowBinding.sessionId || workflowBinding.sessionId === threadSessionId)
+    ? workflowBinding.runId
+    : null
 
   useEffect(() => {
     let cancelled = false
@@ -156,58 +192,79 @@ function NaradSession({ profile, onSwitchProfile }: { profile: FamilyProfile; on
 
   useEffect(() => {
     let cancelled = false
-    let runId = ''
-    try { runId = localStorage.getItem(activeWorkflowKey) || '' } catch { /* storage is optional */ }
-    if (!runId) return
-    apiFetch(apiUrl(`/workflow-runs/${runId}`, { user_id: userId }))
+    if (!bindingRunId) return
+    apiFetch(apiUrl(`/workflow-runs/${bindingRunId}`, { user_id: userId }))
       .then(response => response.ok ? response.json() as Promise<WorkflowRun> : null)
       .then(run => {
         if (!cancelled && run) setActiveWorkflow(run)
       })
       .catch(() => {})
     return () => { cancelled = true }
-  }, [activeWorkflowKey, userId])
+  }, [bindingRunId, userId])
+
+  // A path continued in a fresh thread adopts that thread once its id is known.
+  useEffect(() => {
+    if (!workflowBinding || workflowBinding.sessionId || !threadSessionId) return
+    const adopted = { runId: workflowBinding.runId, sessionId: threadSessionId }
+    setWorkflowBinding(adopted)
+    storeWorkflowBinding(activeWorkflowKey, adopted)
+  }, [workflowBinding, threadSessionId, activeWorkflowKey])
 
   useEffect(() => {
     const handler = (event: Event) => {
+      // Runtime events refresh the bound path; they never bind a new one.
+      if (!bindingRunId) return
       const detail = (event as CustomEvent<{ data?: { workflow_run_id?: string; run?: WorkflowRun } }>).detail
       const run = detail?.data?.run
       if (run) {
-        if (!activeWorkflow || run.run_id === activeWorkflow.run_id) {
-          setActiveWorkflow(run)
-          try { localStorage.setItem(activeWorkflowKey, run.run_id) } catch { /* storage is optional */ }
-        }
+        if (run.run_id === bindingRunId) setActiveWorkflow(run)
         return
       }
-      const runId = detail?.data?.workflow_run_id
-      if (!runId || (activeWorkflow && runId !== activeWorkflow.run_id)) return
-      apiFetch(apiUrl(`/workflow-runs/${runId}`, { user_id: userId }))
+      if (detail?.data?.workflow_run_id !== bindingRunId) return
+      apiFetch(apiUrl(`/workflow-runs/${bindingRunId}`, { user_id: userId }))
         .then(response => response.ok ? response.json() as Promise<WorkflowRun> : null)
         .then(next => { if (next) setActiveWorkflow(next) })
         .catch(() => {})
     }
     window.addEventListener('narad:workflow-event', handler)
     return () => window.removeEventListener('narad:workflow-event', handler)
-  }, [activeWorkflow, activeWorkflowKey, userId])
+  }, [bindingRunId, userId])
 
-  const rememberWorkflow = (run: WorkflowRun | null) => {
+  // Send a continuation only once the path's own thread has been restored.
+  useEffect(() => {
+    if (!pendingContinue || streaming || pendingContinue.sessionId !== threadSessionId) return
+    setPendingContinue(null)
+    void send(pendingContinue.prompt, [], { workflowRunId: pendingContinue.runId })
+  }, [pendingContinue, send, streaming, threadSessionId])
+
+  const rememberWorkflow = (binding: WorkflowBinding | null, run: WorkflowRun | null = null) => {
+    setWorkflowBinding(binding)
     setActiveWorkflow(run)
-    try {
-      if (run) localStorage.setItem(activeWorkflowKey, run.run_id)
-      else localStorage.removeItem(activeWorkflowKey)
-    } catch { /* storage is optional */ }
+    storeWorkflowBinding(activeWorkflowKey, binding)
   }
 
   const sendInContext = (query: string, attachments: ChatAttachment[] = []) => {
-    void send(query, attachments, { workflowRunId: activeWorkflow?.run_id })
+    void send(query, attachments, { workflowRunId: threadWorkflowRunId })
   }
 
-  const continueWorkflow = (run: WorkflowRun, prompt: string) => {
-    rememberWorkflow(run)
+  const startNewChat = () => {
+    clearSession()
+    rememberWorkflow(null)
+  }
+
+  const continueWorkflow = async (run: WorkflowRun, prompt: string) => {
     setActiveSurface('chat')
     const nextPrompt = run.workflow_id === 'teach' && run.current_stage_id === 'diagnostic'
       ? `/teach me ${String(run.inputs.topic || run.title)}`
       : prompt
+    // A path keeps living in the thread it was continued in: reopen that thread
+    // instead of pulling the path into whichever conversation is open.
+    if (run.session_id && run.session_id !== threadSessionId && await resumeSession(run.session_id)) {
+      rememberWorkflow({ runId: run.run_id, sessionId: run.session_id }, run)
+      setPendingContinue({ runId: run.run_id, prompt: nextPrompt, sessionId: run.session_id })
+      return
+    }
+    rememberWorkflow({ runId: run.run_id, sessionId: threadSessionId }, run)
     void send(nextPrompt, [], { workflowRunId: run.run_id })
   }
 
@@ -250,11 +307,11 @@ function NaradSession({ profile, onSwitchProfile }: { profile: FamilyProfile; on
               error={error}
               onSend={sendInContext}
               stop={stop}
-              onClear={clearSession}
+              onClear={startNewChat}
               onOpenVoice={() => setVoiceOpen(true)}
               activeArtifact={activeArtifactSession}
               onCloseArtifact={clearArtifact}
-              activeWorkflow={activeWorkflow}
+              activeWorkflow={threadWorkflowRunId && activeWorkflow?.run_id === threadWorkflowRunId ? activeWorkflow : null}
               onOpenWorkflow={() => setActiveSurface('workspaces')}
               onLeaveWorkflow={() => rememberWorkflow(null)}
               guidedSession={guidedSession}

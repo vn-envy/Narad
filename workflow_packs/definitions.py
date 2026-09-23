@@ -43,6 +43,7 @@ def _stage(
     skill: str = "",
     tools: list[str] | None = None,
     confirmation_action: str | None = None,
+    recurring: bool = False,
 ) -> dict[str, Any]:
     return {
         "id": stage_id,
@@ -54,6 +55,9 @@ def _stage(
         "tools": tools or [],
         "requires_confirmation": confirmation_action is not None,
         "confirmation_action": confirmation_action,
+        # Only recurring loop stages may be reopened by a schedule; every other
+        # scheduled prompt is recorded as a check-in without moving the run.
+        "recurring": recurring,
     }
 
 
@@ -119,8 +123,8 @@ PACKS: dict[str, dict[str, Any]] = {
             _stage("safety", "Safety boundary", "Rama", "safety", "Identify red flags, clinician constraints, and what Narad must not infer.", skill="wellness_plan"),
             _stage("weekly_plan", "Weekly food and movement plan", "Rama", "plan", "Create a realistic seven-day plan with substitutions and recovery room.", skill="wellness_plan"),
             _stage("schedule", "Schedule preview", "Rama", "action", "Preview calendar blocks and check-ins before creating them.", skill="schedule_event", tools=["get_upcoming_events", "create_event"], confirmation_action="calendar_create"),
-            _stage("daily_track", "Daily tracking", "Rama", "track", "Collect lightweight adherence, energy, sleep, and discomfort signals.", skill="health_log"),
-            _stage("weekly_review", "Weekly adaptation", "Rama", "review", "Compare plan with lived reality and make the smallest useful adjustment.", skill="wellness_plan"),
+            _stage("daily_track", "Daily tracking", "Rama", "track", "Collect lightweight adherence, energy, sleep, and discomfort signals.", skill="health_log", recurring=True),
+            _stage("weekly_review", "Weekly adaptation", "Rama", "review", "Compare plan with lived reality and make the smallest useful adjustment.", skill="wellness_plan", recurring=True),
         ],
         "schedule_templates": [
             {"id": "daily_checkin", "title": "Daily health check-in", "enabled_by": "daily_checkin", "cadence": "daily", "time_field": "nudge_time", "target_stage": "daily_track"},
@@ -190,7 +194,7 @@ PACKS: dict[str, dict[str, Any]] = {
             _stage("lesson", "Paced lesson", "Krishna", "teach", "Teach one frontier concept with an analogy and one concrete example.", skill="teach"),
             _stage("check", "Understanding check", "Krishna", "teach", "Use one question to test transfer rather than recognition.", skill="teach"),
             _stage("reinforce", "Targeted reinforcement", "Krishna", "teach", "Correct the named misconception with a different representation.", skill="teach"),
-            _stage("review", "Mastery review", "Krishna", "review", "Record mastery, schedule the next review, and choose the next atom.", skill="teach"),
+            _stage("review", "Mastery review", "Krishna", "review", "Record mastery, schedule the next review, and choose the next atom.", skill="teach", recurring=True),
         ],
         "schedule_templates": [
             {"id": "spaced_reviews", "title": "Spaced learning review", "enabled_by": "spaced_reviews", "cadence": "weekly", "weekdays": [1, 4], "time_field": "nudge_time", "target_stage": "review"},
@@ -224,7 +228,7 @@ PACKS: dict[str, dict[str, Any]] = {
             _stage("analyze", "Cash-flow intelligence", "Rama", "analysis", "Measure spending, recurring costs, anomalies, and goal trajectory.", skill="spending_review"),
             _stage("scenarios", "Current intelligence and scenarios", "Matsya", "research", "Ground rates, rules, and market assumptions in dated sources.", skill="research", tools=["exa_search", "exa_contents"]),
             _stage("plan", "Decision plan", "Rama", "plan", "Compare choices, tradeoffs, buffers, and reversible next steps.", skill="financial_decision"),
-            _stage("review", "Monthly review", "Rama", "review", "Compare plan with actuals and adapt budgets or goal timing.", skill="spending_review"),
+            _stage("review", "Monthly review", "Rama", "review", "Compare plan with actuals and adapt budgets or goal timing.", skill="spending_review", recurring=True),
         ],
         "schedule_templates": [
             {"id": "monthly_review", "title": "Monthly finance review", "enabled_by": "monthly_review", "cadence": "monthly", "day": 1, "time_field": "nudge_time", "target_stage": "review"},
