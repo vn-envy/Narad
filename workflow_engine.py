@@ -942,6 +942,10 @@ def record_chat_stage_result(
         raise KeyError(f"Unknown workflow run: {run_id}")
     if run.user_id != user_id:
         raise PermissionError("Workflow belongs to another user")
+    if run.session_id and run.session_id != session_id:
+        # A run is bound to the chat thread it was continued in; a turn from any
+        # other thread must never complete its stage. Unbound runs bind below.
+        raise PermissionError(f"Workflow run {run_id} is bound to another chat session; ignoring this turn")
     summary = response_text.strip()
     if not summary:
         raise ValueError("Cannot complete a workflow stage from an empty response")
@@ -976,22 +980,53 @@ def record_chat_stage_result(
     )
 
 
-def _reopen_scheduled_stage(run: WorkflowRun, target_stage: str | None, schedule: WorkflowSchedule) -> WorkflowRun:
+def _record_scheduled_check_in(
+    run_id: str,
+    target_stage: str | None,
+    schedule: WorkflowSchedule,
+    *,
+    occurrence: str,
+    event_id: str,
+) -> WorkflowRun | None:
+    """Apply one fired schedule without corrupting the run.
+
+    A pending or approved confirmation is never dropped: the prompt is queued
+    behind it. Only a recurring loop stage the run has already reached is
+    reopened; every other prompt is only recorded as a check-in, so a schedule
+    never skips ahead and never drags a booked trip or a submitted application
+    back to research. The deterministic event id keeps replays idempotent.
+    """
+    run = get_workflow_run(run_id)
+    if not run:
+        return None
     pack = get_pack(run.workflow_id) or {}
-    if not target_stage or not _stage(pack, target_stage):
-        target_stage = pack.get("stages", [{}])[-1].get("id") if pack.get("stages") else None
-    if target_stage:
+    stage_ids = [item["id"] for item in pack.get("stages", [])]
+    if not target_stage or target_stage not in stage_ids:
+        target_stage = stage_ids[-1] if stage_ids else None
+    if not target_stage:
+        return run
+    current_index = stage_ids.index(run.current_stage_id) if run.current_stage_id in stage_ids else len(stage_ids)
+    confirmation = dict(run.state.get("confirmation") or {})
+    if run.status == "waiting_confirmation" or confirmation.get("status") in {"pending", "approved"}:
+        mode = "queued"
+    elif (_stage(pack, target_stage) or {}).get("recurring") and stage_ids.index(target_stage) <= current_index:
+        mode = "reopened"
         run.current_stage_id = target_stage
         run.status = "waiting_for_user"
         run.completed_at = None
-        run.state["confirmation"] = None
-        run.state["scheduled_prompt"] = {
-            "schedule_id": schedule.schedule_id,
-            "title": schedule.title,
-            "stage_id": target_stage,
-            "triggered_at": _iso(),
-        }
-        _save_run(run)
+    else:
+        mode = "check_in"
+    prompt = {
+        "schedule_id": schedule.schedule_id,
+        "title": schedule.title,
+        "stage_id": target_stage,
+        "mode": mode,
+        "scheduled_at": occurrence,
+        "triggered_at": _iso(),
+    }
+    run.state["scheduled_prompt"] = prompt
+    _save_run(run)
+    _append_event(run, "scheduled_check_in", stage_id=run.current_stage_id, payload=prompt, event_id=f"{event_id}_checkin")
     return run
 
 
@@ -1036,7 +1071,13 @@ def fire_due_workflow_schedules(now: datetime | None = None) -> dict[str, Any]:
                 "UPDATE workflow_schedules SET last_run_at=?, next_run_at=?, updated_at=? WHERE schedule_id=?",
                 (_iso(current), _iso(next_run) if next_run else None, _iso(current), schedule.schedule_id),
             )
-        _reopen_scheduled_stage(run, schedule.payload.get("target_stage"), schedule)
+        run = _record_scheduled_check_in(
+            run.run_id,
+            schedule.payload.get("target_stage"),
+            schedule,
+            occurrence=occurrence,
+            event_id=event_id,
+        ) or run
         delivered = deliver(
             kind="reminder",
             title=schedule.title,

@@ -5,13 +5,17 @@ Every fired event (reminder, Swapna digest, Andon escalation, cron) flows
 through ONE function: deliver(). It fans out to:
   1. Chat inbox   — append-only jsonl at NARAD_HOME/inbox/<user>.jsonl,
                     surfaced by GET /inbox and rendered as inbox turns.
-  2. ntfy push    — best-effort POST to NTFY_URL/NTFY_TOPIC (env-gated;
-                    silently skipped when unconfigured, never blocks).
+  2. ntfy push    — best-effort POST to the profile's own private topic
+                    (env-gated; silently skipped when unconfigured, never blocks).
   3. Karma ledger — one mutation row per delivery for provenance.
 
 Env:
   NTFY_URL    — ntfy server base, e.g. https://ntfy.sh (no trailing slash needed)
-  NTFY_TOPIC  — topic name; both must be set for push to activate
+  NTFY_TOPIC  — topic prefix; both must be set for push to activate. Nothing is
+                ever published to this shared topic itself: each profile pushes
+                to "<NTFY_TOPIC>-<profile>-<random suffix>", persisted in
+                profiles/<profile>/ntfy.json (set "topic" there to override).
+                Run `python vahana.py` to print each profile's subscription.
   NTFY_TOKEN  — optional bearer token for private servers
 
 No external deps — urllib only, 5s timeout, all failures logged not raised.
@@ -22,6 +26,8 @@ import json
 import logging
 import os
 import re
+import secrets
+import threading
 import urllib.request
 import uuid
 from datetime import datetime, timezone
@@ -34,6 +40,8 @@ log = logging.getLogger("narad.vahana")
 
 _VALID_KINDS = {"reminder", "swapna", "andon", "cron", "system", "triage"}
 _NTFY_PRIORITY = {"urgent": "5", "high": "4", "default": "3", "low": "2"}
+_NTFY_TOPIC_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+_TOPIC_LOCK = threading.Lock()
 
 
 def _safe_slug(user_id: str) -> str:
@@ -51,11 +59,63 @@ def ntfy_configured() -> bool:
     return bool(os.environ.get("NTFY_URL") and os.environ.get("NTFY_TOPIC"))
 
 
+def _profile_id(user_id: str) -> str | None:
+    from profile_context import validate_profile_id
+
+    if not user_id:
+        return None  # validate_profile_id would map this to the owner
+    try:
+        return validate_profile_id(user_id)
+    except ValueError:
+        return None
+
+
+def ntfy_topic(user_id: str) -> str | None:
+    """Return the profile's private ntfy topic, creating it on first use.
+
+    Family members share one Mac, so a shared topic would put every profile's
+    reminders on every subscribed phone. Each profile instead gets an
+    unguessable topic of its own; None means push is off for this profile.
+    """
+    if not ntfy_configured():
+        return None
+    profile_id = _profile_id(user_id)
+    if not profile_id:
+        return None
+    from profile_context import profile_data_path
+
+    shared = os.environ["NTFY_TOPIC"]
+    path = profile_data_path("ntfy.json", profile_id=profile_id)
+    with _TOPIC_LOCK:
+        try:
+            topic = str(json.loads(path.read_text(encoding="utf-8")).get("topic") or "")
+        except (OSError, ValueError, AttributeError):
+            topic = ""
+        if not topic:
+            topic = f"{_safe_slug(shared)[:24]}-{profile_id[:16]}-{secrets.token_hex(10)}"
+            path.write_text(json.dumps({"topic": topic}, indent=2), encoding="utf-8")
+            try:
+                os.chmod(path, 0o600)
+            except OSError:
+                pass
+    if topic == shared or not _NTFY_TOPIC_RE.fullmatch(topic):
+        log.warning("Vahana: ntfy topic for %s is shared or invalid — push skipped", profile_id)
+        return None
+    return topic
+
+
 def _push_ntfy(event: dict) -> bool:
-    """POST the event to ntfy. Returns True on 2xx. Never raises."""
+    """POST the event to its profile's ntfy topic. Returns True on 2xx. Never raises."""
     if not ntfy_configured():
         return False
-    url = os.environ["NTFY_URL"].rstrip("/") + "/" + os.environ["NTFY_TOPIC"]
+    try:
+        topic = ntfy_topic(event.get("profile_id") or "")
+    except Exception as exc:
+        log.warning("Vahana: ntfy topic unavailable (%s) — inbox copy is safe", exc)
+        return False
+    if not topic:
+        return False
+    url = os.environ["NTFY_URL"].rstrip("/") + "/" + topic
     body = (event.get("body") or "")[:2000].encode("utf-8")
     headers = {
         "Title": (event.get("title") or "Narad")[:120],
@@ -108,6 +168,7 @@ def deliver(
         "title": (title or "").strip()[:200],
         "body": (body or "").strip()[:4000],
         "user_id": user_id,
+        "profile_id": _profile_id(user_id),
         "source": source,
         "priority": priority if priority in _NTFY_PRIORITY else "default",
         "read": False,
@@ -123,15 +184,19 @@ def deliver(
     if not pushed and not ntfy_configured():
         log.info("Vahana: NTFY_URL/NTFY_TOPIC unset — delivered to inbox only (%s)", event["id"])
 
-    # 3. Karma provenance — best-effort.
+    # 3. Karma provenance — best-effort, in the recipient's own ledger (the
+    #    scheduler fires outside any request, so it has no profile context).
     try:
         from karma_log import log_karma
-        log_karma(
-            "vahana_delivered", event["id"], "Narad",
-            f"{kind}: {event['title'][:80]}",
-            entity_type="delivery",
-            metadata={"pushed": pushed, "source": source, "user_id": user_id},
-        )
+
+        from profile_context import profile_scope
+        with profile_scope(event["profile_id"] or "default"):
+            log_karma(
+                "vahana_delivered", event["id"], "Narad",
+                f"{kind}: {event['title'][:80]}",
+                entity_type="delivery",
+                metadata={"pushed": pushed, "source": source, "user_id": user_id},
+            )
     except Exception:
         pass
 
@@ -192,3 +257,17 @@ def mark_read(user_id: str = "default", ids: list[str] | None = None) -> dict:
 
 def unread_count(user_id: str = "default") -> int:
     return len(load_inbox(user_id, limit=1000, unread_only=True))
+
+
+if __name__ == "__main__":
+    # Pilot setup: subscribe each family member's phone to their own topic only.
+    from dotenv import load_dotenv
+
+    from family_profiles import list_profiles
+
+    load_dotenv(Path(__file__).parent / ".env")
+    if not ntfy_configured():
+        raise SystemExit("Set NTFY_URL and NTFY_TOPIC (e.g. in .env) to enable push.")
+    for profile in list_profiles():
+        topic = ntfy_topic(profile["user_id"])
+        print(f"{profile['display_name']} ({profile['user_id']}): {os.environ['NTFY_URL'].rstrip('/')}/{topic}")
