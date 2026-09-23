@@ -9,7 +9,7 @@ import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 _r = next(p for p in Path(__file__).resolve().parents if (p / "narad_paths.py").exists())
 sys.path[:0] = [str(_r)]
@@ -18,6 +18,7 @@ import narad_paths  # noqa: F401
 # isort: split
 import browser_act_skill
 import computer_use_skill
+import interaction_targets
 from computer_use_skill import (
     _action_requires_confirmation,
     _cua_action_command,
@@ -115,7 +116,10 @@ class ComputerUseContractTests(unittest.TestCase):
         self.assertEqual(second_call["actions"][-1]["action"], "submit")
 
     def test_desktop_is_preview_only_when_disabled(self) -> None:
-        with patch.dict(os.environ, {"NARAD_ENABLE_DESKTOP_CONTROL": "0"}):
+        grant = {"target_id": "target_host", "external_id": "host-primary"}
+        with patch.dict(os.environ, {"NARAD_ENABLE_DESKTOP_CONTROL": "0"}), patch.object(
+            interaction_targets, "resolve_interaction_target", return_value=grant
+        ):
             payload = computer_use(
                 "Click the selected desktop control",
                 environment="desktop",
@@ -143,6 +147,7 @@ class ComputerUseContractTests(unittest.TestCase):
         click_payload = json.loads(click[3])
         capture_payload = json.loads(capture[3])
         self.assertEqual(click_payload["target"], {"kind": "desktop", "display_id": "primary"})
+        self.assertEqual(click_payload["delivery_mode"], "foreground")
         self.assertEqual(capture[:3], ["/usr/local/bin/cua-driver", "call", "get_desktop_state"])
         self.assertEqual(capture_payload["screenshot_out_file"], str(screenshot))
         self.assertNotIn("switch", click)
@@ -155,6 +160,229 @@ class ComputerUseContractTests(unittest.TestCase):
         )
         self.assertEqual(actions[0]["action"], "drag")
         self.assertTrue(_action_requires_confirmation(actions[0], "desktop"))
+
+
+class LegacyFormHelperSafetyTests(unittest.TestCase):
+    def test_blocked_submit_domains_strip_the_www_prefix_not_its_letters(self) -> None:
+        for url in (
+            "https://wellsfargo.com/apply",
+            "https://www.wellsfargo.com/apply",
+            "https://sub.wellsfargo.com/apply",
+            "https://WWW.WellsFargo.com./apply",
+        ):
+            self.assertTrue(browser_act_skill._domain_is_blocked(url), url)
+        for url in ("https://example.com/form", "https://notwellsfargo.com/", "https://www.example.org/"):
+            self.assertFalse(browser_act_skill._domain_is_blocked(url), url)
+
+        with patch.object(browser_act_skill, "computer_use") as tool:
+            blocked = browser_act_skill.browser_fill(
+                "https://wellsfargo.com/transfer", {"Amount": "100"}, dry_run=False, confirmed=True
+            )
+        self.assertEqual(blocked["status"], "blocked")
+        tool.assert_not_called()
+
+    def test_upload_and_submit_leaves_confirmation_to_computer_use(self) -> None:
+        gated = {
+            "status": "confirmation_required",
+            "summary": "Action 'upload' may create an external side effect.",
+            "requires_confirmation": True,
+            "session_id": "browser_abc",
+            "observation": {"title": "Form", "fields": []},
+            "action_results": [{"action": "set_field", "status": "ok"}],
+        }
+        with patch.object(browser_act_skill, "computer_use", return_value=gated) as tool:
+            preview = browser_act_skill.browser_upload_and_submit(
+                "https://example.com/form",
+                {"Name": "Ada"},
+                {"Resume": "/tmp/resume.pdf"},
+                session_id="browser_abc",
+            )
+            browser_act_skill.browser_upload_and_submit(
+                "https://example.com/form",
+                {"Name": "Ada"},
+                {"Resume": "/tmp/resume.pdf"},
+                session_id="browser_abc",
+                confirmed=True,
+            )
+
+        first, second = (item.kwargs for item in tool.call_args_list)
+        self.assertFalse(first["confirmed"])
+        self.assertEqual(
+            [item["action"] for item in first["actions"]], ["set_field", "upload", "submit"]
+        )
+        self.assertTrue(second["confirmed"])
+        self.assertEqual(preview["status"], "confirmation_required")
+        self.assertTrue(preview["requires_confirmation"])
+        self.assertEqual(preview["files_uploaded"], [])
+
+
+class CuaDriverAdapterTests(unittest.TestCase):
+    binary = "/usr/local/bin/cua-driver"
+
+    def test_scroll_sends_direction_amount_and_point(self) -> None:
+        screenshot = Path("/tmp/narad-cua-test.png")
+        cases = [
+            ({"delta_y": 360}, "down", 3),
+            ({"delta_y": -240}, "up", 2),
+            ({"delta_x": 240}, "right", 2),
+            ({"clicks": -4}, "down", 4),
+            ({"clicks": 2}, "up", 2),
+            ({"direction": "left", "amount": 7}, "left", 7),
+            ({}, "down", 5),
+        ]
+        for extra, direction, amount in cases:
+            command = _cua_action_command(
+                self.binary, {"action": "scroll", "x": 100, "y": 200, **extra}, screenshot
+            )
+            self.assertEqual(command[:3], [self.binary, "call", "scroll"])
+            payload = json.loads(command[3])
+            self.assertEqual(
+                {key: payload[key] for key in ("x", "y", "direction", "amount", "by")},
+                {"x": 100.0, "y": 200.0, "direction": direction, "amount": amount, "by": "line"},
+                extra,
+            )
+            self.assertNotIn("delta_x", payload)
+            self.assertNotIn("delta_y", payload)
+        with self.assertRaises(ValueError):
+            _cua_action_command(self.binary, {"action": "scroll", "delta_y": 240}, screenshot)
+
+    def _cua_status(self, permission_stdout: str) -> tuple[dict, list]:
+        calls: list = []
+
+        def fake_run(command, **kwargs):
+            calls.append((command, kwargs))
+            if command[1:] == ["--version"]:
+                return SimpleNamespace(returncode=0, stdout="cua-driver 0.14.0\n", stderr="")
+            if command[1:] == ["status"]:
+                return SimpleNamespace(returncode=0, stdout="Daemon is running\n", stderr="")
+            return SimpleNamespace(returncode=0, stdout=permission_stdout, stderr="")
+
+        with patch.dict(
+            os.environ, {"NARAD_ENABLE_DESKTOP_CONTROL": "1", "NARAD_DESKTOP_PROVIDER": "cua"}
+        ), patch.object(computer_use_skill.shutil, "which", return_value=self.binary), patch.object(
+            computer_use_skill.subprocess, "run", side_effect=fake_run
+        ):
+            status = computer_use_skill._desktop_driver_status()
+        return status["adapters"]["cua"], calls
+
+    def test_permission_check_reads_json_booleans(self) -> None:
+        granted, calls = self._cua_status(json.dumps({
+            "accessibility": True,
+            "screen_recording": True,
+            "screen_recording_capturable": None,
+            "source": {"attribution": "driver-daemon"},
+        }))
+        self.assertTrue(granted["permissions_ready"])
+        self.assertTrue(granted["ready"])
+        self.assertIn([self.binary, "permissions", "status", "--json"], [command for command, _ in calls])
+        self.assertTrue(
+            all(kwargs["env"]["CUA_DRIVER_RS_TELEMETRY_ENABLED"] == "false" for _, kwargs in calls)
+        )
+
+        for denied in (
+            "Accessibility:    ❌ not granted\nScreen Recording: ❌ not granted\n",
+            json.dumps({"accessibility": False, "screen_recording": True}),
+            json.dumps({"accessibility": True, "screen_recording": True, "screen_recording_capturable": False}),
+            json.dumps({"daemon_running": True, "status": "unknown", "reason": "not yet available"}),
+        ):
+            adapter, _ = self._cua_status(denied)
+            self.assertFalse(adapter["permissions_ready"], denied)
+            self.assertFalse(adapter["ready"], denied)
+
+    def test_unverifiable_driver_effects_are_not_reported_as_success(self) -> None:
+        outputs = iter([
+            {"effect": "confirmed", "route": "global_input"},
+            {"effect": "unverifiable", "route": "global_input"},
+            {"effect": "suspected_noop", "route": "global_input"},
+            {"platform": "macos"},
+        ])
+        envs: list = []
+
+        def fake_run(command, **kwargs):
+            envs.append(kwargs.get("env") or {})
+            return SimpleNamespace(returncode=0, stdout=json.dumps(next(outputs)), stderr="")
+
+        readiness = {
+            "available": True,
+            "reason": None,
+            "selected_provider": "cua",
+            "adapters": {"cua": {"binary": self.binary}},
+        }
+        actions = [
+            {"action": "move", "x": 1, "y": 2},
+            {"action": "click", "x": 1, "y": 2},
+            {"action": "scroll", "x": 1, "y": 2, "delta_y": 240},
+        ]
+        with tempfile.TemporaryDirectory() as directory, patch.object(
+            computer_use_skill, "_COMPUTER_ARTIFACTS_DIR", Path(directory)
+        ), patch.object(
+            computer_use_skill, "_desktop_driver_status", return_value=readiness
+        ), patch.object(
+            interaction_targets, "resolve_interaction_target", return_value={"target_id": "target_host"}
+        ), patch.object(
+            computer_use_skill, "_desktop_decision_hint", return_value=None
+        ), patch.object(
+            computer_use_skill, "_dharma_gate", return_value=None
+        ), patch.object(computer_use_skill.subprocess, "run", side_effect=fake_run):
+            payload = computer_use(
+                "Scroll the document",
+                environment="desktop",
+                actions=actions,
+                dry_run=False,
+                confirmed=True,
+            )
+
+        self.assertEqual(
+            [item["status"] for item in payload["action_results"]], ["ok", "unverified", "unverified"]
+        )
+        self.assertEqual(payload["status"], "unverified")
+        self.assertIn("could not verify 2", payload["summary"])
+        self.assertNotIn("complete", payload["ui"]["summary"])
+        self.assertTrue(all(env.get("CUA_DRIVER_RS_TELEMETRY_ENABLED") == "false" for env in envs))
+
+    def test_pyautogui_fallback_requires_the_same_desktop_grant(self) -> None:
+        readiness = {"available": True, "reason": None, "selected_provider": "pyautogui", "adapters": {}}
+        executed = Mock(return_value=([{"action": "click", "status": "ok"}], None))
+        actions = [{"action": "click", "x": 5, "y": 6}]
+        with tempfile.TemporaryDirectory() as directory, patch.object(
+            computer_use_skill, "_COMPUTER_ARTIFACTS_DIR", Path(directory)
+        ), patch.object(
+            computer_use_skill, "_desktop_driver_status", return_value=readiness
+        ), patch.object(
+            computer_use_skill, "_execute_pyautogui_actions", executed
+        ), patch.object(
+            computer_use_skill, "_desktop_decision_hint", return_value=None
+        ), patch.object(computer_use_skill, "_dharma_gate", return_value=None):
+            with patch.object(interaction_targets, "resolve_interaction_target", return_value=None):
+                denied = computer_use(
+                    "Click", environment="desktop", actions=actions, dry_run=False, confirmed=True
+                )
+            executed.assert_not_called()
+            with patch.object(
+                interaction_targets, "resolve_interaction_target", return_value={"target_id": "target_host"}
+            ):
+                allowed = computer_use(
+                    "Click", environment="desktop", actions=actions, dry_run=False, confirmed=True
+                )
+
+        self.assertEqual(denied["status"], "unavailable")
+        self.assertEqual(denied["error"], "desktop_target_unavailable")
+        self.assertEqual(allowed["status"], "ok")
+        executed.assert_called_once()
+
+    def test_pyautogui_scroll_uses_wheel_notches(self) -> None:
+        fake = SimpleNamespace(FAILSAFE=False, scroll=Mock(), hscroll=Mock(), screenshot=Mock())
+        actions = [
+            {"action": "scroll", "delta_y": 360},
+            {"action": "scroll", "clicks": 2, "x": 5, "y": 6},
+            {"action": "scroll", "delta_x": -240},
+        ]
+        with tempfile.TemporaryDirectory() as directory, patch.dict(sys.modules, {"pyautogui": fake}):
+            results, _ = computer_use_skill._execute_pyautogui_actions(actions, Path(directory))
+
+        self.assertEqual([item["status"] for item in results], ["ok", "ok", "ok"])
+        self.assertEqual(fake.scroll.call_args_list, [call(-3), call(2, x=5.0, y=6.0)])
+        fake.hscroll.assert_called_once_with(-2)
 
 
 class _FormHandler(BaseHTTPRequestHandler):

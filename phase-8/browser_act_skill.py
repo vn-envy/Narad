@@ -25,7 +25,7 @@ _BLOCKED_SUBMIT_DOMAINS = {
 
 
 def _domain_is_blocked(url: str) -> bool:
-    domain = (urlparse(url).hostname or "").lower().lstrip("www.")
+    domain = (urlparse(url).hostname or "").lower().rstrip(".").removeprefix("www.")
     return any(domain == blocked or domain.endswith(f".{blocked}") for blocked in _BLOCKED_SUBMIT_DOMAINS)
 
 
@@ -131,7 +131,9 @@ def browser_upload_and_submit(
     """Fill, upload, and submit after explicit confirmation.
 
     Always pass the session_id returned by browser_screenshot/browser_fill so
-    the reviewed page, cookies, and field state remain intact.
+    the reviewed page, cookies, and field state remain intact. Without
+    confirmed=True the fields are filled as a page-local preview and the batch
+    stops at computer_use's confirmation gate before any file is uploaded.
     """
     if _domain_is_blocked(url):
         message = f"Submission is blocked for sensitive domain {urlparse(url).hostname}."
@@ -140,15 +142,6 @@ def browser_upload_and_submit(
             "summary": message,
             "message": message,
             "requires_confirmation": False,
-        }
-    if not confirmed:
-        message = "Upload and submit requires explicit confirmation for this form preview."
-        return {
-            "status": "confirmation_required",
-            "summary": message,
-            "message": message,
-            "requires_confirmation": True,
-            "session_id": session_id,
         }
 
     actions: list[dict[str, Any]] = [
@@ -166,8 +159,9 @@ def browser_upload_and_submit(
         session_id=session_id,
         actions=actions,
         environment="browser",
+        # Upload and submit stay gated by computer_use; never self-confirm here.
         dry_run=False,
-        confirmed=True,
+        confirmed=confirmed,
     )
     result = _legacy_fields(payload, dry_run=False)
     result["files_uploaded"] = [
