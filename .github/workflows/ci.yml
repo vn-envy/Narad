@@ -14,25 +14,36 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      # Core runtime + dev tools only: the full suite needs no optional extras
+      # (the live-browser test stays opt-in via NARAD_RUN_BROWSER_TESTS=1).
+      - name: Install
+        run: pip install -e ".[dev]"
 
       - name: Ruff (lint only, no format churn)
-        run: |
-          pip install ruff
-          ruff check .
+        run: ruff check .
 
-      - name: Dependency-light test suites
-        run: |
-          pip install fastapi sse-starlette python-dotenv
-          python phase-1/test_runtime_contract.py
-          python phase-1/test_cultural_core.py
-          python phase-9/test_project_tasks.py
-          python phase-9/test_learning_workspace.py
-          python phase-1/test_teach_flow_guardrails.py
-          python phase-9/test_skills.py
-          python phase-7/test_executor_sandbox.py
+      - name: Full suite (pytest)
+        run: pytest
 
-      - name: Full suite (pytest, best-effort while deps stabilise)
-        continue-on-error: true
-        run: |
-          pip install -e .[dev]
-          pytest
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: phase-4/frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: phase-4/frontend/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Type-check and build
+        run: npm run build
