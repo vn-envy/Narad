@@ -12,6 +12,7 @@ It keeps the current stores intact while making the runtime think in terms of:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -284,7 +285,9 @@ async def recall_context(
         return ""
 
     try:
-        vector_packet = build_semantic_memory_context(
+        # The vector plane embeds the query over HTTP — keep it off the event loop.
+        vector_packet = await asyncio.to_thread(
+            build_semantic_memory_context,
             query=query,
             user_id=user_id,
             project_id=project_id,

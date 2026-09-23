@@ -145,20 +145,16 @@ def browse_url_sync(url: str, extract: str = "text") -> dict:
     async browse_url coroutine in a new event loop.
     """
     try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            # Inside an existing event loop (e.g., FastAPI) — use nest_asyncio
-            try:
-                import nest_asyncio
-                nest_asyncio.apply()
-                return loop.run_until_complete(browse_url(url, extract))
-            except ImportError:
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as pool:
-                    future = pool.submit(asyncio.run, browse_url(url, extract))
-                    return future.result(timeout=45)
-        else:
-            return loop.run_until_complete(browse_url(url, extract))
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            # Avatar sync tools run on a worker thread with no loop of their own.
+            return asyncio.run(browse_url(url, extract))
+        # On a running loop: use a private loop thread, never re-enter the caller's.
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor() as pool:
+            future = pool.submit(asyncio.run, browse_url(url, extract))
+            return future.result(timeout=45)
     except Exception as exc:
         return {
             "status":  "error",

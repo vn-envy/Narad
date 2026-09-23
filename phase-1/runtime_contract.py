@@ -10,9 +10,12 @@ This module is the single source of truth for:
 
 from __future__ import annotations
 
+import copy
 import importlib
 import json
 import os
+import threading
+import time
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -321,6 +324,13 @@ def tool_family_status() -> dict[str, dict[str, Any]]:
                 "contexts": computer_detail.get("contexts", {}),
             },
             "desktop": computer_detail.get("desktop", {}),
+            # Read from the probe above — no extra subprocesses.
+            "versions": {
+                "cua_driver": (
+                    computer_detail.get("desktop", {}).get("adapters", {}).get("cua", {}).get("version")
+                ),
+                "bsk": computer_detail.get("contexts", {}).get("signed_in", {}).get("version"),
+            },
         },
         "phone": {
             "available": bool(phone_detail.get("ready", False)),
@@ -470,6 +480,35 @@ def agent_runtime_status() -> list[dict[str, Any]]:
     return result
 
 
+_RUNTIME_STATUS_TTL_S = 30.0
+_runtime_status_lock = threading.Lock()
+_runtime_status_cache: dict[str, Any] = {}
+
+
+def _store_runtime_status(value: list[dict[str, Any]]) -> None:
+    # Seeding is opportunistic: never wait behind a probe already in flight.
+    if not _runtime_status_lock.acquire(blocking=False):
+        return
+    try:
+        _runtime_status_cache.update(at=time.monotonic(), value=copy.deepcopy(value))
+    finally:
+        _runtime_status_lock.release()
+
+
+def cached_agent_runtime_status(ttl_s: float = _RUNTIME_STATUS_TTL_S) -> list[dict[str, Any]]:
+    """agent_runtime_status(), reused for ttl_s seconds.
+
+    The probes behind it spawn cua-driver/bsk subprocesses and make HTTP
+    checks; avatar runs only need the answer as trace metadata. Thread-safe
+    and single-flight: concurrent callers wait for one probe, not one each.
+    """
+    with _runtime_status_lock:
+        cached_at = _runtime_status_cache.get("at")
+        if cached_at is None or time.monotonic() - cached_at >= ttl_s:
+            _runtime_status_cache.update(value=agent_runtime_status(), at=time.monotonic())
+        return copy.deepcopy(_runtime_status_cache["value"])
+
+
 def collect_runtime_contract() -> dict[str, Any]:
     providers = provider_status()
     tools = tool_family_status()
@@ -499,6 +538,7 @@ def collect_runtime_contract() -> dict[str, Any]:
 
     status = "healthy" if not any(issue.level == "error" for issue in issues) and not issues else "degraded"
     agent_status = agent_runtime_status()
+    _store_runtime_status(agent_status)  # fresh probe → warm the avatar cache
     degraded_count = sum(len(agent["degraded_tool_families"]) for agent in agent_status)
     try:
         from capability_validation import validate_capabilities

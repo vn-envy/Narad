@@ -2023,7 +2023,8 @@ async def _run_agent_task(
                     )
                 try:
                     from smriti_core import capture_episode as _capture_episode
-                    _capture_episode(
+                    await asyncio.to_thread(  # embeds the episode over HTTP
+                        _capture_episode,
                         session_id=session_id,
                         task=f"Learning workspace checkpoint for {topic}",
                         avatar="Krishna",
