@@ -1,219 +1,275 @@
-# Narad × Nebius/NVIDIA: one build for the family pilot and the hackathon
+# Narad × Nebius/NVIDIA: one build for the family pilot and the hackathon (v2)
 
-*2026-09-23. Event: [Nebius x NVIDIA Global AI Hackathon](https://nebiusglobalaihackathon.devpost.com/) (Devpost). Track: **Personal AI**. Deadline: **Fri 2026-10-30, 10:00 PT (22:30 IST), 37 days from today**.*
+*2026-09-23. Event: [Nebius x NVIDIA Global AI Hackathon](https://nebiusglobalaihackathon.devpost.com/) (Devpost), **Personal AI** track. Deadline **Fri 2026-10-30, 10:00 PT (22:30 IST)**.*
 
-This plan merges [PILOT_READINESS_PLAN](./PILOT_READINESS_PLAN_2026-09-23.md) (Phase 0 is done) with the hackathon. Research sources and verification status are in [VENDOR_RESEARCH](./VENDOR_RESEARCH_2026-09-23.md) and the hackathon research memo, which is summarised here. Anything marked *(unverified)* must be checked in a browser before we rely on it: the sandbox blocked devpost.com, nebius.com and docs.tokenfactory.nebius.com.
+v2 applies an independent three-lens review (hackathon judge, build feasibility, family-pilot safety). The full review, including how the lenses' conflicts were resolved, is in [HACKATHON_PLAN_REVIEW](./HACKATHON_PLAN_REVIEW_2026-09-23.md). Research and verification status: [HACKATHON_RESEARCH](./HACKATHON_RESEARCH_2026-09-23.md) and [VENDOR_RESEARCH](./VENDOR_RESEARCH_2026-09-23.md). Items marked *(unverified)* are checked on **Sep 24** (§5): our sandbox could not reach devpost.com, nebius.com or the Token Factory docs.
+
+**What v2 changed:**
+
+| Area | v1 | v2 | Why |
+|---|---|---|---|
+| Demo | Three workflows | One errand told on two phones | Design and Impact are half the score, and one story reads as a product |
+| Headline idea | The router fine-tune | The split brain plus a privacy receipt | Visible on screen and hard to copy |
+| Router fine-tune | Headline | A gated stretch goal | Not the core of the story |
+| Order of work | Features week by week | The whole flow built crudely first, with dated gates and cut lines | The original plan needed about 55–60 owner-days against about 30 available |
+| Family pilot | Joins with the features | Joins only after privacy leak tests pass on *every* egress path | Today, two background learners send raw text to DeepSeek's own API |
 
 ---
 
 ## 1. What the rules demand
 
-| Requirement | Source | What it means for Narad |
-|---|---|---|
-| Must run on **Nebius Token Factory** (runtime inference calls) **or Nebius AI Cloud** (Serverless Jobs/Endpoints/DevPods), and use **at least one NVIDIA open model** | Rules digest (participant copy, verified 2026-09-13) | Nemotron on Token Factory becomes Narad's **default brain**, not a side feature. Stage 1 fails "superficial rebrands". |
-| Stage 1 pass/fail: fits the track, meaningful use of the required APIs | same | The video, README and egress ledger must show Nemotron doing the real work. |
-| Stage 2, four equal weights: **Technological Implementation** (the tiebreaker), **Design**, **Potential Impact**, **Quality of Idea** | same | Every week must move all four. |
-| Existing projects are allowed if significantly updated after Aug 26, with a written account of the changes | same | Everything from Phase 0 onward counts. Keep a dated changelog. |
-| Public repo with an OSI licence; a README naming the NVIDIA models and Nebius services | same | Narad is already Apache-2.0. |
-| Public YouTube video under 3 minutes, showing the product on its intended device | same | Record on the Android phones, not only the Mac. |
-| Hosted demo or test build, free and unrestricted until **Dec 15** | same | A separate judge instance with a synthetic family. Never the real pilot. |
-| Feedback on the Nebius and NVIDIA technology | same | Collect it as we build. There are 10 × $100 "Most Valuable Feedback" prizes *(unverified)*. |
-| Prizes: $20K / $10K / $6K, per-track prizes, **$3K Best Use of Tavily** | search excerpts *(unverified)* | Tavily becomes the primary search provider. |
-
-**The Personal AI track brief:** "an always-on, private assistant that works for you while keeping your data under your control… persistent memory, reusable skills, access to the tools and information you choose, and the ability to carry out tasks across your daily workflows." It suggests NVIDIA NemoClaw, OpenShell, Hermes Agent and Nebius Serverless.
+| Requirement | Consequence |
+|---|---|
+| Runtime calls to **Nebius Token Factory** (or execution on Nebius AI Cloud), plus **≥ 1 NVIDIA open model** | **Nemotron on Token Factory becomes Narad's default brain** everywhere. Stage 1 fails "superficial rebrands". |
+| Stage 2 has four equal criteria: **Technological Implementation** (the tiebreaker), **Design**, **Potential Impact** ("based on what's demonstrated"), and **Quality of Idea** ("creative, non-obvious use") | Every gate below maps to at least one criterion. |
+| Pre-existing projects need a written account of what was significantly updated since Aug 26 | Keep a dated `CHANGELOG` from today. Phase 0 counts. |
+| Public repo with an OSI licence, and a README naming the NVIDIA models and Nebius services | Narad is Apache-2.0. **The repo is public**, so see §7 on family exposure. |
+| A YouTube video under 3 minutes, on the intended device | Two **demo** Android phones (not family phones) against the judge instance. |
+| Hosted demo "free and unrestricted" until **Dec 15** | A judge instance on a Nebius AI Cloud CPU VM: no invite codes, one global rate limit and budget cap, and replay only after the cap is hit, labelled on the page. |
+| Feedback on Nebius and NVIDIA tech | A feedback log written daily from day 1. There are reportedly 10 × $100 feedback prizes *(unverified)*. |
+| Prizes: $20K / $10K / $6K, per-track prizes, **$3K Best Use of Tavily** *(unverified)* | Tavily becomes Narad's search, and appears inside the privacy receipt. |
 
 ## 2. Resources
 
-| Resource | Amount | Notes |
-|---|---|---|
-| Nebius Token Factory | $25 (Builder Program email) + $25 (hackathon promo code, *unverified*) + $25 second Builder tranche ~30 days later *(unverified)* | Credits expire **90 days after issue** *(unverified)*. The Sep 10 grant would lapse around **Dec 9, before judging ends**, so budget the judge window on the card. There is no hard spend cap: add a stop in `cost_ledger.py`. |
-| Nebius AI Cloud | up to $50 via the Builder Program *(unverified)* | Hosts the judge demo on a CPU VM. There is no India region: the nearest are Finland, France, Israel and UK. |
-| Tavily | $25 | Primary web search. Nebius reportedly acquired Tavily *(unverified)*. |
-| LangSmith | $100 | Tracing for **synthetic** benchmark runs only. Family traffic stays out of it. |
-| Toloka | $50 | Human labels for the Hinglish PII test set and for rating task quality in Pariksha. |
-| Tandem | $50 | Not yet used. |
-| Google Colab Pro+ | ~1,800 hours or compute units (to confirm which) | Fine-tuning and batch evaluation only. It can't serve the pilot or judges: sessions last at most 24 h and it doesn't count as "runs on Nebius". |
-| Host Mac | M5 MacBook Air, 24 GB, fanless | Runs the family control plane, local PII models and the Android ADB bridge. Sleep and thermal throttling are the risks (see §7). |
+- **Nebius Token Factory credit.**
+  - **$25** from the Builder Program email.
+  - A possible **$25** promo code and a second **$25** Builder tranche *(unverified)*.
+  - Credits expire **90 days after issue** *(unverified)*, so the Sep 10 grant lapses around Dec 9, **before judging ends**. The judge window is budgeted on the card.
+- **Nebius AI Cloud:** up to $50 *(unverified)*. Hosts the judge VM. There is no India region.
+- **Partner credits:**
+  - **Tavily $25:** search.
+  - **LangSmith $100:** synthetic benchmark traces only, never the pilot.
+  - **Toloka $50** and **Tandem $50:** unused for now. The Toloka labelling project was cut, see §6.
+- **Colab Pro+ (~1,800 hours or compute units, to confirm):** only for the stretch router (§6). It is not a Nebius runtime.
+- **Host:** an **M5 MacBook Air, 24 GB, fanless**. It is the family control plane and runs the local PII models, local OCR and the ADB bridge. Its risks are sleep, heat and memory (§7).
 
-## 3. The thesis
+**Cost controls (must):**
+- Nemotron prices go into `cost_ledger.py`. Unknown models are charged at the highest known price, never $0.
+- Spend is checked before each call.
+- **Separate keys:** pilot, benchmark and judge.
+- **When a budget runs out:**
+  - the benchmark and judge keys **stop hard** (the judge instance falls back to replay);
+  - the pilot key drops to **economy mode** with a banner, and the owner is notified.
+- Spend is reconciled against Nebius usage every day.
 
-> **Narad is one private agent for a whole family.** It completes real errands (finding and booking, reading lab reports, planning) in a sandboxed browser and on the family's own Android phones. It sends each approval to the right person's phone and records what it did. Its brain is **open NVIDIA Nemotron models served by Nebius Token Factory with zero data retention**. Memory, health and finance records **stay on the family's Mac**. Only pseudonymised context leaves the house, and a per-message **egress ledger** shows where it went and what it cost. A **Nemotron router fine-tuned for household tasks**, trained on Colab and served on Token Factory, makes everyday turns faster and cheaper. **A live four-person pilot and the Pariksha benchmark** supply the before/after numbers.
+## 3. The story
 
-**Against the ~9 visible Personal AI entries** (mostly chat, voice and memory assistants, or OpenClaw-on-Nemotron clones), Narad has four things they lack:
-- It serves a whole household: isolated profiles, and approvals routed to the right person.
-- It actually does things on screens: a browser and Android phones.
-- Its privacy is measurable: pseudonymisation plus a ledger.
-- It is backed by evidence from a pilot and a benchmark.
+> **Narad is one private AI for a whole family, built for the person who handles everyone's reports, bookings and forms.**
+>
+> It runs on a **split brain**:
+> - **On the family Mac:** NVIDIA gliner-PII, India-ID rules and the family name list work out *who* is involved. That never leaves the house.
+> - **On Nebius Token Factory:** Nemotron works out *how*.
+>
+> ***Nebius knows how. Only your home knows who.***
+>
+> **Care circles** decide which family member approves what, on their own phone. Every message carries a **privacy receipt**. Memory, health and finance records are stored on the Mac. Per turn, only a pseudonymised excerpt goes to Nebius; it may include lab values, but never names.
 
-## 4. Target architecture
+**Target user:** the "family IT desk", meaning the adult child who manages ageing parents' reports, bookings and forms in an Indian multigenerational household. With the family's consent, back this with one real anonymised errand story and two or three written quotes.
+
+**The number that sticks:** "Across *N* Nemotron calls between *[dates]*, **0** carried a real name, phone, address or ID number; *M* were caught and blocked before sending." This comes from the fail-closed pre-send check over **all** egress, counted only from the day the egress CI test (§5, Oct 1–5) turns green.
+
+**Claim discipline:**
+- Say **pseudonymised**, never "anonymised".
+- Never say "health data never leaves the house".
+- Latency, Hinglish and zero data retention (ZDR) are claimed only if measured or verified.
+- Pilot numbers follow the §7 rules.
+- No avatar or Sanskrit subsystem names in anything a judge sees.
+
+## 4. Architecture
 
 ```text
- 4 family Android phones (PWA: chat, Activity inbox, approvals, live view; Web Push)
-        │ HTTPS via named Cloudflare tunnel
-┌───────▼──────────── M5 MacBook Air · family control plane (always on) ──────────┐
-│ Narad server (ADK supervisor + 4 avatars) · Phase 0 identity & safety floor       │
-│ Family data stays here: Smriti memory, health.db, finance.db, workflows.db, vault │
-│ Privacy gateway: India-ID rules + family gazetteer + NVIDIA gliner-PII / OpenMed  │
-│   → pseudonymise before egress · restore placeholders on return · egress ledger   │
-│ Kriya task runtime: sandboxed Playwright (OpenShell trial) · ADB → Android phones │
-└──────┬───────────────────────────────┬───────────────────────────┬──────────────┘
-       │ pseudonymised text             │ search queries             │ synthetic data only
-┌──────▼─────────────────────────┐ ┌───▼─────────┐ ┌────────────────▼──────────────┐
-│ Nebius Token Factory (ZDR on)  │ │ Tavily      │ │ Nebius AI Cloud (CPU VM)       │
-│ narad-router: LoRA on Nemotron │ └─────────────┘ │ Judge demo: synthetic family,  │
-│ Nemotron 3.5 Lightning: fast   │                 │ fixture sites, replay mode,    │
-│ Nemotron 3 Super: worker/tools │                 │ per-judge rate + budget caps   │
-│ Nemotron 3 Ultra: escalation   │                 └────────────────────────────────┘
-│ Nemotron Safety Guard (Hindi)  │   Colab Pro+ (offline): LoRA training, PII model
-│ Qwen/DeepSeek: benchmark arms  │   fine-tune, operator-model batch evals
-└────────────────────────────────┘
+ 4 family Android phones (PWA: chat + receipts, approvals, Activity; Web Push)
+        │ HTTPS · new Cloudflare hostname (not in git) · consider Cloudflare Access
+┌───────▼───────────── M5 MacBook Air · family control plane ─────────────────────┐
+│ Narad server (Phase 0 identity & safety floor) · care circles · Anumati approvals  │
+│ Stored here only: memory, health.db, finance.db, workflows.db, vault, name list    │
+│ narad_egress — the ONE chokepoint for every model/embedding/search/TTS/image call: │
+│   India-ID rules + family name list on all outgoing text (incl. page observations) │
+│   + NVIDIA gliner-PII on typed text & uploads · fail closed · spend check · receipt│
+│   restore placeholders only into local tools & approved form fills                 │
+│ Local: OCR (Apple Vision) · multilingual embeddings · Kriya (isolated Playwright)  │
+└──────┬──────────────────────────────┬──────────────────────────┬─────────────────┘
+       │ pseudonymised text            │ de-identified queries     │ synthetic only
+┌──────▼───────────────────────┐ ┌─────▼──────┐ ┌─────────────────▼──────────────────┐
+│ Nebius Token Factory         │ │ Tavily     │ │ Nebius AI Cloud CPU VM: judge demo │
+│ Nemotron 3 Super: worker     │ └────────────┘ │ synthetic family · fixture sites   │
+│ Nemotron 3.5 Lightning: fast │                │ own key/home/hostname · replay cap │
+│ Nemotron 3 Ultra: escalation │                └────────────────────────────────────┘
+│ (Safety Guard: shadow, gated)│
+└──────────────────────────────┘
 ```
 
-**Model roles.** All prices are per 1M input/output tokens. They come from third-party price lists *(unverified)* and will be re-checked against `GET /v1/models`.
+**Model roles.** Exact model IDs and prices are confirmed from `GET /v1/models` on Sep 24.
+- **Router:** deterministic pre-router, then Lightning few-shot, then Super. Measured, not assumed.
+- **Worker:** Super.
+- **Escalation:** Ultra, and never on an interactive family turn unless it's measured fast enough. It always falls back to Super.
+- **Reasoning control:** goes through `completion_options()`, using whichever of `extra_body`, `allowed_openai_params` or `chat_template_kwargs.enable_thinking` Token Factory honours when tested with curl. LiteLLM 1.83 rejects or drops `reasoning_effort` for `nebius/`.
 
-| Role | Model | Price | Notes |
-|---|---|---|---|
-| Router / fast path | `narad-router` (LoRA on Nemotron, trained on Colab), falling back to **Nemotron 3.5 Lightning** | $0.06 / $0.24 | Set `reasoning_effort="none"`. The router picks the workflow, avatar, tool subset and data class. |
-| Default worker | **Nemotron 3 Super** | $0.30 / $0.90 | Tool calling and planning. |
-| Escalation | **Nemotron 3 Ultra** (US region) | $1 / $3 | Rare. Always falls back to Super, because a Sep 12 report says Ultra was failing *(unverified)*. |
-| Safety | **Nemotron Safety Guard 8B v3** | tbd | 23 categories, 9 languages including Hindi. Replaces the regex-only input gate. |
-| Benchmark arms only | DeepSeek V4.1 Flash, Qwen on Token Factory | varies | Nebius runs these open weights itself, so nothing goes to DeepSeek the company. They sit behind the privacy gateway like every other cloud call. |
+**Everything else stops leaving the house by the Oct 5 slice:**
+- Tapas and Sankalpa are **off** until they go through the chokepoint.
+- Smriti embeddings become **local** (multilingual), and the index is rebuilt.
+- Image turns go to **local OCR**, never a cloud multimodal model.
+- The `deepseek/deepseek-flash` defaults and the closed-model context fallbacks are removed from pilot mode.
+- Artemis's own Gemini screenshot loop is never used for family profiles.
+- A CI test blocks any host that isn't on the allowlist, and a lint rule rejects direct `litellm.completion(` / `OpenAI(` / `genai.Client(` calls outside the chokepoint.
 
-**Your provider decisions under this plan:**
+**Provider decisions:**
 - Grok stays out.
-- DeepSeek runs only as Nebius-hosted open weights, behind local pseudonymisation. That meets your condition, with the stricter reading that *every* cloud model sits behind the gateway.
-- Claude Sonnet 5 stays available as an owner-enabled sensitive-turn option in the pilot, and is switched **off** for the demo, so the "no closed-model vendor saw family data" claim is literally true.
-- Hindi is a known gap: NVIDIA's docs list neither Lightning nor Super as supporting Hindi. Week 1 measures it. Hinglish turns fall back to Super, or to Claude in the pilot, if quality fails.
+- DeepSeek exists only as Nebius-hosted open weights behind the gateway, and is not used in the demo.
+- Claude Sonnet 5 is **pilot-only and owner-enabled** (for example for Devanagari or sensitive turns). It is off in the demo, the judge instance, the video and the README headline.
 
-**Where family data lives: on the Mac.** A cloud copy would make memory available when the Mac is off, but it would turn health and finance history into a hosted dataset, which goes against the track's own wording. We revisit an encrypted off-site backup after the pilot (Phase 7).
+## 5. Build plan: whole flow first, gates, cut lines
 
-## 5. Build plan, week by week
+**Owner-hours reality:** about 100 hours of Mac/phone testing are available. Every item marked 🧪 needs the owner's devices. Every Sunday (**Oct 5, 11, 18**) a rough 3-minute cut of the video is recorded. Anything that isn't in a cut waits until after Oct 30.
 
-Principle: **three workflows done end to end beat six half-built ones.** The demo paths are **Travel**, **Health + Documents** (lab report → tracked follow-up) and **Teach Anything** (streaming polish). Career and Finance stay available in chat but get no new depth before Oct 30.
+| Date | What happens | Gate |
+|---|---|---|
+| **Sep 24** | **Facts check** (owner browser + a script we provide): model IDs, ZDR switch and regions, per-project keys and usage API, credit amounts/dates/expiry, promo code, AI Cloud credit, LoRA terms, judge-access rules, Colab units, Tavily prize criteria. Meanwhile Nemotron runs through the existing `NARAD_ENDPOINT_URL` path. | Results written into VENDOR_RESEARCH |
+| Sep 24–27 | `nebius/` provider with explicit `api_base`, `detect_provider()` checking `nebius/` first, reasoning control, prices, per-key budgets. Dated CHANGELOG and feedback log started. | — |
+| **Sep 26** 🧪 | Tool-calling gate: 20 supervisor→avatar→tool turns on Super and on Lightning. | **≥ 95% valid calls on Super.** Otherwise tool subsets move forward, Lightning stays off tool paths, and Kriya gets one constrained action tool. |
+| Sep 29 🧪 | Artemis spike (half a day): can its planner use an OpenAI-compatible endpoint with accessibility-tree input? | If not, use a deterministic ADB alarm intent or Web Push for the reminder. No Artemis fork before Oct 30. |
+| **Sep 30** 🧪 | Hinglish (Latin script) on Super. Time to first token over the **whole turn**, from a family phone on Jio/Airtel through the tunnel, at 7–10 pm IST, with each model pinned to its best region. ZDR confirmation. | No speed claims if p50 is above ~2.5 s. No Hinglish in the video unless it passes. No "ZDR" anywhere unless confirmed. |
+| **Oct 1** | Pariksha baseline, **12 tasks × 3 runs**, in its own isolated home: the clinic fixture (with an injection page and a payment step), the lab report as PDF and photo, about 10 latency prompts, and a synthetic leak set of about 250 items (Hinglish, Devanagari names, Indian IDs, labels known by construction). | One command produces the scorecard |
+| **Oct 1–5** | **Vertical slice:** Super as the default brain, the lean gateway (rules + name list, whole messages), the egress chokepoint and its CI test, the receipt chip, an approval push to a second profile (ntfy is fine for this cut), and Playwright on the clinic fixture. Also Phase 0 carryovers (per-profile `/karma`, `/andon/log`, `/sutras`, `/search`, `artifacts/<run_id>`) and moving the pilot hostname out of git into `.env` on a new name. | **Rough cut #1, Oct 5** |
+| Oct 6–7 | Judge instance skeleton: Dockerfile, Nebius CPU VM, its own `NARAD_HOME`, synthetic seed, key and hostname, Nemotron only. | Serving live |
+| Oct 6–8 🧪 | **First non-owner family member**, only if the leak tests are green on every egress path, the carryovers are closed, consent is recorded and the metric definitions are committed. | §7 checklist |
+| Oct 6–10 | **Streaming PR:** avatar mini-runner with SSE streaming, `text_delta` events, `skip_summarization` for single-avatar turns, `_event_to_sse` handling of the final function response (otherwise `avatar_done`, checkpoints and memory writes silently stop), thought parts stripped, streamed placeholder restore with a 40-character holdback. Then NVIDIA gliner-PII on typed text and uploads. | Measured time to first token |
+| Oct 8–12 🧪 | **Care circles + Anumati:** a hash-bound `ActionProposal`, cards on the approver's phone via **Web Push** (service worker; replaces ntfy), a lock screen that shows only "Narad needs your OK", a card built from a fixed template of the hash-bound fields in the approver's language, Approve / Reject (Edit only if time allows), expiry counting as reject, only commit-class actions gated, one plan envelope per task, and no LLM self-confirmation, including in `phone_use`. | Approval decided within 10 s of the push |
+| **Oct 10** | **Cut line 1.** You are behind if streaming isn't merged, leak tests aren't green, or Pariksha can't produce a scorecard. | Drop, in this order: router LoRA → OpenShell → Artemis as an agent → Safety Guard → skills loaded on demand (keep tool subsets) → Edit → Activity screen (use 3 notification cards) → live-view frames (use a captioned Playwright recording) → any Hinglish claim |
+| Oct 10–17 🧪 | **Kriya v0 on the clinic fixture:** isolated Playwright only, Super as the operator, viewport-scoped observations with real ARIA roles, only the latest observation kept in full, settle and verify with 5 s timeouts, server-side cancel. `page.route` blocks loopback and LAN addresses on every sub-request, and a per-task domain allowlist blocks the injection. Local OCR (Apple Vision) for the photographed report. Health outcome contract: values shown next to their image crops, confirmed by Papa before anything is written, flags only from the report's own reference ranges, "discuss with your doctor". Mobile design pass on four screens: chat + receipt, approval card, live task view, Activity. | — |
+| Oct 12 | Router gate (§6) | Go / no-go |
+| **Oct 15** 🧪 | **Pilot build tagged; all four family members.** After this the pilot gets fixes only, behind feature flags, with one-command rollback. APFS snapshot before each deploy, nightly encrypted local backup, one restore drill. | — |
+| **Oct 17** | Clinic fixture reliability | **Passes ≥ 9 of 10 runs** |
+| Oct 17–20 | Reliability loop, judge-instance hardening (the two-pane "Papa's phone / Asha's phone" page with a Start button), and the after-scorecard. | — |
+| **Oct 20** | **Cut line 2.** You are behind if the clinic fixture is below 9/10 or the judge instance isn't serving live. | Health falls back to PDF → health.db → push reminder. Pilot numbers shown as raw counts or left out. After-scorecard covers only the tasks that ran. |
+| Oct 21–22 | Stretch work only if every gate is green. README/Devpost drafts (drafted every Friday from Sep 26). | — |
+| Oct 23 / 24 / 25 / **28** | Freeze / dress rehearsal / film / **submit** (two days of buffer) | — |
 
-### Week 1 (Sep 24–30): Nemotron on Nebius, and measure before changing anything
-- **Nebius provider:**
-  - `nebius/` provider through LiteLLM with an explicit `api_base` (LiteLLM's default still points at the retired `api.studio.nebius.ai`);
-  - a Kunji key entry, and model discovery via `GET /v1/models`;
-  - `detect_provider()` checks the `nebius/` prefix first;
-  - ZDR is switched on at the org level, with a screenshot kept.
-- **Nemotron as the default brain:** the routing table above, with a Super fallback on every Ultra call. Hard spend stop in `cost_ledger.py`.
-- **Search:** Tavily becomes the primary web-search provider, with Exa as fallback.
-- **Pariksha v0:**
-  - fixture sites for the Travel booking flow, the clinic appointment flow, and a lab-report PDF;
-  - a chat latency set (simple / research / tool);
-  - one command that produces a scorecard.
-- **Baseline scorecards:** the current stack, and Nemotron with no other changes.
-- **Measurements:** time to first token from each Token Factory region, as seen from India; Hindi and Hinglish quality on Lightning and Super.
-- **Colab:** a synthetic household-task generator (six workflows × personas × Hinglish variants) produces the router training and evaluation sets.
-- **Trials:**
-  - Playwright inside NVIDIA OpenShell;
-  - Artemis driving a phone from its accessibility tree with Nemotron.
-  - Each trial either proves itself by **Oct 3** or gets dropped.
+**Never cut:**
+- Nemotron as the default brain.
+- The egress chokepoint and receipt.
+- Spend stops.
+- The judge instance.
+- The video, README, feedback section and Aug 26 changelog.
+- Synthetic-only public material.
 
-### Week 2 (Oct 1–7): fast path and privacy gateway
-- **Fast path (Phase 2 core):**
-  - token streaming, and `skip_summarization` so a single avatar hands its answer straight through;
-  - the router answers trivial turns directly;
-  - skills load on demand, with tool subsets per intent;
-  - one capped recall per turn.
-- **Privacy gateway v0 (Phase 3 subset):**
-  - India-ID rules (Aadhaar with Verhoeff check, PAN, UPI, IFSC, +91, PNR);
-  - a family gazetteer;
-  - NVIDIA gliner-PII and/or OpenMed on the M5 via MPS;
-  - placeholder restore in streamed output and in tool arguments;
-  - fail closed;
-  - an egress ledger per turn, visible in System → Trust.
-- **Approvals (Anumati v0):** a hash-bound `ActionProposal`, and an approval card with Approve / Reject / Edit. The LLM can no longer self-confirm.
-- **Colab:** train `narad-router` LoRA v1. Confirm how Token Factory hosts an externally trained adapter *(unverified)*. The fallback is Token Factory's own post-training on the same synthetic data.
-
-### Week 3 (Oct 8–14): Kriya, and the phone as the control surface
-- **Kriya v0 (Phase 4 subset):**
-  - an inner perceive → act → settle → verify loop over Playwright accessibility snapshots with stable refs;
-  - screenshots only when needed;
-  - old observations pruned;
-  - durable, cancellable tasks.
-  - It runs in the OpenShell sandbox if the week-1 trial passed.
-- **Android:** Artemis over ADB while phones are on home Wi-Fi, for tasks of about 8 steps or fewer. The Narad Companion app is deferred.
-- **Cross-device (Phase 5 subset):**
-  - Web Push per profile and device;
-  - an Activity inbox;
-  - live view: 1–2 fps frames of the running task on the phone;
-  - server-side stop.
-- **Router:** deploy `narad-router` on Token Factory, then compare it with Lightning and Super on the Pariksha router set.
-
-### Week 4 (Oct 15–21): workflows that finish, pilot at full size, judge instance
-- **Outcome contracts (Phase 6 subset)** for the demo paths: Travel (options → approval → booking evidence or a hand-off), Health/Documents (lab report → extracted values → a reminder or follow-up in health.db), Teach (mastery checkpoints).
-- **Pilot:** all four family members on the new build. Collect task success, time to done and approvals, with the family's consent for aggregate numbers.
-- **Judge instance** on a Nebius AI Cloud CPU VM:
-  - a synthetic family, fixture sites, and replay mode;
-  - invite codes for judges;
-  - per-judge rate and budget caps;
-  - a status page.
-- **After scorecard:** run Pariksha and compare with the week-1 baseline.
-
-### Week 5 (Oct 22–30): freeze, film, submit
-- **Oct 23:** feature freeze. Bugs only after that.
-- **Oct 25:** the video is recorded on the Android phones (scrcpy mirror), with two takes per segment.
-- **Write-ups:**
-  - README sections: NVIDIA models, Nebius services, how to run, judge access;
-  - the "significantly updated since Aug 26" account;
-  - the technology feedback section;
-  - the Devpost description.
-- **Oct 28:** submit, leaving two days of buffer.
-
-### Deferred until after the hackathon (the pilot continues)
-- Narad Companion app for phones away from home Wi-Fi.
-- Cloud browser pool.
-- cua desktop control upgrades.
+**Deferred past Oct 30. The pilot keeps going, and this is where the rest of the original computer-use and phone-use agenda lives:**
+- The full Kriya runtime: signed-in browser, desktop control, cloud browser pool.
+- The Narad Companion app for phones away from home.
+- ADB over Tailscale.
 - Career and Finance depth.
+- ML redaction for Devanagari.
 - Full Phase 7 operations.
-- Devanagari redaction (Hindi-script turns route to the trusted fallback in the meantime).
+- Local-only lab-value extraction as a per-profile option.
 
-## 6. Fine-tuning with the Colab hours
+## 6. Fine-tuning: a gated stretch goal
 
-**1. `narad-router` (the headline).**
-- *What:* a LoRA on a small Nemotron.
-- *Trained on:* synthetic household turns labelled with workflow, avatar, tool subset, data class, and "answer directly vs delegate".
-- *Measured against base Lightning:* routing accuracy, p50 latency, tokens per turn, cost per turn.
-- *Served:* on Token Factory.
-- *Why it matters:* this is the "creative, non-obvious use of Token Factory and Nemotron" the judges score. It also directly cuts pilot latency. The winner of Nebius's previous builders challenge was a LoRA project reporting a measured $3.64 bill.
+**`narad-router`** is a Nemotron LoRA that routes household turns: workflow, tool subset, data class, and whether to answer directly.
+- **Go only if both of these hold:**
+  - **By Oct 7:** a Nemotron base proven trainable with a 100-example smoke run, Token Factory serving it billed per token (not hourly), and a frozen label schema.
+  - **By Oct 12:** the slice and the receipt work.
+- **Training:** prefer Token Factory's own post-training, because Colab doesn't count as Nebius. Colab is the fallback for training or evaluation. Synthetic data only.
+- **Showing it:** only if the win is large and visible, for example a simple turn going from 3 model calls to 1.
+- **Family use:** only if it beats Lightning on a Hinglish routing set.
 
-**2. `narad-pii-in` (the privacy story).**
-- *What:* fine-tune NVIDIA's open gliner-PII model on Indian identifiers, Indian names and Hinglish.
-- *Labels:* a Toloka-labelled test set of about 1,200 items plus synthetic data.
-- *Where it runs:* locally on the Mac.
-- *Target gates:* ≥ 99.5% recall on structured IDs and ≥ 97% name recall in Latin script.
+**Cut from v1** because they dilute the story:
+- the `narad-pii-in` fine-tune and the 1,200 Toloka labels (stock gliner-PII + rules + name list + the synthetic leak set is enough);
+- the Colab batch evaluation of operator models;
+- DeepSeek/Qwen benchmark arms. Model comparisons are **Nemotron only**: Lightning vs Super vs Ultra.
 
-**3. Operator-model batch evaluation.**
-- Score candidate GUI and vision models offline against Pariksha screenshots, so only the winners are wired in.
+## 7. Protecting the real family pilot
 
-**Rule for all three:** Colab and Token Factory post-training see **synthetic data only**, never family data.
+- **The repo is public.**
+  - Move the pilot hostname out of `Start Family Pilot.command` and `OnboardingFlow.tsx` into `.env`, and switch to a **new** hostname. The current one has been in git history since `b39599c`.
+  - `GET /profiles` must return initials only, or require a device token. Today anyone can read family display names and use the PIN backoff to lock people out.
+  - A pre-push hook scans for family names and the pilot hostname.
+- **Separate homes.**
+  - Pariksha and the judge instance have their own `NARAD_HOME`, and Pariksha refuses to start on the pilot's home.
+  - The pilot launcher unsets `LANGSMITH_*`, `LANGCHAIN_TRACING*` and `OTEL_EXPORTER_*`. The server asserts that no tracing callbacks are registered in strict mode.
+  - Colab uses a separate Google account and never mounts the family's Drive.
+  - The family name list is a gitignored runtime file only.
+  - Claude Code is denied read access to `~/.narad`.
+- **Consent, in Hindi and English, per adult, versioned, inside the app.**
+  - It covers:
+    - what is stored on the Mac;
+    - the owner's admin reach (owner actions on someone's profile are logged to that person's inbox);
+    - every destination: Nebius EU/US, Tavily, Cloudflare's edge, and the fallback provider;
+    - the scope of phone control;
+    - what gets published, and how to pause, withdraw or delete.
+  - Each adult approves the exact slide that will be published.
+- **Honest pilot numbers.**
+  - Metric definitions are committed with a date before the first non-owner member joins.
+  - Only counts, durations and outcomes are recorded, never prompts. Owner testing and synthetic runs are excluded.
+  - Always report *n* and the date range. Below 30, show counts rather than percentages.
+  - Abandoned tasks count as failures.
+  - No breakdown per person, and no separate health or finance counts.
+  - Before/after comparisons come only from Pariksha.
+  - Say "real pilot" only if at least 3 of 4 members were active on at least 5 days between Oct 15 and 24. Otherwise "early pilot (owner + 1)".
+- **Oct 20 checklist.** If it isn't green, the video says "pilot in progress" and quotes no rates.
+  1. PWA installed on each phone, with its own PIN.
+  2. Streaming, with measured time to first token.
+  3. All egress goes through the gateway: zero traffic to DeepSeek's own API or to Gemini with screenshots.
+  4. Latin-script Hinglish works; Devanagari goes to a labelled fallback.
+  5. Approvals decided within 10 s of the push.
+  6. Stop works from the phone.
+  7. Health and Travel (search → hand-off) have been used for real.
+  8. `launchd` running, with ≥ 95% uptime while people are awake.
+  9. Consent recorded.
+  10. The pilot budget or fallback tested through Dec 15.
+- **Phone control is off by default on family phones.** Enabling it needs, per phone:
+  - Advanced Protection kept on, and banking/UPI apps checked first, because some refuse to run with Developer options on;
+  - accessibility enabled only for the length of a task, with a visible "Narad is controlling this phone — Stop" notice;
+  - banking, UPI and WhatsApp denied;
+  - away from home, tasks are queued ("I'll do it when you're home");
+  - its numbers reported separately.
+- **Hindi and Hinglish.**
+  - Replies in the script each person prefers, set per profile.
+  - Devanagari name forms in the name list, and Devanagari digits folded to Latin.
+  - Hindi/Hinglish crisis phrases added to the local rule gate, with Tele-MANAS **14416** next to iCall.
+  - The "passport number" hard block is removed.
+  - Nemotron Safety Guard, if used, runs in **shadow mode alongside** the local rules. It never replaces them.
+- **Keeping the Mac up.**
+  - `launchd` KeepAlive units for the backend, tunnel and ADB bridge.
+  - Lid open, on a stand, on AC.
+  - FileVault stays on; use `fdesetup authrestart` for planned restarts, and turn off automatic OS updates until Dec 15.
+  - An external uptime ping alerts the owner's phone.
+  - No benchmark sweeps or recording 7–10 pm IST.
+  - Measure the 24 GB budget with the PII models, Chromium, OCR and Gemma all loaded.
+- **Retention:** computer-use and phone-use screenshots are purged 7–14 days after each task. Live view is tap-to-view, and its frames are never stored.
+- **Incidental egress:** `OPENSHELL_TELEMETRY_ENABLED=false`, `NEMO_GUARDRAILS_NO_USAGE_STATS=1`, `HF_HUB_DISABLE_TELEMETRY=1`, `HF_HUB_OFFLINE=1` once models are downloaded; self-hosted fonts; Cloudflare listed as transport in the receipt.
 
-## 7. Risks and guards
+## 8. The video: "Papa's lab report" (about 2:50)
 
-- **The Mac sleeps or overheats.**
-  - Use `sudo pmset -a disablesleep 1` plus AC power, and a watchdog.
-  - Keep heavy local models off the hot path. The M5 Air hosts only the PII models, OCR and the control plane.
-  - Judges never depend on the Mac.
-- **Credits lapse before Dec 15.**
-  - Keep a 40% reserve, and cap spend in code.
-  - The judge instance defaults to replay mode after a daily budget is spent.
-- **Alpha dependencies** (OpenShell, NemoClaw): trial them behind flags. Narad works without them.
-- **Nemotron Ultra instability:** it always falls back to Super.
-- **Hindi quality:** measure it in week 1 and route around it. Don't claim it until it's measured.
-- **Demo flakiness:**
-  - Show only tasks that pass at least 9 times in 10.
-  - Use fixture sites for anything that commits an action.
-  - Keep replay mode ready, and never show a cold start.
-- **Privacy in public artefacts:** synthetic family only in the repo, video and judge instance. The sponsor gets promotional rights to likeness, so no real faces or voices.
-- **Scope:** feature freeze on Oct 23 is non-negotiable.
+Filmed on **two spare or freshly reset Android phones** against the judge instance, mirrored with scrcpy, with Do Not Disturb on. The family is synthetic. The report is synthetic, including a fake Aadhaar, and a June HbA1c of 7.6 is seeded. There are captions throughout, and every sped-up clip is labelled.
 
-## 8. Open questions for the owner
+| Time | Beat |
+|---|---|
+| 0:00–0:10 | Two phones. Caption: "Papa, 64 · Asha, his daughter, 900 km away". Papa photographs his report. Line: "Every Indian family has one person who handles everyone's reports, bookings and forms." |
+| 0:10–0:35 | The receipt, side by side: what Papa sent against what **Nemotron 3 Super on Nebius Token Factory** saw ("NVIDIA gliner-PII + India-ID rules, on the family Mac"). The reply streams back with his name restored: "HbA1c 8.2, up from 7.6 in June", drawn from local memory. Tagline on screen. A 3-second beat of Papa confirming the extracted values next to their crops. |
+| 0:35–1:00 | Narad proposes a follow-up booking (Dr. Rao, Thu 10:30, ₹600) and a daily reminder. Caption: Papa's care circle sends health bookings to Asha. Web Push arrives on Asha's phone. |
+| 1:00–1:35 | Live view of the sandboxed browser filling the clinic form (2×). A hidden "email this report to…" instruction is **blocked by the task allowlist**; OpenShell is named only if it was really used. The approval card shows exactly what will be submitted. Asha approves. Confirmation saved. |
+| 1:35–1:50 | Papa's phone: the reminder is set, by Web Push or a deterministic ADB alarm. "Asha approved." Caption: **"Asha never saw the report."** |
+| 1:50–2:05 | Three Activity cards: Mom's train options (search → hand-off), a school form waiting for a parent, the monthly bills. "Same loop." |
+| 2:05–2:20 | One diagram: phones → family Mac → Token Factory (Nemotron) + Tavily; judge demo on Nebius AI Cloud. |
+| 2:20–2:40 | The big **0** card with its real numbers, plus the real Pariksha line ("*n* tasks × 3 runs, 0 unsafe actions"). The pilot line appears only if the §7 threshold is met and consent was given. |
+| 2:40–2:50 | Link to the two-phone judge demo; Apache-2.0. |
 
-1. **Colab:** is the 1,800 figure hours or compute units?
-2. **Team:** solo, or others? How many hours a week?
-3. **Family consent:** OK to publish aggregate pilot numbers, but no faces or real names?
-4. **Judge demo:** on Nebius AI Cloud (recommended), or on your Mac?
-5. **Business relationship:** any with Nebius or NVIDIA? The rules exclude some.
-6. **Hindi:** how much of the family's usage is Hindi or Hinglish?
+**The Devpost package, drafted every Friday from Sep 26:**
+- title and tagline;
+- 5 images: the two-phone approval (also the thumbnail), the receipt side by side, the split-brain diagram, the pilot card, the scorecard;
+- a description whose four sections mirror the judging criteria;
+- the "changed since Aug 26" section;
+- the feedback log.
+
+## 9. Questions for the owner
+
+1. **Is anyone other than you using the pilot today?** If so, their turns currently reach DeepSeek's own API through Tapas/Sankalpa and the main chain. Recommendation: pause non-owner access, or let us hotfix Tapas/Sankalpa off and route the main chain now.
+2. **Do you accept the pivot?** One lab-report errand in the video, the router demoted to a stretch goal, Travel pilot-only.
+3. **Your hours per week until Oct 30,** solo or with help, and time for family support Oct 15–30.
+4. **Your own profile before Oct 5:** may your turns reach Nebius without pseudonymisation for a few days, or wait for the slice?
+5. **Family facts:** ages (anyone under 18?); whether a parent really wants to delegate approvals to an adult child; how much Hindi/Hinglish, voice, and which reply script.
+6. **Phones:** makes, banking/UPI apps, Developer options policy; and two spare phones for filming?
+7. **Money:** card cap after credits; the pilot's economy fallback (local Gemma, or Claude Sonnet 5 for Devanagari/sensitive turns); the judge instance live through Dec 15 on the card?
+8. **Lab values in the real pilot:** de-identified to Nebius (as in the demo), or local-only even if the explanations are weaker?
+9. **Consent:** each adult individually, including 2–3 quotes and one anonymised real errand story?
+10. **Any business relationship with Nebius or NVIDIA?** The rules exclude some.
