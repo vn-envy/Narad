@@ -49,7 +49,6 @@ function providerLabel(provider: string): string {
     deepseek: 'DeepSeek',
     google: 'Gemini',
     openai: 'OpenAI',
-    'xai-oauth': 'Grok',
     local: 'Local model',
     'narad-local': 'Local model',
   }
@@ -87,7 +86,6 @@ export function OnboardingFlow({ userId, initialStatus, capabilities, onFinished
   const [showExaForm, setShowExaForm] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const pollRef = useRef<number | null>(null)
   const googlePollRef = useRef<number | null>(null)
   const localPollRef = useRef<number | null>(null)
   const isMobile = useIsMobile()
@@ -142,7 +140,6 @@ export function OnboardingFlow({ userId, initialStatus, capabilities, onFinished
       })
       .catch(() => setError('Narad is running, but setup status could not be refreshed.'))
     return () => {
-      if (pollRef.current !== null) window.clearInterval(pollRef.current)
       if (googlePollRef.current !== null) window.clearInterval(googlePollRef.current)
       if (localPollRef.current !== null) window.clearInterval(localPollRef.current)
     }
@@ -199,38 +196,18 @@ export function OnboardingFlow({ userId, initialStatus, capabilities, onFinished
     }
   }
 
-  const connectGrok = async () => {
-    setBusy('grok')
+  // Grok is disabled by owner policy: it is never offered, but a stored
+  // sign-in is shown so it can be removed.
+  const disconnectGrok = async () => {
+    setBusy('grok:disconnect')
     setError(null)
     try {
-      const response = await apiFetch('/connections/xai/oauth/start', { method: 'POST' })
-      const result = await readJson<{ authorize_url?: string }>(response)
-      if (!result.authorize_url) throw new Error('Grok sign-in did not return an authorization page.')
-      window.open(result.authorize_url, '_blank', 'noopener,noreferrer')
-      let attempts = 0
-      if (pollRef.current !== null) window.clearInterval(pollRef.current)
-      pollRef.current = window.setInterval(async () => {
-        attempts += 1
-        try {
-          const oauth = await apiFetch('/connections/xai/oauth/status').then(result => readJson<{ signed_in?: boolean }>(result))
-          if (oauth.signed_in) {
-            if (pollRef.current !== null) window.clearInterval(pollRef.current)
-            pollRef.current = null
-            await refreshSetup()
-            setBusy(null)
-          } else if (attempts >= 40) {
-            if (pollRef.current !== null) window.clearInterval(pollRef.current)
-            pollRef.current = null
-            setBusy(null)
-            setError('Sign-in is still pending. You can retry it or connect an API key instead.')
-          }
-        } catch {
-          // Keep polling through transient loopback failures.
-        }
-      }, 3000)
+      await readJson<{ ok?: boolean }>(await apiFetch('/connections/xai/oauth', { method: 'DELETE' }))
+      await refreshSetup()
     } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The Grok sign-in could not be removed.')
+    } finally {
       setBusy(null)
-      setError(cause instanceof Error ? cause.message : 'Grok sign-in could not start.')
     }
   }
 
@@ -350,6 +327,7 @@ export function OnboardingFlow({ userId, initialStatus, capabilities, onFinished
     ...(status.readiness.local_model_ready ? ['local'] : []),
   ]
   const providerOptions = connections.connections.filter(item => MODEL_PROVIDERS.has(item.provider))
+  const disabledGrok = connections.subscriptions.find(item => item.provider === 'xai-oauth' && item.signed_in)
   const googleWorkspace = status.readiness.google_workspace
   const phoneRuntime = status.readiness.phone
   const desktopRuntime = status.readiness.desktop
@@ -461,15 +439,17 @@ export function OnboardingFlow({ userId, initialStatus, capabilities, onFinished
                   <div style={{ marginTop: 8, fontSize: 9.5, lineHeight: 1.4, color: 'rgba(45,42,38,0.46)' }}>{localModel?.install.state === 'running' ? localModel.install.status : localModel?.memory_constrained ? 'E2B loads after your first local request, then releases after use to keep the browser responsive.' : 'Narad detected at least 16 GB RAM and automatically selected the stronger E4B model.'}</div>
                 </div>
 
+                {disabledGrok && (
+                  <div style={{ marginTop: 12, padding: '11px 12px', display: 'flex', gap: 9, alignItems: 'center', borderRadius: 10, background: 'rgba(45,42,38,0.045)', color: 'rgba(45,42,38,0.58)', fontSize: 10.5, lineHeight: 1.45 }}>
+                    <LockKeyhole size={14} style={{ flex: '0 0 auto', color: 'rgba(45,42,38,0.42)' }} />
+                    <span style={{ flex: 1 }}>{disabledGrok.label} is stored but disabled by owner policy. Narad does not use it.</span>
+                    <button type="button" onClick={() => void disconnectGrok()} disabled={busy !== null} style={{ border: '1px solid rgba(194,65,12,0.3)', borderRadius: 8, padding: '6px 10px', background: 'transparent', color: 'var(--sindoor)', fontSize: 10, fontWeight: 700, cursor: busy ? 'wait' : 'pointer' }}>{busy === 'grok:disconnect' ? 'Removing...' : 'Disconnect'}</button>
+                  </div>
+                )}
+
                 {!brainReady && (
                   <div style={{ marginTop: 16, display: 'grid', gap: 10 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 9, fontFamily: 'var(--font-mono)', fontSize: 8.5, letterSpacing: '0.09em', textTransform: 'uppercase', color: 'rgba(45,42,38,0.36)' }}><span style={{ flex: 1, height: 1, background: 'rgba(45,42,38,0.09)' }} /> or connect a cloud boost <span style={{ flex: 1, height: 1, background: 'rgba(45,42,38,0.09)' }} /></div>
-                    <button type="button" onClick={() => void connectGrok()} disabled={busy !== null} style={{ display: 'grid', gridTemplateColumns: '36px minmax(0,1fr) auto', gap: 11, alignItems: 'center', padding: '12px 13px', borderRadius: 12, border: '1px solid rgba(45,42,38,0.13)', background: 'var(--kajal)', color: 'var(--paper)', textAlign: 'left', cursor: busy ? 'wait' : 'pointer' }}>
-                      <span style={{ width: 35, height: 35, display: 'grid', placeItems: 'center', borderRadius: 10, background: 'rgba(252,250,242,0.1)' }}>{busy === 'grok' ? <LoaderCircle size={17} className="animate-spin" /> : <Sparkles size={17} />}</span>
-                      <span><span style={{ display: 'block', fontSize: 12, fontWeight: 750 }}>Sign in with Grok</span><span style={{ display: 'block', marginTop: 2, fontSize: 9.5, color: 'rgba(252,250,242,0.55)' }}>Optional when you want a larger hosted model</span></span>
-                      <ExternalLink size={14} />
-                    </button>
-
                     <button type="button" onClick={() => setShowKeyForm(value => !value)} style={{ display: 'grid', gridTemplateColumns: '36px minmax(0,1fr) auto', gap: 11, alignItems: 'center', padding: '12px 13px', borderRadius: 12, border: '1px solid rgba(45,42,38,0.12)', background: 'rgba(255,255,255,0.55)', color: 'var(--kajal)', textAlign: 'left', cursor: 'pointer' }}>
                       <span style={{ width: 35, height: 35, display: 'grid', placeItems: 'center', borderRadius: 10, background: 'rgba(194,65,12,0.08)', color: 'var(--sindoor)' }}><KeyRound size={17} /></span>
                       <span><span style={{ display: 'block', fontSize: 12, fontWeight: 750 }}>Connect an API key</span><span style={{ display: 'block', marginTop: 2, fontSize: 9.5, color: 'rgba(45,42,38,0.48)' }}>Gemini, DeepSeek, OpenAI, or Claude</span></span>

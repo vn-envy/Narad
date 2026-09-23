@@ -117,7 +117,7 @@ def _connection_readiness(user_id: str = "default") -> dict[str, Any]:
         subscription_connections = sorted(
             str(item.get("provider", ""))
             for item in subscriptions_payload()
-            if isinstance(item, dict) and item.get("available")
+            if isinstance(item, dict) and item.get("available") and not item.get("disabled_by_policy")
         )
     except Exception:
         pass

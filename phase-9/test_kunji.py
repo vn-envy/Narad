@@ -62,6 +62,20 @@ class PrefixDetectionTests(unittest.TestCase):
         self.assertIsNone(kunji.detect_provider_from_key("banana-key-123"))
         self.assertIsNone(kunji.detect_provider_from_key(""))
 
+    def test_xai_is_not_offered(self):
+        # Owner policy (2026-09-23): xAI/Grok is out — no key card, no detection.
+        self.assertNotIn("xai", kunji.PROVIDERS)
+        self.assertIsNone(kunji.detect_provider_from_key("xai-1234567890abcdef"))
+        with _kunji_sandbox():
+            with self.assertRaises(ValueError):
+                kunji.set_key("xai", "xai-1234567890abcdef")
+            os.environ["XAI_API_KEY"] = "xai-1234567890abcdef"
+            try:
+                self.assertEqual(kunji.import_env_keys(), [])
+                self.assertNotIn("xai", {card["provider"] for card in kunji.list_connections()})
+            finally:
+                os.environ.pop("XAI_API_KEY", None)
+
     def test_mask_key(self):
         self.assertEqual(kunji.mask_key("sk-ant-api03-abcd1234wxyz"), "sk-a…wxyz")
         self.assertEqual(kunji.mask_key("short"), "………")
@@ -219,8 +233,38 @@ class SubscriptionAdapterTests(unittest.TestCase):
             {card["provider"] for card in payload}, {"claude-agent-sdk", "xai-oauth"}
         )
         for card in payload:
-            for field in ("provider", "label", "installed", "signed_in", "available", "detail"):
+            for field in ("provider", "label", "installed", "signed_in", "available", "detail", "disabled_by_policy"):
                 self.assertIn(field, card)
+        by_provider = {card["provider"]: card for card in payload}
+        self.assertFalse(by_provider["claude-agent-sdk"]["disabled_by_policy"])
+        self.assertTrue(by_provider["xai-oauth"]["disabled_by_policy"])
+        self.assertFalse(by_provider["xai-oauth"]["available"])
+
+    def test_grok_credential_is_shown_disabled_never_available(self):
+        adapter = subs.get_adapter("xai-oauth")
+        with patch.object(adapter, "_oauth_signed_in", return_value=True), \
+             patch.dict(os.environ, {"XAI_API_KEY": "xai-token"}, clear=False):
+            status = adapter.status()
+            self.assertTrue(status.signed_in)
+            self.assertFalse(status.available)
+            self.assertTrue(status.disabled_by_policy)
+            self.assertEqual(status.models, [])
+            self.assertIn("owner policy", status.detail)
+            self.assertIn("disconnect", status.detail)
+            self.assertFalse(subs.subscription_active("xai-oauth"))
+        with patch.object(adapter, "_oauth_signed_in", return_value=False), \
+             patch.dict(os.environ, {"XAI_API_KEY": "xai-token"}, clear=False):
+            self.assertIn("XAI_API_KEY", adapter.status().detail)
+
+    def test_onboarding_never_counts_grok_as_a_model_connection(self):
+        import onboarding
+        adapter = subs.get_adapter("xai-oauth")
+        with _kunji_sandbox(), \
+             patch.object(adapter, "_oauth_signed_in", return_value=True), \
+             patch.dict(os.environ, {"XAI_API_KEY": "xai-token"}, clear=False):
+            readiness = onboarding._connection_readiness("default")
+        self.assertNotIn("xai-oauth", readiness["connected_subscriptions"])
+        self.assertNotIn("xai", readiness["connected_model_providers"])
 
     def test_subscription_active_is_provider_specific(self):
         adapter = subs.get_adapter("xai-oauth")

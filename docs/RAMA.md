@@ -263,7 +263,7 @@ enough — complete. Lanka was reachable. The campaign could begin.
 
 ## Architecture Reference
 
-**Model:** `xai/grok-4.6` priority (default when Grok is connected; override via `RAMA_MODEL` env)
+**Model:** `deepseek/deepseek-flash` (default chain: DeepSeek, then another connected provider, then local Gemma; override via `RAMA_MODEL` env)
 **Context window:** 128K tokens  
 **Skills file:** `phase-9/skills/rama_skill.md`  
 **Prompt layers (injection order, innermost → outermost):**

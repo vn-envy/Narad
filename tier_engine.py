@@ -142,7 +142,9 @@ def _has_subscription() -> bool:
         return True  # explicit flag — the pre-S3 escape hatch, kept
     try:
         from subscription_providers import subscription_active
-        return subscription_active()
+        # T3 is the Claude plan-credit tier; a Grok sign-in never counts
+        # (xAI is disabled by owner policy).
+        return subscription_active("claude-agent-sdk")
     except Exception:
         return False
 

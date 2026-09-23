@@ -5,6 +5,7 @@ import os
 from dataclasses import asdict, dataclass
 from functools import lru_cache
 from typing import Any
+from urllib.parse import urlparse
 
 
 @dataclass(frozen=True)
@@ -54,6 +55,9 @@ _MODEL_OVERRIDES: dict[str, int] = {
 }
 
 _PROMPT_CACHE_PROVIDERS = {"anthropic", "openai", "google", "deepseek", "xai"}
+# Owner policy (2026-09-23): xAI/Grok is out of every routing and fallback
+# chain, whatever credential (XAI_API_KEY, stored Grok OAuth) is present.
+POLICY_DISABLED_PROVIDERS = frozenset({"xai"})
 _NATIVE_COMPACTION_PROVIDERS = {"openai"}
 _PROVIDER_TOKEN_COUNT_PROVIDERS = {"google"}
 
@@ -92,10 +96,35 @@ def _disabled_providers() -> set[str]:
     }
 
 
+def disabled_by_policy(model: str, api_base: str = "") -> bool:
+    """True when owner policy keeps this model (or an endpoint on x.ai) out of routing."""
+    host = (urlparse(api_base).hostname or "").lower() if api_base else ""
+    return (
+        detect_provider(model) in POLICY_DISABLED_PROVIDERS
+        or host == "x.ai"
+        or host.endswith(".x.ai")
+    )
+
+
+def custom_endpoint_model() -> str:
+    """LiteLLM id of the connected custom OpenAI-compatible endpoint, or ''.
+
+    Configured with NARAD_ENDPOINT_URL + NARAD_ENDPOINT_MODEL (optional
+    NARAD_ENDPOINT_API_KEY); narad_litellm supplies the base URL and key.
+    """
+    model = os.environ.get("NARAD_ENDPOINT_MODEL", "").strip()
+    base = os.environ.get("NARAD_ENDPOINT_URL", "").strip()
+    if not model or not base or disabled_by_policy(model, base):
+        return ""
+    return model if "/" in model else f"openai/{model}"
+
+
 def provider_available_for_model(model: str) -> bool:
     provider = detect_provider(model)
-    if provider in _disabled_providers():
+    if provider in POLICY_DISABLED_PROVIDERS or provider in _disabled_providers():
         return False
+    if model and model == custom_endpoint_model():
+        return True
     if provider == "deepseek":
         return bool(os.environ.get("DEEPSEEK_API_KEY", "").strip())
     if provider == "google":
@@ -104,12 +133,6 @@ def provider_available_for_model(model: str) -> bool:
         return bool(os.environ.get("OPENAI_API_KEY", "").strip())
     if provider == "anthropic":
         return bool(os.environ.get("ANTHROPIC_API_KEY", "").strip())
-    if provider == "xai":
-        try:
-            from xai_oauth import ensure_runtime_token
-            return ensure_runtime_token()
-        except Exception:
-            return bool(os.environ.get("XAI_API_KEY", "").strip())
     if provider == "local":
         try:
             from local_model_runtime import local_model_available
@@ -151,7 +174,7 @@ def _fallback_candidates(model: str) -> list[str]:
         if item.strip()
     ]
     if configured:
-        return configured
+        return [candidate for candidate in configured if not disabled_by_policy(candidate)]
 
     deepseek_defaults = [
         os.environ.get("GOOGLE_CONTEXT_FALLBACK_MODEL", "gemini/gemini-2.5-pro"),

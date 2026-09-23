@@ -119,5 +119,39 @@ class RuntimeCredentialTest(unittest.TestCase):
                 self.assertEqual(os.environ["XAI_API_KEY"], "external-api-key")
 
 
+class RoutingIgnoresXaiCredentialsTest(unittest.TestCase):
+    """Owner policy (2026-09-23): a Grok sign-in is kept only so it can be removed."""
+
+    def test_stored_sign_in_never_makes_xai_routable(self) -> None:
+        import model_registry
+
+        import subscription_providers
+
+        with TemporaryDirectory() as directory:
+            token_path = Path(directory) / "xai_oauth.json"
+            token_path.write_text(json.dumps({
+                "access_token": "stored-oauth-token",
+                "refresh_token": "refresh-token",
+                "expires_at": time.time() + 3600,
+            }))
+            with (
+                patch.object(xai_oauth, "_TOKEN_PATH", token_path),
+                patch.object(xai_oauth, "ensure_runtime_token", side_effect=AssertionError("called")),
+                patch.dict(os.environ, {"XAI_API_KEY": "stored-oauth-token"}, clear=False),
+            ):
+                self.assertFalse(model_registry.provider_available_for_model("xai/grok-4.6"))
+                adapter = subscription_providers.get_adapter("xai-oauth")
+                self.assertFalse(adapter.available())
+                self.assertFalse(subscription_providers.subscription_active("xai-oauth"))
+                status = adapter.status()
+                self.assertTrue(status.signed_in)
+                self.assertTrue(status.disabled_by_policy)
+                self.assertIn("disconnect", status.detail)
+                # Disconnect keeps working so the stored credential can be removed.
+                self.assertTrue(xai_oauth.disconnect())
+                self.assertNotIn("XAI_API_KEY", os.environ)
+                self.assertFalse(adapter.status().signed_in)
+
+
 if __name__ == "__main__":
     unittest.main()

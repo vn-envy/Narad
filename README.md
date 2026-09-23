@@ -116,7 +116,7 @@ The default local ladder is deliberately simple:
 - Under 16 GB RAM: Gemma 4 E2B Q4
 - 16 GB RAM and above: Gemma 4 E4B Q4
 
-Narad downloads the selected Ollama model only when requested, lazy-loads it on first use, and releases it quickly on constrained machines. A healthy connected endpoint can become the text and multimodal default; model routing is not tied to one vision vendor.
+Narad downloads the selected Ollama model only when requested, lazy-loads it on first use, and releases it quickly on constrained machines. A healthy connected endpoint can become the text and multimodal default; model routing is not tied to one vision vendor. Hosted routing prefers DeepSeek, then another connected provider with published API data terms (Gemini, OpenAI, Anthropic, or a custom OpenAI-compatible endpoint), then local Gemma; xAI/Grok is disabled by owner policy.
 
 ## Attach Anything Relevant
 

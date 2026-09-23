@@ -177,6 +177,21 @@ class ProviderGlueTests(unittest.TestCase):
         self.assertEqual(cost, 0.0)
         self.assertTrue(priced)
 
+    def test_grok_never_counts_as_cloud_or_subscription(self):
+        # Owner policy (2026-09-23): xAI/Grok is out of every tier ladder.
+        import subscription_providers as subs
+        claude = subs.get_adapter("claude-agent-sdk")
+        grok = subs.get_adapter("xai-oauth")
+        clean = {name: "" for name in tier_engine._CLOUD_KEY_ENVS}
+        clean.update({"XAI_API_KEY": "xai-token", "NARAD_CLAUDE_SUBSCRIPTION": ""})
+        with patch.object(claude, "_sdk_installed", return_value=False), \
+             patch.object(claude, "_cli_auth_present", return_value=False), \
+             patch.object(grok, "available", return_value=True), \
+             patch.dict("os.environ", clean, clear=False):
+            self.assertFalse(tier_engine._has_cloud_key())
+            self.assertFalse(tier_engine._has_subscription())
+            self.assertEqual(recommend(_hw(ram=16))["tier"], "T1")
+
 
 class DetectHardwareTests(unittest.TestCase):
     def test_detect_hardware_shape(self):

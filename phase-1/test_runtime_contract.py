@@ -53,13 +53,10 @@ class RuntimeContractTests(unittest.TestCase):
         self.assertNotIn("security", payload["tool_families"])
         self.assertTrue(payload["tool_families"]["attachments"]["available"])
         self.assertTrue(payload["tool_families"]["attachments"]["folder_uploads"])
-        self.assertIn("resilience", payload["providers"]["xai"])
+        self.assertTrue(payload["providers"]["xai"]["disabled_by_policy"])
         self.assertIn("ready", payload["providers"]["local-model-runtime"])
         self.assertIn("model_tag", payload["providers"]["local-model-runtime"])
-        self.assertEqual(
-            payload["providers"]["xai"]["resilience"]["fallback_model"],
-            "deepseek/deepseek-flash",
-        )
+        self.assertFalse(payload["providers"]["xai"]["available"])
         self.assertIn("skill_tool_validation", payload)
         self.assertEqual(
             payload["skill_tool_validation"]["summary"]["invalid_workflow_stages"],
