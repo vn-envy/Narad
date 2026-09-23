@@ -419,6 +419,9 @@ class ComputerUseBrowserIntegrationTests(unittest.TestCase):
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.thread.start()
         cls.url = f"http://127.0.0.1:{cls.server.server_port}/"
+        # The browser URL policy refuses loopback unless the owner names it.
+        cls.private_hosts = patch.dict(os.environ, {"NARAD_BROWSER_PRIVATE_HOSTS": "127.0.0.1"})
+        cls.private_hosts.start()
         cls.tmpdir = tempfile.TemporaryDirectory()
         cls.original_artifact_dir = computer_use_skill._COMPUTER_ARTIFACTS_DIR
         computer_use_skill._COMPUTER_ARTIFACTS_DIR = Path(cls.tmpdir.name)
@@ -430,6 +433,7 @@ class ComputerUseBrowserIntegrationTests(unittest.TestCase):
         cls.server.shutdown()
         cls.server.server_close()
         cls.tmpdir.cleanup()
+        cls.private_hosts.stop()
 
     def test_form_state_survives_across_tool_calls(self) -> None:
         opened = computer_use("Inspect the form", start_url=self.url, dry_run=False)
