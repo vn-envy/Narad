@@ -94,7 +94,7 @@ PACKS: dict[str, dict[str, Any]] = {
             _stage("review", "Outcome review", "Rama", "review", "Use outcomes to update targeting, application evidence, and preparation.", skill="project_plan"),
         ],
         "schedule_templates": [
-            {"id": "weekly_scan", "title": "Weekly role scan", "enabled_by": "weekly_scan", "cadence": "weekly", "weekdays": [0], "time_field": "nudge_time", "target_stage": "market_scan"},
+            {"id": "weekly_scan", "title": "Weekly role scan", "enabled_by": "weekly_scan", "cadence": "weekly", "weekdays": [0], "time_field": "nudge_time", "target_stage": "market_scan", "new_cycle_when_complete": True},
         ],
         "feedback_routes": {"rejected": "market_scan", "no_response": "track", "interview": "prepare", "offer": "review"},
     },
@@ -266,7 +266,7 @@ PACKS: dict[str, dict[str, Any]] = {
             _stage("export", "Final export", "Parashurama", "artifact", "Version and expose the final artifact with source and provenance links.", skill="data_pipeline"),
         ],
         "schedule_templates": [
-            {"id": "recurring_report", "title": "Recurring document refresh", "enabled_by": "recurring_report", "cadence": "weekly", "weekdays": [0], "time_field": "nudge_time", "target_stage": "ingest"},
+            {"id": "recurring_report", "title": "Recurring document refresh", "enabled_by": "recurring_report", "cadence": "weekly", "weekdays": [0], "time_field": "nudge_time", "target_stage": "ingest", "new_cycle_when_complete": True},
         ],
         "feedback_routes": {"revision_requested": "story", "data_changed": "ingest", "claim_challenged": "analyze", "approved": "export"},
     },

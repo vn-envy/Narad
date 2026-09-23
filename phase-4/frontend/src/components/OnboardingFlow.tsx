@@ -22,6 +22,7 @@ import { useIsMobile } from '@/hooks/useIsMobile'
 import {
   apiFetch,
   apiUrl,
+  isOwnerSession,
   type ConnectionsPayload,
   type LocalModelStatus,
   type OnboardingStatus,
@@ -319,6 +320,8 @@ export function OnboardingFlow({ userId, initialStatus, capabilities, onFinished
   }
 
   const brainReady = status.readiness.model_ready
+  // The offline model, API keys and device grants are host-wide: owner only.
+  const isOwner = isOwnerSession()
   const localModel = status.readiness.local_model
   const researchReady = status.readiness.research_ready
   const modelConnections = [
@@ -433,7 +436,7 @@ export function OnboardingFlow({ userId, initialStatus, capabilities, onFinished
                   <div style={{ display: 'grid', gridTemplateColumns: '36px minmax(0,1fr) auto', gap: 11, alignItems: 'center' }}>
                     <span style={{ width: 35, height: 35, display: 'grid', placeItems: 'center', borderRadius: 10, background: localModel?.ready ? 'rgba(53,94,59,0.12)' : 'rgba(194,65,12,0.09)', color: localModel?.ready ? 'var(--tulsi)' : 'var(--sindoor)' }}>{localModel?.ready ? <Check size={17} /> : busy === 'local' ? <LoaderCircle size={17} className="animate-spin" /> : <Download size={17} />}</span>
                     <span><span style={{ display: 'block', fontSize: 12, fontWeight: 780, color: 'var(--kajal)' }}>Gemma 4 {localModel?.model_size || 'E2B'} · Q4</span><span style={{ display: 'block', marginTop: 2, fontSize: 9.5, color: 'rgba(45,42,38,0.5)' }}>{localModel?.ready ? `Offline · ${Math.round((localModel.configured_context_tokens || 16384) / 1024)}K working context · tools + vision` : `${localModel?.download_gb || 7.2} GB package · selected for ${Math.round(localModel?.ram_gb || 8)} GB RAM`}</span></span>
-                    {localModel?.ready ? <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8.5, color: 'var(--tulsi)', textTransform: 'uppercase' }}>ready</span> : localModel?.runtime_installed ? <button type="button" onClick={() => void installOfflineModel()} disabled={busy !== null || localModel.install.state === 'running'} style={{ border: 0, borderRadius: 8, padding: '8px 11px', background: 'var(--tulsi)', color: '#fff', fontSize: 9.5, fontWeight: 750, cursor: busy || localModel.install.state === 'running' ? 'wait' : 'pointer' }}>{busy === 'local' || localModel.install.state === 'running' ? `${Math.round((localModel.install.progress || 0) * 100)}%` : 'Download'}</button> : <a href="https://ollama.com/download" target="_blank" rel="noreferrer" style={{ borderRadius: 8, padding: '8px 10px', background: 'var(--kajal)', color: '#fff', fontSize: 9.5, fontWeight: 750, textDecoration: 'none' }}>Get runtime</a>}
+                    {localModel?.ready ? <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8.5, color: 'var(--tulsi)', textTransform: 'uppercase' }}>ready</span> : !isOwner ? <span style={{ fontSize: 9.5, color: 'rgba(45,42,38,0.5)' }}>Owner adds it</span> : localModel?.runtime_installed ? <button type="button" onClick={() => void installOfflineModel()} disabled={busy !== null || localModel.install.state === 'running'} style={{ border: 0, borderRadius: 8, padding: '8px 11px', background: 'var(--tulsi)', color: '#fff', fontSize: 9.5, fontWeight: 750, cursor: busy || localModel.install.state === 'running' ? 'wait' : 'pointer' }}>{busy === 'local' || localModel.install.state === 'running' ? `${Math.round((localModel.install.progress || 0) * 100)}%` : 'Download'}</button> : <a href="https://ollama.com/download" target="_blank" rel="noreferrer" style={{ borderRadius: 8, padding: '8px 10px', background: 'var(--kajal)', color: '#fff', fontSize: 9.5, fontWeight: 750, textDecoration: 'none' }}>Get runtime</a>}
                   </div>
                   {localModel?.install.state === 'running' && <div style={{ marginTop: 10, height: 4, overflow: 'hidden', borderRadius: 99, background: 'rgba(45,42,38,0.09)' }}><div style={{ width: `${Math.max(2, (localModel.install.progress || 0) * 100)}%`, height: '100%', borderRadius: 99, background: 'var(--tulsi)', transition: 'width 250ms ease' }} /></div>}
                   <div style={{ marginTop: 8, fontSize: 9.5, lineHeight: 1.4, color: 'rgba(45,42,38,0.46)' }}>{localModel?.install.state === 'running' ? localModel.install.status : localModel?.memory_constrained ? 'E2B loads after your first local request, then releases after use to keep the browser responsive.' : 'Narad detected at least 16 GB RAM and automatically selected the stronger E4B model.'}</div>
@@ -447,7 +450,11 @@ export function OnboardingFlow({ userId, initialStatus, capabilities, onFinished
                   </div>
                 )}
 
-                {!brainReady && (
+                {!brainReady && !isOwner && (
+                  <div style={{ marginTop: 16, fontSize: 10.5, lineHeight: 1.5, color: '#9a5b12' }}>Narad's brain is shared by the whole family. Ask the Narad owner to download the offline model or connect a provider, then come back.</div>
+                )}
+
+                {!brainReady && isOwner && (
                   <div style={{ marginTop: 16, display: 'grid', gap: 10 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 9, fontFamily: 'var(--font-mono)', fontSize: 8.5, letterSpacing: '0.09em', textTransform: 'uppercase', color: 'rgba(45,42,38,0.36)' }}><span style={{ flex: 1, height: 1, background: 'rgba(45,42,38,0.09)' }} /> or connect a cloud boost <span style={{ flex: 1, height: 1, background: 'rgba(45,42,38,0.09)' }} /></div>
                     <button type="button" onClick={() => setShowKeyForm(value => !value)} style={{ display: 'grid', gridTemplateColumns: '36px minmax(0,1fr) auto', gap: 11, alignItems: 'center', padding: '12px 13px', borderRadius: 12, border: '1px solid rgba(45,42,38,0.12)', background: 'rgba(255,255,255,0.55)', color: 'var(--kajal)', textAlign: 'left', cursor: 'pointer' }}>
@@ -508,7 +515,7 @@ export function OnboardingFlow({ userId, initialStatus, capabilities, onFinished
                     <div style={{ display: 'grid', gridTemplateColumns: '36px minmax(0,1fr) auto', gap: 11, alignItems: 'center' }}>
                       <span style={{ width: 35, height: 35, display: 'grid', placeItems: 'center', borderRadius: 10, background: 'rgba(36,92,130,0.08)', color: 'var(--nila)' }}><Monitor size={17} /></span>
                       <span><span style={{ display: 'block', fontSize: 12, fontWeight: 760, color: 'var(--kajal)' }}>This Mac via CUA</span><span style={{ display: 'block', marginTop: 2, fontSize: 9.5, lineHeight: 1.35, color: 'rgba(45,42,38,0.5)' }}>{desktopRuntime?.available ? desktopRuntime.reason || 'Cua Driver is ready for confirmed desktop tasks.' : desktopRuntime?.reason || 'Cua Driver is not ready.'}</span></span>
-                      {desktopGranted ? <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8.5, color: 'var(--tulsi)', textTransform: 'uppercase' }}>allowed</span> : <button type="button" onClick={() => void grantInteractionTarget('cua', 'host-primary', 'Narad host desktop')} disabled={!desktopRuntime?.available || busy !== null} style={{ border: 0, borderRadius: 8, padding: '8px 10px', background: desktopRuntime?.available ? 'var(--nila)' : 'rgba(45,42,38,0.1)', color: desktopRuntime?.available ? '#fff' : 'rgba(45,42,38,0.4)', fontSize: 9.5, fontWeight: 740 }}>Allow</button>}
+                      {desktopGranted ? <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8.5, color: 'var(--tulsi)', textTransform: 'uppercase' }}>allowed</span> : !isOwner ? <span style={{ fontSize: 9.5, color: 'rgba(45,42,38,0.5)' }}>Ask the owner</span> : <button type="button" onClick={() => void grantInteractionTarget('cua', 'host-primary', 'Narad host desktop')} disabled={!desktopRuntime?.available || busy !== null} style={{ border: 0, borderRadius: 8, padding: '8px 10px', background: desktopRuntime?.available ? 'var(--nila)' : 'rgba(45,42,38,0.1)', color: desktopRuntime?.available ? '#fff' : 'rgba(45,42,38,0.4)', fontSize: 9.5, fontWeight: 740 }}>Allow</button>}
                     </div>
                   </div>
 
@@ -522,6 +529,7 @@ export function OnboardingFlow({ userId, initialStatus, capabilities, onFinished
                       if (!externalId) return null
                       const label = String(device.model ?? device.name ?? externalId)
                       const granted = grants.some(item => item.kind === 'artemis' && item.external_id === externalId)
+                      if (!isOwner) return <div key={`${externalId}:${index}`} style={{ marginTop: 8, padding: '8px 10px', borderRadius: 9, background: granted ? 'rgba(53,94,59,0.06)' : 'transparent', color: granted ? 'var(--tulsi)' : 'rgba(45,42,38,0.55)', fontSize: 10.5 }}>{granted ? `${label} allowed for this profile` : `Ask the Narad owner to allow ${label} for you`}</div>
                       return <button key={`${externalId}:${index}`} type="button" onClick={() => void grantInteractionTarget('artemis', externalId, label)} disabled={granted || busy !== null} style={{ width: '100%', marginTop: 8, padding: '8px 10px', borderRadius: 9, border: '1px solid rgba(45,42,38,0.11)', background: granted ? 'rgba(53,94,59,0.06)' : 'transparent', color: granted ? 'var(--tulsi)' : 'rgba(45,42,38,0.7)', fontSize: 10.5, textAlign: 'left' }}>{granted ? `${label} allowed for this profile` : `Allow ${label} for this profile`}</button>
                     })}
                     {phoneRuntime?.ready && androidDevices.length === 0 && <div style={{ marginTop: 8, fontSize: 9.5, color: 'rgba(45,42,38,0.45)' }}>Enable Wireless debugging on the Android phone and pair it once with the Narad host. It will then appear here.</div>}

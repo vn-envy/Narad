@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import tempfile
+import threading
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -116,15 +119,34 @@ def _load_records(path: Path) -> dict[str, VectorMemoryRecord]:
     return out
 
 
+_manifest_locks: dict[str, threading.Lock] = {}
+_manifest_locks_guard = threading.Lock()
+
+
+def _manifest_lock(path: Path) -> threading.Lock:
+    """One lock per manifest: every load→modify→write holds it end to end.
+
+    Episode captures run on worker threads (parallel avatars, the background
+    index refresh), so two upserts into the same manifest can overlap."""
+    key = os.path.abspath(path)
+    with _manifest_locks_guard:
+        return _manifest_locks.setdefault(key, threading.Lock())
+
+
 def _write_records(path: Path, records: list[VectorMemoryRecord]) -> None:
     # Atomic replace: indexing runs on a background thread while recall reads —
-    # readers must never see a half-written manifest.
+    # readers must never see a half-written manifest. A unique temp file per
+    # write, so no writer can truncate another's.
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    with tmp.open("w", encoding="utf-8") as fh:
-        for record in sorted(records, key=lambda item: (item.updated_at, item.record_id)):
-            fh.write(json.dumps(record.to_dict(), ensure_ascii=False) + "\n")
-    tmp.replace(path)
+    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            for record in sorted(records, key=lambda item: (item.updated_at, item.record_id)):
+                fh.write(json.dumps(record.to_dict(), ensure_ascii=False) + "\n")
+        os.replace(tmp_name, path)
+    except BaseException:
+        Path(tmp_name).unlink(missing_ok=True)
+        raise
 
 
 def _mark_dirty(index_dir: Path) -> None:
@@ -156,20 +178,21 @@ def sync_records(
 
     for (tier, embedding_model), bucket in grouped.items():
         manifest = _manifest_path(user_id, namespace, tier, embedding_model)
-        existing = _load_records(manifest)
-        if prune_project_id is not None:
-            existing = {
-                rid: rec
-                for rid, rec in existing.items()
-                if not (
-                    rec.project_id == prune_project_id
-                    and (prune_source_kind is None or rec.source_kind == prune_source_kind)
-                )
-            }
-        for record in bucket:
-            existing[record.record_id] = record
-        _write_records(manifest, list(existing.values()))
-        _mark_dirty(_index_dir(user_id, namespace, tier, embedding_model))
+        with _manifest_lock(manifest):
+            existing = _load_records(manifest)
+            if prune_project_id is not None:
+                existing = {
+                    rid: rec
+                    for rid, rec in existing.items()
+                    if not (
+                        rec.project_id == prune_project_id
+                        and (prune_source_kind is None or rec.source_kind == prune_source_kind)
+                    )
+                }
+            for record in bucket:
+                existing[record.record_id] = record
+            _write_records(manifest, list(existing.values()))
+            _mark_dirty(_index_dir(user_id, namespace, tier, embedding_model))
 
 
 def upsert_record(record: VectorMemoryRecord) -> None:
@@ -189,12 +212,13 @@ def remove_records(*, user_id: str, record_ids: set[str]) -> int:
     if not base.exists():
         return 0
     for manifest in base.glob("*/*/*/records.jsonl"):
-        existing = _load_records(manifest)
-        keep = {rid: rec for rid, rec in existing.items() if rid not in record_ids}
-        if len(keep) == len(existing):
-            continue
-        removed += len(existing) - len(keep)
-        _write_records(manifest, list(keep.values()))
+        with _manifest_lock(manifest):
+            existing = _load_records(manifest)
+            keep = {rid: rec for rid, rec in existing.items() if rid not in record_ids}
+            if len(keep) == len(existing):
+                continue
+            removed += len(existing) - len(keep)
+            _write_records(manifest, list(keep.values()))
         # manifest = <model>/<namespace>/<tier>/records.jsonl
         tier_dir = manifest.parent
         _mark_dirty(

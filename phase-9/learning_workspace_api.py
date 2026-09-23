@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Optional
 
 import guided_mode
@@ -275,7 +276,8 @@ async def get_learning_artifact(artifact_id: str, user_id: str = "default", work
 @learning_router.post("/artifacts")
 async def post_learning_artifact(payload: LearningArtifactCreate, user_id: str = "default"):
     try:
-        artifact = create_learning_artifact(
+        artifact = await asyncio.to_thread(  # LLM-backed: never on the event loop
+            create_learning_artifact,
             user_id=user_id,
             workspace_id=payload.workspace_id,
             topic=payload.topic,
@@ -295,7 +297,8 @@ async def post_learning_syllabus(workspace_id: str, payload: SyllabusGenerate, u
     workspace = load_workspace(user_id=user_id, workspace_id=workspace_id)
     if not workspace:
         raise HTTPException(status_code=404, detail="learning workspace not found")
-    syllabus = generate_syllabus(
+    syllabus = await asyncio.to_thread(
+        generate_syllabus,
         user_id=user_id,
         workspace_id=workspace_id,
         topic=payload.topic.strip() or str(workspace.get("topic", "")),
@@ -309,7 +312,8 @@ async def post_learning_check(workspace_id: str, payload: CheckAnswer, user_id: 
     workspace = load_workspace(user_id=user_id, workspace_id=workspace_id)
     if not workspace:
         raise HTTPException(status_code=404, detail="learning workspace not found")
-    grade = grade_check_answer(
+    grade = await asyncio.to_thread(
+        grade_check_answer,
         user_id=user_id,
         workspace_id=workspace_id,
         atom_id=payload.atom_id,
@@ -348,7 +352,8 @@ async def get_learning_artifact_version(
 @learning_router.post("/artifacts/{artifact_id}/update")
 async def post_learning_artifact_update(artifact_id: str, payload: LearningArtifactUpdate, user_id: str = "default"):
     try:
-        artifact = update_learning_artifact(
+        artifact = await asyncio.to_thread(
+            update_learning_artifact,
             user_id=user_id,
             artifact_id=artifact_id,
             instruction=payload.instruction,
@@ -380,7 +385,8 @@ async def post_guided_start(payload: GuidedStart, user_id: str = "default"):
         run_id=payload.workflow_run_id,
     )
     try:
-        result = guided_mode.start_session(
+        result = await asyncio.to_thread(  # may generate a syllabus via an LLM
+            guided_mode.start_session,
             user_id=user_id, mode=payload.mode, topic=payload.topic,
         )
     except ValueError as exc:
@@ -407,7 +413,8 @@ async def get_guided_session(workspace_id: str, user_id: str = "default"):
 @learning_router.post("/guided/answer")
 async def post_guided_answer(payload: GuidedAnswer, user_id: str = "default"):
     try:
-        result = guided_mode.submit_answer(
+        result = await asyncio.to_thread(  # grades through an LLM
+            guided_mode.submit_answer,
             user_id=user_id,
             workspace_id=payload.workspace_id,
             answer=payload.answer,

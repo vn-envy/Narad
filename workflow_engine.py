@@ -789,6 +789,19 @@ def complete_current_stage(
     return run
 
 
+def _start_new_cycle(run: WorkflowRun, pack: dict[str, Any], target: str) -> None:
+    """Rewind the run to `target` as a fresh cycle (the caller saves it)."""
+    run.state["cycle"] = int(run.state.get("cycle", 1)) + 1
+    completed = list(run.state.get("completed_stage_ids", []))
+    target_index = next(index for index, item in enumerate(pack["stages"]) if item["id"] == target)
+    reopen_ids = {item["id"] for item in pack["stages"][target_index:]}
+    run.state["completed_stage_ids"] = [item for item in completed if item not in reopen_ids]
+    run.current_stage_id = target
+    run.status = "active"
+    run.completed_at = None
+    run.state["confirmation"] = None
+
+
 def record_workflow_feedback(run_id: str, event: str, *, details: dict[str, Any] | None = None) -> WorkflowRun:
     run = get_workflow_run(run_id)
     if not run:
@@ -801,15 +814,7 @@ def record_workflow_feedback(run_id: str, event: str, *, details: dict[str, Any]
     run.state.setdefault("feedback", []).append(feedback)
     run.state["feedback"] = run.state["feedback"][-100:]
     if target and _stage(pack, target):
-        run.state["cycle"] = int(run.state.get("cycle", 1)) + 1
-        completed = list(run.state.get("completed_stage_ids", []))
-        target_index = next(index for index, item in enumerate(pack["stages"]) if item["id"] == target)
-        reopen_ids = {item["id"] for item in pack["stages"][target_index:]}
-        run.state["completed_stage_ids"] = [item for item in completed if item not in reopen_ids]
-        run.current_stage_id = target
-        run.status = "active"
-        run.completed_at = None
-        run.state["confirmation"] = None
+        _start_new_cycle(run, pack, target)
     _save_run(run)
     _append_event(run, "workflow_feedback", stage_id=run.current_stage_id, payload=feedback)
     if target:
@@ -1010,14 +1015,23 @@ def _record_scheduled_check_in(
 
     A pending or approved confirmation is never dropped: the prompt is queued
     behind it. Only a recurring loop stage the run has already reached is
-    reopened; every other prompt is only recorded as a check-in, so a schedule
-    never skips ahead and never drags a booked trip or a submitted application
-    back to research. The deterministic event id keeps replays idempotent.
+    reopened, and a template marked ``new_cycle_when_complete`` (a weekly role
+    scan, a document refresh) starts a fresh cycle once the path is complete;
+    every other prompt is only recorded as a check-in, so a schedule never
+    skips ahead and never drags a booked trip or a submitted application back
+    to research. The deterministic event id keeps replays idempotent.
     """
     run = get_workflow_run(run_id)
     if not run:
         return None
     pack = get_pack(run.workflow_id) or {}
+    template = next(
+        (
+            item for item in pack.get("schedule_templates", [])
+            if item.get("id") == schedule.payload.get("template_id")
+        ),
+        {},
+    )
     stage_ids = [item["id"] for item in pack.get("stages", [])]
     if not target_stage or target_stage not in stage_ids:
         target_stage = stage_ids[-1] if stage_ids else None
@@ -1032,6 +1046,11 @@ def _record_scheduled_check_in(
         run.current_stage_id = target_stage
         run.status = "waiting_for_user"
         run.completed_at = None
+    elif run.status == "completed" and template.get("new_cycle_when_complete"):
+        mode = "new_cycle"
+        _start_new_cycle(run, pack, target_stage)
+    elif run.status == "completed":
+        mode = "closed"  # the path is done; recorded, never pushed
     else:
         mode = "check_in"
     prompt = {
@@ -1045,7 +1064,25 @@ def _record_scheduled_check_in(
     run.state["scheduled_prompt"] = prompt
     _save_run(run)
     _append_event(run, "scheduled_check_in", stage_id=run.current_stage_id, payload=prompt, event_id=f"{event_id}_checkin")
+    if mode == "new_cycle":
+        _append_event(
+            run, "stage_started", stage_id=target_stage,
+            payload={"cycle": run.state.get("cycle"), "schedule_id": schedule.schedule_id},
+            event_id=f"{event_id}_cycle",
+        )
     return run
+
+
+def _scheduled_push_body(run: WorkflowRun, schedule: WorkflowSchedule) -> str | None:
+    """Word the push for what the schedule actually did; None means stay quiet."""
+    mode = str((run.state.get("scheduled_prompt") or {}).get("mode") or "")
+    if mode in {"reopened", "new_cycle"}:
+        return f"{run.title} is ready for its next checkpoint. Open Work > Paths to continue."
+    if mode == "queued":
+        return f"{run.title} is waiting for your approval before {schedule.title.lower()} can run. Open Work > Paths to review it."
+    if mode == "check_in":
+        return f"Reminder for {run.title}: {schedule.title.lower()}. Open Work > Paths when you are ready."
+    return None
 
 
 def fire_due_workflow_schedules(now: datetime | None = None) -> dict[str, Any]:
@@ -1096,15 +1133,16 @@ def fire_due_workflow_schedules(now: datetime | None = None) -> dict[str, Any]:
             occurrence=occurrence,
             event_id=event_id,
         ) or run
+        body = _scheduled_push_body(run, schedule)
         delivered = deliver(
             kind="reminder",
             title=schedule.title,
-            body=f"{run.title} is ready for its next checkpoint. Open Work > Paths to continue.",
+            body=body,
             user_id=run.user_id,
             source="kala_scheduler.workflow",
             priority="default",
             data={"workflow_id": run.workflow_id, "workflow_run_id": run.run_id, "schedule_id": schedule.schedule_id},
-        )
+        ) if body else {"status": "skipped", "reason": "path_complete"}
         fired.append({"run_id": run.run_id, "schedule_id": schedule.schedule_id, "delivery": delivered})
     return {"fired": len(fired), "items": fired, "ts": _iso(current)}
 

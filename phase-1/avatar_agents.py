@@ -17,6 +17,7 @@ The search tool is wired as a first-class Matsya capability.
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import contextvars
 import functools
 import inspect
@@ -261,6 +262,16 @@ def _clone_agent_with_model(agent: LlmAgent, model: LiteLlm) -> LlmAgent:
     )
 
 
+# Tools get their own pool. asyncio's default executor (cpu_count + 4
+# workers) serves the chat hot path — recall, episode capture, attachments,
+# grading, Kala's tick — and minutes-long tools (phone_use, create_video,
+# a fan-out of browse_url) must never queue that work behind them.
+_TOOL_POOL = concurrent.futures.ThreadPoolExecutor(
+    max_workers=max(4, int(os.environ.get("NARAD_TOOL_WORKERS", "16"))),
+    thread_name_prefix="narad-tool",
+)
+
+
 def _run_off_loop(func: Any) -> Any:
     """Wrap a sync tool so ADK awaits it on a worker thread, not the event loop.
 
@@ -268,13 +279,15 @@ def _run_off_loop(func: Any) -> Any:
     single computer_use/phone_use call (up to 180 s / 600 s) froze every chat.
     RunConfig.tool_thread_pool_config is not the fix: it also moves async
     tools (the avatars, which stream through the loop's SSE queue) onto a
-    private loop. asyncio.to_thread copies contextvars, so profile_scope and
-    the request context stay visible inside the tool.
+    private loop. The call runs in a copy of the caller's context (as
+    asyncio.to_thread does), so profile_scope and the request context stay
+    visible inside the tool.
     """
 
     @functools.wraps(func)
     async def _offloaded(*args: Any, **kwargs: Any) -> Any:
-        return await asyncio.to_thread(func, *args, **kwargs)
+        call = functools.partial(contextvars.copy_context().run, func, *args, **kwargs)
+        return await asyncio.get_running_loop().run_in_executor(_TOOL_POOL, call)
 
     # wraps() carries name, docstring and __wrapped__ (ADK reads the signature
     # through it). Resolve string annotations now: ADK re-evaluates them

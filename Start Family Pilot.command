@@ -83,9 +83,16 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 if command -v cua-driver >/dev/null 2>&1; then
+    # The daemon runs every desktop action and reads its own environment and
+    # ~/.cua-driver/config.json, not this shell's exports. Persist the opt-out
+    # so it holds however the daemon starts, including one already running.
+    cua-driver telemetry disable >/dev/null 2>&1 \
+        || warn "Could not persist the Cua Driver telemetry opt-out; run: cua-driver telemetry disable"
     if ! cua-driver status 2>/dev/null | grep -qi "daemon is running"; then
         log "Starting the local Cua Driver..."
-        open -n -g -a CuaDriver --args serve >/dev/null 2>&1 || warn "Cua Driver needs a manual start."
+        open -n -g -a CuaDriver \
+            --env CUA_DRIVER_RS_TELEMETRY_ENABLED=false --env CUA_TELEMETRY_ENABLED=false \
+            --args serve >/dev/null 2>&1 || warn "Cua Driver needs a manual start."
     fi
 else
     warn "Cua Driver is not installed; desktop control will stay unavailable."
@@ -144,7 +151,17 @@ kill -0 "$TUNNEL_PID" >/dev/null 2>&1 || die "Cloudflare Tunnel stopped during s
 
 log "Narad is live at $PUBLIC_URL"
 log "Keep this window open. Press Ctrl-C to stop the private family pilot."
-open "$PUBLIC_URL" 2>/dev/null || true
+# The owner PIN can only be set from the host itself, never through the tunnel.
+OPEN_URL="$PUBLIC_URL"
+if curl -fsS "http://$BACKEND_HOST:$BACKEND_PORT/profiles" 2>/dev/null | "$ROOT/.venv/bin/python" -c '
+import json, sys
+profiles = json.load(sys.stdin).get("profiles", [])
+sys.exit(0 if any(p.get("is_owner") and not p.get("has_pin") for p in profiles) else 1)
+' 2>/dev/null; then
+    OPEN_URL="http://$BACKEND_HOST:$BACKEND_PORT"
+    log "First run: choose the owner PIN at $OPEN_URL on this Mac, then use $PUBLIC_URL anywhere."
+fi
+open "$OPEN_URL" 2>/dev/null || true
 
 while kill -0 "$BACKEND_PID" >/dev/null 2>&1 && kill -0 "$TUNNEL_PID" >/dev/null 2>&1; do
     sleep 2

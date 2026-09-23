@@ -67,11 +67,15 @@ def _slug(display_name: str) -> str:
     return value[:36]
 
 
+# Fixed routes under /profiles/; a member named "Login" must not shadow one.
+_RESERVED_PROFILE_IDS = frozenset({"login", "bootstrap", "invites", "session", "media-session"})
+
+
 def _profile_id_for(display_name: str, existing: set[str]) -> str:
     base = _slug(display_name)
     candidate = base
     suffix = 2
-    while candidate in existing:
+    while candidate in existing or candidate in _RESERVED_PROFILE_IDS:
         candidate = f"{base[:40]}-{suffix}"
         suffix += 1
     return validate_profile_id(candidate)
@@ -289,6 +293,17 @@ def issue_session(user_id: str, pin: str) -> dict[str, Any]:
     }, separators=(",", ":")).encode())
     signature = _b64encode(hmac.new(_secret(), body.encode(), hashlib.sha256).digest())
     return {"profile": public, "token": f"{body}.{signature}", "expires_at": expires_at}
+
+
+def verify_pin(user_id: str, pin: str) -> bool:
+    """Check a profile's current PIN without issuing a session."""
+    try:
+        safe_id = validate_profile_id(user_id)
+    except ValueError:
+        return False
+    with _LOCK:
+        profile = (_bootstrap_default(_load()).get("profiles") or {}).get(safe_id)
+        return isinstance(profile, dict) and _verify_pin(pin, profile)
 
 
 def verify_session(token: str) -> dict[str, Any] | None:

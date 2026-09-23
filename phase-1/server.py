@@ -492,9 +492,17 @@ def _profile_from_request(request: Request) -> str:
 
 
 def _assert_profile_match(request: Request, claimed_user_id: str | None) -> str:
-    """Resolve a body/form user_id. Omitted means the caller's own profile."""
+    """Resolve a body/form user_id. Omitted means the caller's own profile.
+
+    Only a profile session or a trusted host request may name a profile; an
+    anonymous caller that slipped past the gate never gets to pick one."""
     from profile_context import validate_profile_id
 
+    if not (
+        getattr(request.state, "profile_authenticated", False)
+        or getattr(request.state, "host_authority", False)
+    ):
+        raise HTTPException(status_code=401, detail="Profile session required")
     authenticated = _profile_from_request(request)
     if not str(claimed_user_id or "").strip():
         return authenticated
@@ -512,6 +520,19 @@ def _is_local_request(request: Request) -> bool:
     )
 
 
+def _throttle_address(value: str) -> str:
+    """One throttle bucket per IPv4 address or per IPv6 /64 (one subscriber)."""
+    import ipaddress
+
+    try:
+        address = ipaddress.ip_address(value.strip())
+    except ValueError:
+        return value.strip()[:64]
+    if address.version == 6 and address.ipv4_mapped is None:
+        return str(ipaddress.ip_network(f"{address}/64", strict=False))
+    return str(getattr(address, "ipv4_mapped", None) or address)
+
+
 def _client_ip(request: Request) -> str:
     """Throttle key: trust relay headers only when a local proxy delivered them."""
     client_host = request.client.host if request.client else ""
@@ -521,8 +542,8 @@ def _client_ip(request: Request) -> str:
             or request.headers.get("x-forwarded-for", "").split(",")[0]
         ).strip()
         if relayed:
-            return relayed[:64]
-    return client_host or "unknown"
+            return _throttle_address(relayed)
+    return _throttle_address(client_host) if client_host else "unknown"
 
 
 def _is_https_request(request: Request) -> bool:
@@ -546,10 +567,15 @@ def _is_owner_request(request: Request) -> bool:
 
 
 def _require_owner(request: Request) -> None:
-    """Host-wide settings belong to the owner in strict (pilot) mode.
+    """Host-wide settings belong to the owner.
 
-    local/off keep their trusted-host behaviour."""
-    if _AUTH_MODE == "strict" and not _is_owner_request(request):
+    A signed-in profile session must be the owner's in every auth mode: in
+    local mode a family member on tailscale still arrives with their own
+    session. Only trusted host requests (loopback in local mode, anything in
+    off mode) keep the old no-profile behaviour outside strict mode."""
+    if (
+        _AUTH_MODE == "strict" or getattr(request.state, "profile_authenticated", False)
+    ) and not _is_owner_request(request):
         raise HTTPException(status_code=403, detail="Only the Narad owner can change this")
 
 
@@ -557,9 +583,11 @@ def _media_owner(path: str) -> str | None:
     """Profile that owns a per-profile /media path (computer/phone-use captures)."""
     import posixpath
 
-    # Mirror StaticFiles normalisation, and compare case-insensitively
-    # because the host Mac's filesystem is.
-    parts = posixpath.normpath(path.removeprefix("/media/")).lower().split("/")
+    # Resolve exactly as StaticFiles.get_path does (empty segments from "//"
+    # vanish in the join), and compare case-insensitively because the host
+    # Mac's filesystem is.
+    relative = posixpath.normpath(posixpath.join(*path.removeprefix("/media").split("/")))
+    parts = relative.lower().split("/")
     if len(parts) >= 2 and parts[0] in _PROFILE_MEDIA_ROOTS:
         return parts[1]
     return None
@@ -602,16 +630,20 @@ def _record_login_failure(key: str, threshold: int) -> None:
     import time as _time
 
     now = _time.monotonic()
-    if len(_login_failures) > _LOGIN_TABLE_LIMIT:
-        # Bound memory against IP churn; profile counters are never dropped.
-        for stale in [k for k, (_, until) in _login_failures.items() if k.startswith("ip:") and until <= now]:
-            del _login_failures[stale]
-    failures = _login_failures.get(key, (0, 0.0))[0] + 1
+    failures = _login_failures.pop(key, (0, 0.0))[0] + 1
     locked_until = 0.0
     if failures >= threshold:
         delay = _LOGIN_BACKOFF_BASE_S * 2 ** min(failures - threshold, 16)
         locked_until = now + min(delay, _LOGIN_BACKOFF_CAP_S)
+    # Re-inserted last, so the dict's order is least-recently-failed first.
     _login_failures[key] = (failures, locked_until)
+    # Bound memory against IP churn in O(1) per failure. Profile counters
+    # exist only for real profiles (a dozen at most) and are never evicted.
+    while len(_login_failures) > _LOGIN_TABLE_LIMIT:
+        oldest = next((k for k in _login_failures if not k.startswith("profile:")), None)
+        if oldest is None:
+            break
+        del _login_failures[oldest]
 
 
 def _throttled(retry_after: int) -> HTTPException:
@@ -620,6 +652,15 @@ def _throttled(retry_after: int) -> HTTPException:
         detail="Too many attempts. Try again later.",
         headers={"Retry-After": str(retry_after)},
     )
+
+
+_PUBLIC_PROFILE_ROUTES = frozenset({
+    ("/profiles", "GET"),
+    ("/profiles", "POST"),
+    ("/profiles/login", "POST"),
+    ("/profiles/bootstrap", "POST"),
+    ("/profiles/media-session", "DELETE"),
+})
 
 
 def _is_public_shell_path(path: str) -> bool:
@@ -646,12 +687,8 @@ async def _bearer_auth(request, call_next):
         return await call_next(request)
     # The profile gate needs these before anyone is signed in. They still run
     # through identity resolution so the routes can tell owner from anonymous.
-    public_profile_path = (
-        path == "/profiles"
-        or path == "/profiles/login"
-        or path == "/profiles/bootstrap"
-        or (path == "/profiles/media-session" and request.method == "DELETE")
-    )
+    # Matched by method too: PATCH /profiles/login routes to /profiles/{user_id}.
+    public_profile_path = (path, request.method) in _PUBLIC_PROFILE_ROUTES
     from family_profiles import verify_session
     from profile_context import profile_scope, validate_profile_id
 
@@ -759,7 +796,24 @@ async def _xai_callback_cors(request, call_next):
 # Serve generated media files (video + audio from Parashurama)
 from narad_config import ARTIFACTS_DIR as _MEDIA_DIR
 
-app.mount("/media", StaticFiles(directory=_MEDIA_DIR), name="media")
+# /media shares the app's origin, and some of it is attacker-shaped (pages
+# the isolated browser downloaded, generated HTML). A sandboxed document gets
+# an opaque origin, so its scripts can never read the session in
+# localStorage; downloads are never rendered at all.
+_MEDIA_CSP = "sandbox allow-scripts"
+
+
+class _MediaFiles(StaticFiles):
+    def file_response(self, full_path, stat_result, scope, status_code: int = 200):
+        response = super().file_response(full_path, stat_result, scope, status_code)
+        response.headers["Content-Security-Policy"] = _MEDIA_CSP
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        if "downloads" in Path(full_path).parts:
+            response.headers["Content-Disposition"] = "attachment"
+        return response
+
+
+app.mount("/media", _MediaFiles(directory=_MEDIA_DIR), name="media")
 
 
 @app.on_event("startup")
@@ -769,11 +823,8 @@ async def _startup_runtime_contract() -> None:
         apply_keys_to_env()
     except Exception:
         pass
-    try:  # xAI OAuth: stored Grok token → XAI_API_KEY; a real env var always wins
-        import xai_oauth
-        xai_oauth.apply_to_env()
-    except Exception:
-        pass
+    # A stored Grok sign-in is never refreshed or exported: xAI is out of
+    # routing by policy, and xai_oauth only backs status and disconnect.
     try:
         from local_model_runtime import get_local_model_runtime
 
@@ -792,8 +843,12 @@ async def _startup_runtime_contract() -> None:
     # on a daemon thread so the server answers requests immediately; /health
     # and /capabilities collect on demand if they land before warmup finishes.
     def _warm_contract() -> None:
+        global _contract_probed_at
+        import time
+
         try:
             app.state.runtime_contract = collect_runtime_contract()
+            _contract_probed_at = time.monotonic()
         except Exception:
             logging.getLogger("narad.server").warning(
                 "runtime contract warmup failed", exc_info=True
@@ -1086,17 +1141,45 @@ async def delete_chat_attachment_batch(batch_id: str, user_id: str = "default"):
     return {"status": "ok", "removed": True, "batch_id": batch_id}
 
 
+_CONTRACT_TTL_S = 15.0
+_contract_probe: asyncio.Future | None = None
+_contract_probed_at = 0.0
+
+
+async def _runtime_contract_snapshot() -> dict[str, Any]:
+    """collect_runtime_contract() off the loop, reused for a few seconds.
+
+    The probe spawns cua-driver/bsk subprocesses and makes HTTP checks, and
+    /health is unauthenticated: a loop of curls must neither block the event
+    loop nor fan out one probe each. Concurrent callers share the in-flight
+    probe; clearing app.state.runtime_contract (after a key or grant change)
+    forces the next caller to re-probe."""
+    global _contract_probe, _contract_probed_at
+    import time
+
+    cached = getattr(app.state, "runtime_contract", None)
+    if cached is not None and time.monotonic() - _contract_probed_at < _CONTRACT_TTL_S:
+        return cached
+    if (
+        _contract_probe is None
+        or _contract_probe.done()
+        or _contract_probe.get_loop() is not asyncio.get_running_loop()
+    ):
+        _contract_probe = asyncio.ensure_future(asyncio.to_thread(collect_runtime_contract))
+    contract = await asyncio.shield(_contract_probe)
+    app.state.runtime_contract = contract
+    _contract_probed_at = time.monotonic()
+    return contract
+
+
 @app.get("/health")
 async def health():
-    payload = health_payload()
-    app.state.runtime_contract = collect_runtime_contract()
-    return payload
+    return health_payload(await _runtime_contract_snapshot())
 
 
 @app.get("/capabilities")
 async def capabilities():
-    app.state.runtime_contract = collect_runtime_contract()
-    return app.state.runtime_contract
+    return await _runtime_contract_snapshot()
 
 
 @app.get("/interaction-runtimes")
@@ -1559,7 +1642,8 @@ async def _run_agent_task(
                 )
 
             predicted_record_id = f"{int((learning_workspace or {}).get('record_count', 0) or 0) + 1:04d}"
-            artifact = _create_learning_artifact(
+            artifact = await asyncio.to_thread(  # an LLM call: keep the loop free
+                _create_learning_artifact,
                 user_id=req.user_id,
                 workspace_id=learning_workspace_id,
                 topic=artifact_topic,
@@ -1648,7 +1732,8 @@ async def _run_agent_task(
             if learning_workspace is None:
                 learning_workspace = _load_learning_workspace(user_id=req.user_id, workspace_id=workspace_id)
             predicted_record_id = f"{int((learning_workspace or {}).get('record_count', 0) or 0) + 1:04d}"
-            artifact = _update_learning_artifact(
+            artifact = await asyncio.to_thread(  # an LLM call: keep the loop free
+                _update_learning_artifact,
                 user_id=req.user_id,
                 artifact_id=artifact_id,
                 workspace_id=workspace_id,
@@ -2618,22 +2703,44 @@ async def create_family_invite(request: Request):
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
+def _known_profile_id(value: object) -> str | None:
+    """The canonical id of an existing profile, or None (never "default" for "")."""
+    from family_profiles import get_profile
+    from profile_context import validate_profile_id
+
+    raw = str(value or "").strip().lower()
+    if not raw:
+        return None
+    try:
+        profile = get_profile(validate_profile_id(raw))
+    except ValueError:
+        return None
+    return str(profile["user_id"]) if profile else None
+
+
 @app.post("/profiles/login")
 async def login_family_profile(payload: dict, request: Request):
     from family_profiles import issue_session
 
-    user_id = str(payload.get("user_id") or "").strip().lower()[:64]
-    keys = (f"profile:{user_id}", f"ip:{_client_ip(request)}")
-    retry_after = _login_retry_after(*keys)
+    # Counters are keyed by the id the PIN is checked against, and exist only
+    # for real profiles: aliases cannot split the owner's lockout and random
+    # ids cannot grow the table. Unknown ids still count against the IP.
+    user_id = _known_profile_id(payload.get("user_id"))
+    thresholds = {f"ip:{_client_ip(request)}": _LOGIN_IP_THRESHOLD}
+    if user_id:
+        thresholds[f"profile:{user_id}"] = _LOGIN_PROFILE_THRESHOLD
+    retry_after = _login_retry_after(*thresholds)
     if retry_after:
         raise _throttled(retry_after)
     try:
+        if not user_id:
+            raise ValueError("Profile or PIN is incorrect")
         session = issue_session(user_id, str(payload.get("pin") or ""))
     except ValueError as exc:
-        _record_login_failure(keys[0], _LOGIN_PROFILE_THRESHOLD)
-        _record_login_failure(keys[1], _LOGIN_IP_THRESHOLD)
+        for key, threshold in thresholds.items():
+            _record_login_failure(key, threshold)
         raise HTTPException(status_code=401, detail=str(exc)) from exc
-    for key in keys:
+    for key in thresholds:
         _login_failures.pop(key, None)
     return session
 
@@ -2678,7 +2785,14 @@ async def bootstrap_family_owner(payload: dict, request: Request):
 
     # First-run owner PIN setup happens at the host itself, never via a tunnel.
     if not _is_local_request(request):
-        raise HTTPException(status_code=403, detail="Secure the owner profile from the Narad host itself")
+        port = os.environ.get("NARAD_PORT", "8000")
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Secure the owner profile on the Narad host itself: open "
+                f"http://127.0.0.1:{port} in a browser on that machine, not the tunnel address"
+            ),
+        )
     try:
         return bootstrap_owner_pin(
             str(payload.get("user_id") or "default"),
@@ -2706,6 +2820,9 @@ async def patch_family_profile(user_id: str, payload: dict, request: Request):
     from onboarding import save_onboarding_state
 
     safe_id = _assert_profile_match(request, user_id)
+    if payload.get("pin") is not None and getattr(request.state, "profile_authenticated", False):
+        # A session alone must not be able to lock its member out for good.
+        _check_current_pin(safe_id, payload.get("current_pin"))
     try:
         profile = update_profile(
             safe_id,
@@ -2721,6 +2838,42 @@ async def patch_family_profile(user_id: str, payload: dict, request: Request):
         return {"profile": profile}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def _check_current_pin(user_id: str, supplied: object) -> None:
+    """Verify the member's current PIN, throttled like a login attempt."""
+    from family_profiles import verify_pin
+
+    key = f"profile:{user_id}"
+    retry_after = _login_retry_after(key)
+    if retry_after:
+        raise _throttled(retry_after)
+    if not verify_pin(user_id, str(supplied or "")):
+        _record_login_failure(key, _LOGIN_PROFILE_THRESHOLD)
+        raise HTTPException(status_code=403, detail="Enter your current PIN to choose a new one")
+    _login_failures.pop(key, None)
+
+
+@app.post("/profiles/{user_id}/reset-pin")
+async def reset_family_profile_pin(user_id: str, payload: dict, request: Request):
+    """Owner-only: give a family member a new PIN (forgotten PIN, stolen session).
+
+    The new PIN bumps the session epoch, so every existing token stops working."""
+    from family_profiles import update_profile
+
+    if not _is_owner_request(request):
+        raise HTTPException(status_code=403, detail="Only the Narad owner can reset another profile's PIN")
+    target = _known_profile_id(user_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    if getattr(request.state, "profile_authenticated", False) and target == _profile_from_request(request):
+        raise HTTPException(status_code=400, detail="Change your own PIN with your current PIN")
+    try:
+        profile = update_profile(target, pin=str(payload.get("pin") or ""))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _login_failures.pop(f"profile:{target}", None)
+    return {"ok": True, "profile": profile}
 
 
 @app.post("/profiles/{user_id}/revoke-sessions")
@@ -2793,17 +2946,19 @@ async def get_local_model_status():
 
 
 @app.post("/local-model/start")
-async def start_local_model_runtime():
+async def start_local_model_runtime(request: Request):
     from local_model_runtime import get_local_model_runtime
 
+    _require_owner(request)
     status = await asyncio.to_thread(get_local_model_runtime().ensure_server)
     return _activate_runtime_model(status)
 
 
 @app.post("/local-model/install", status_code=202)
-async def install_local_model():
+async def install_local_model(request: Request):
     from local_model_runtime import get_local_model_runtime
 
+    _require_owner(request)
     try:
         status = await asyncio.to_thread(get_local_model_runtime().start_install)
     except RuntimeError as exc:
@@ -2863,9 +3018,10 @@ async def add_connection(payload: dict, request: Request):
 
 
 @app.post("/connections/{provider}/test")
-async def test_connection(provider: str):
+async def test_connection(provider: str, request: Request):
     from kunji import test_key
-    ok, detail = test_key(provider)
+    _require_owner(request)  # spends the owner's stored key
+    ok, detail = await asyncio.to_thread(test_key, provider)
     return {"ok": ok, "provider": provider, "detail": detail}
 
 

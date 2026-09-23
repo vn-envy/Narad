@@ -10,10 +10,12 @@ from __future__ import annotations
 import asyncio
 import atexit
 import importlib.util
+import ipaddress
 import json
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import threading
@@ -110,6 +112,38 @@ def _safe_session_id(value: str) -> str:
     return value
 
 
+def _env_hosts(name: str) -> set[str]:
+    return {
+        item.strip().lower().rstrip(".")
+        for item in os.environ.get(name, "").split(",")
+        if item.strip()
+    }
+
+
+def _private_address_reason(hostname: str) -> str | None:
+    """Why a browser must not reach `hostname`: it resolves off the public internet.
+
+    Covers loopback (Narad's own API, which trusts loopback in local mode, and
+    the Artemis admin), RFC 1918 LANs, CGNAT/tailnet, link-local metadata,
+    unique-local and unspecified addresses, including numeric spellings such
+    as 2130706433 or [::ffff:127.0.0.1] that the resolver normalises."""
+    try:
+        infos = socket.getaddrinfo(hostname, None)
+    except (OSError, UnicodeError):
+        return None  # unresolvable: the browser reports its own clear error
+    for info in infos:
+        try:
+            address = ipaddress.ip_address(str(info[4][0]).split("%", 1)[0])
+        except ValueError:
+            continue
+        mapped = getattr(address, "ipv4_mapped", None)
+        if mapped is not None:
+            address = mapped
+        if not address.is_global:
+            return f"Navigation to {hostname} ({address}) is blocked: it is not a public internet address"
+    return None
+
+
 def _validate_url(url: str) -> str:
     parsed = urlparse((url or "").strip())
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
@@ -119,23 +153,33 @@ def _validate_url(url: str) -> str:
     hostname = parsed.hostname.lower().rstrip(".")
     if hostname in _BLOCKED_NETWORK_HOSTS:
         raise ValueError(f"Navigation to protected metadata host {hostname} is blocked")
+    # Loopback and LAN hosts only when the owner names them explicitly.
+    if hostname not in _env_hosts("NARAD_BROWSER_PRIVATE_HOSTS"):
+        reason = _private_address_reason(hostname)
+        if reason:
+            raise ValueError(reason)
 
-    blocklist = {
-        item.strip().lower().rstrip(".")
-        for item in os.environ.get("NARAD_BROWSER_BLOCKLIST", "").split(",")
-        if item.strip()
-    }
+    blocklist = _env_hosts("NARAD_BROWSER_BLOCKLIST")
     if any(hostname == item or hostname.endswith(f".{item}") for item in blocklist):
         raise ValueError(f"Navigation to {hostname} is blocked by NARAD_BROWSER_BLOCKLIST")
 
-    allowlist = {
-        item.strip().lower().rstrip(".")
-        for item in os.environ.get("NARAD_BROWSER_ALLOWLIST", "").split(",")
-        if item.strip()
-    }
+    allowlist = _env_hosts("NARAD_BROWSER_ALLOWLIST")
     if allowlist and not any(hostname == item or hostname.endswith(f".{item}") for item in allowlist):
         raise ValueError(f"Navigation to {hostname} is outside NARAD_BROWSER_ALLOWLIST")
     return parsed.geturl()
+
+
+def _upload_path(value: Any) -> Path:
+    """A file the active profile may hand to a web form (never Narad's secrets)."""
+    from host_access import path_access_error
+
+    path = Path(str(value)).expanduser().resolve()
+    denied = path_access_error(path)
+    if denied:
+        raise ValueError(f"Upload blocked: {denied}")
+    if not path.is_file():
+        raise ValueError(f"Upload file does not exist: {path}")
+    return path
 
 
 def _injection_signals(text: str) -> list[str]:
@@ -416,8 +460,11 @@ class BrowserSessionManager:
                 daemon=True,
             )
             self._thread.start()
-        if not self._ready.wait(timeout=5):
-            raise RuntimeError("Browser runtime loop did not start")
+            # Wait while still holding the lock: offloaded tools call in from
+            # several worker threads, and one that saw this thread alive with
+            # no loop yet would otherwise start a second loop (and Chromium).
+            if not self._ready.wait(timeout=5):
+                raise RuntimeError("Browser runtime loop did not start")
 
     def _thread_main(self) -> None:
         loop = asyncio.new_event_loop()
@@ -490,6 +537,12 @@ class BrowserSessionManager:
     async def _navigate(self, page: Any, url: str, timeout_s: int) -> None:
         url = _validate_url(url)
         await page.goto(url, wait_until="domcontentloaded", timeout=min(timeout_s * 1000, 60_000))
+        try:
+            # A public URL may redirect to a private one; never show its content.
+            _validate_url(page.url)
+        except ValueError:
+            await page.goto("about:blank")
+            raise
         try:
             await page.wait_for_load_state("networkidle", timeout=3_000)
         except Exception:
@@ -874,9 +927,7 @@ print(json.dumps(result, indent=2))
                 raise ValueError("upload requires path or paths")
             resolved: list[str] = []
             for value in paths:
-                path = Path(str(value)).expanduser().resolve()
-                if not path.is_file():
-                    raise ValueError(f"Upload file does not exist: {path}")
+                path = _upload_path(value)
                 resolved.append(str(path))
             await locator.set_input_files(resolved)
         elif kind == "submit":
@@ -1914,29 +1965,33 @@ def computer_use(
     except (TypeError, ValueError) as exc:
         return envelope(status="error", summary=str(exc), error="invalid_computer_use_request")
 
+    from interaction_targets import operation_lock
+
     if environment == "desktop":
-        return _desktop_use(
-            task=task,
-            session_id=resolved_session_id.replace("browser_", "desktop_", 1),
-            actions=normalised,
-            dry_run=dry_run,
-            confirmed=confirmed,
-            owner_profile_id=owner_profile_id,
-            target_id=target_id,
-        )
+        with operation_lock("desktop"):  # one host desktop, shared by every profile
+            return _desktop_use(
+                task=task,
+                session_id=resolved_session_id.replace("browser_", "desktop_", 1),
+                actions=normalised,
+                dry_run=dry_run,
+                confirmed=confirmed,
+                owner_profile_id=owner_profile_id,
+                target_id=target_id,
+            )
 
     if browser_context == "signed_in":
-        return _signed_browser_use(
-            task=task,
-            start_url=start_url,
-            session_id=session_id,
-            target_id=target_id,
-            actions=normalised,
-            dry_run=dry_run,
-            confirmed=confirmed,
-            timeout_s=timeout_s,
-            owner_profile_id=owner_profile_id,
-        )
+        with operation_lock(f"signed_in:{owner_profile_id}"):
+            return _signed_browser_use(
+                task=task,
+                start_url=start_url,
+                session_id=session_id,
+                target_id=target_id,
+                actions=normalised,
+                dry_run=dry_run,
+                confirmed=confirmed,
+                timeout_s=timeout_s,
+                owner_profile_id=owner_profile_id,
+            )
     if any(action["action"] == "request_help" for action in normalised):
         return envelope(
             status="error",
@@ -1944,6 +1999,8 @@ def computer_use(
             error="request_help_requires_signed_in_browser",
         )
 
+    session_lock = operation_lock(f"browser:{resolved_session_id}")
+    session_lock.acquire()
     try:
         session, created = _BROWSER_MANAGER.open(
             task=task,
@@ -2070,6 +2127,8 @@ def computer_use(
             },
             session_id=resolved_session_id,
         )
+    finally:
+        session_lock.release()
 
 
 def browser_runtime_status() -> dict[str, Any]:

@@ -17,6 +17,19 @@ _KINDS = frozenset({"browser_skill", "artemis", "cua"})
 _EXTERNAL_ID = re.compile(r"^[^\x00-\x1f\x7f]{1,160}$")
 
 
+_OPERATION_LOCKS: dict[str, threading.Lock] = {}
+
+
+def operation_lock(key: str) -> threading.Lock:
+    """One operation at a time per device or browser session.
+
+    Sync tools run on worker threads, so one model response's parallel calls
+    can reach the same desktop, phone, or page at once and interleave their
+    observe → classify → act steps. Callers hold this for the whole step."""
+    with _LOCK:
+        return _OPERATION_LOCKS.setdefault(key, threading.Lock())
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 

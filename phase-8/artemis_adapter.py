@@ -11,7 +11,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 import requests
-from interaction_targets import resolve_interaction_target
+from interaction_targets import operation_lock, resolve_interaction_target
 
 from narad_config import ARTIFACTS_DIR
 from profile_context import current_profile_id, validate_profile_id
@@ -255,6 +255,33 @@ def phone_use(
     checkpoints. External side effects require an exact preview and explicit
     confirmation; high-risk work is never dispatched through fast mode.
     """
+    arguments = dict(
+        task=task, device_id=device_id, mode=mode, app_scope=app_scope,
+        verification_level=verification_level, dry_run=dry_run,
+        confirmed=confirmed, timeout_s=timeout_s,
+    )
+    if dry_run:  # a preview never touches the device
+        return _phone_use(**arguments)
+    try:
+        device_key, _ = _resolve_device(validate_profile_id(current_profile_id()), device_id)
+    except ArtemisAdapterError:
+        device_key = device_id
+    # Parallel tool calls must not interleave two tasks' taps on one phone.
+    with operation_lock(f"android:{device_key}"):
+        return _phone_use(**arguments)
+
+
+def _phone_use(
+    *,
+    task: str,
+    device_id: str,
+    mode: str,
+    app_scope: str,
+    verification_level: str,
+    dry_run: bool,
+    confirmed: bool,
+    timeout_s: int,
+) -> dict[str, Any]:
     owner = validate_profile_id(current_profile_id())
     clean_task = " ".join(str(task or "").split())
     if not clean_task:

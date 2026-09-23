@@ -37,6 +37,14 @@ async def browse_url(url: str, extract: str = "text") -> dict:
             "message": f"URL must start with http:// or https://. Got: {url!r}",
             "content": "",
         }
+    # Same host policy as computer_use: never loopback (Narad's own API, the
+    # Artemis admin), the LAN, or cloud metadata.
+    from computer_use_skill import _validate_url
+
+    try:
+        url = _validate_url(url)
+    except ValueError as exc:
+        return {"status": "blocked", "url": url, "message": str(exc), "content": ""}
 
     try:
         from playwright.async_api import async_playwright
@@ -62,6 +70,11 @@ async def browse_url(url: str, extract: str = "text") -> dict:
             page = await context.new_page()
 
             await page.goto(url, timeout=30_000, wait_until="domcontentloaded")
+            try:
+                _validate_url(page.url)  # a public URL may redirect to a private one
+            except ValueError as exc:
+                await browser.close()
+                return {"status": "blocked", "url": url, "message": str(exc), "content": ""}
             # Give JS frameworks time to render
             try:
                 await page.wait_for_load_state("networkidle", timeout=10_000)

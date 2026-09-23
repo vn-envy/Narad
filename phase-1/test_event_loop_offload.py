@@ -8,10 +8,12 @@ while a concurrent coroutine keeps ticking. All offline: no network, no LLM.
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import importlib
 import inspect
 import os
 import sys
+import tempfile
 import threading
 import time
 import types
@@ -493,6 +495,185 @@ class BrowseUrlThreadTests(unittest.TestCase):
             result = asyncio.run(_scenario())
         self.assertEqual(result, {"status": "ok", "url": "https://example.com", "extract": "links"})
         self.assertEqual(seen, [False])
+
+
+def _sleepy(delay_s: float, calls: list[str]):
+    def _call(**kwargs):
+        calls.append(threading.current_thread().name)
+        time.sleep(delay_s)
+        return {"id": "made", **{key: value for key, value in kwargs.items() if key == "user_id"}}
+    return _call
+
+
+class LearningEndpointOffloadTests(unittest.TestCase):
+    """Guru's LLM calls (up to 3 × 120 s) must never run on the one event loop."""
+
+    def test_learning_api_llm_calls_run_off_the_loop(self) -> None:
+        api = importlib.import_module("learning_workspace_api")
+        calls: list[str] = []
+        workspace = {"topic": "photosynthesis"}
+        scenarios = [
+            ("create_learning_artifact", lambda: api.post_learning_artifact(
+                api.LearningArtifactCreate(workspace_id="w1", topic="photosynthesis", artifact_type="flashcards"))),
+            ("update_learning_artifact", lambda: api.post_learning_artifact_update(
+                "a1", api.LearningArtifactUpdate(instruction="add a card about chlorophyll", workspace_id="w1"))),
+            ("generate_syllabus", lambda: api.post_learning_syllabus("w1", api.SyllabusGenerate(topic="light"))),
+            ("grade_check_answer", lambda: api.post_learning_check("w1", api.CheckAnswer(atom_id="a", answer="x"))),
+        ]
+        for name, call in scenarios:
+            with self.subTest(name), patch.object(api, name, _sleepy(0.8, calls)), \
+                 patch.object(api, "load_workspace", lambda **_: workspace):
+                _, max_gap, _ = asyncio.run(_run_while_ticking(call()))
+                self.assertLess(max_gap, _MAX_GAP_S)
+        with patch.object(api.guided_mode, "submit_answer", _sleepy(0.8, calls)), \
+             patch.object(api, "_sync_guided_checkpoint", lambda *a, **k: None):
+            _, max_gap, _ = asyncio.run(_run_while_ticking(
+                api.post_guided_answer(api.GuidedAnswer(workspace_id="w1", answer="x"))))
+        self.assertLess(max_gap, _MAX_GAP_S)
+        self.assertEqual(len(calls), 5)
+        self.assertNotIn(threading.main_thread().name, calls)
+
+
+class HealthProbeTests(unittest.TestCase):
+    """/health is unauthenticated: probes run off the loop and are shared."""
+
+    def setUp(self) -> None:
+        import server
+
+        self.server = server
+        self.probes = 0
+        server.app.state.runtime_contract = None
+        for name, value in (("_contract_probe", None), ("_contract_probed_at", 0.0)):
+            patcher = patch.object(server, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.addCleanup(setattr, server.app.state, "runtime_contract", None)
+
+    def _slow_probe(self) -> dict:
+        self.probes += 1
+        time.sleep(0.8)  # cua-driver + bsk subprocesses and HTTP checks
+        return self._contract
+
+    def test_concurrent_health_checks_share_one_off_loop_probe(self) -> None:
+        import httpx
+
+        self._contract = {
+            "status": "healthy",
+            "build": {"phase": "p", "label": "l", "runtime_mode": "local"},
+            "architecture": {"model": "m", "canonical_agent_count": 4, "agent_names": []},
+            "local_ready": {"local_model_runtime": False},
+            "issue_count": 0,
+        }
+
+        async def _burst():
+            transport = httpx.ASGITransport(app=self.server.app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+                responses = await asyncio.gather(*(client.get("/health") for _ in range(6)))
+                cached = await client.get("/capabilities")
+            return responses, cached
+
+        with patch.object(self.server, "collect_runtime_contract", self._slow_probe):
+            (responses, cached), max_gap, _ = asyncio.run(_run_while_ticking(_burst()))
+            self.assertEqual([response.status_code for response in responses], [200] * 6)
+            self.assertEqual(responses[0].json()["architecture"]["canonical_agent_count"], 4)
+            self.assertEqual(cached.json()["status"], "healthy")
+            self.assertEqual(self.probes, 1)  # one probe for seven requests
+            self.assertLess(max_gap, _MAX_GAP_S)
+
+            self.server.app.state.runtime_contract = None  # a key or grant changed
+            asyncio.run(self.server._runtime_contract_snapshot())
+            self.assertEqual(self.probes, 2)
+
+
+class ToolPoolIsolationTests(unittest.TestCase):
+    def test_long_tools_never_starve_the_default_executor(self) -> None:
+        wrapped = avatar_agents._run_off_loop(_slow_lookup)
+
+        async def _scenario():
+            loop = asyncio.get_running_loop()
+            small = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+            loop.set_default_executor(small)
+            tools = [asyncio.ensure_future(wrapped(query=f"q{index}")) for index in range(4)]
+            await asyncio.sleep(0.1)  # every tool is now on a worker
+            started = time.monotonic()
+            await asyncio.to_thread(lambda: None)  # a hot-path offload (recall, capture…)
+            waited = time.monotonic() - started
+            results = await asyncio.gather(*tools)
+            return waited, results
+
+        waited, results = asyncio.run(_scenario())
+        self.assertLess(waited, 0.5)
+        self.assertTrue(all(result["thread"].startswith("narad-tool") for result in results))
+
+
+class BrowserLoopStartupRaceTests(unittest.TestCase):
+    def test_concurrent_first_calls_start_exactly_one_browser_loop(self) -> None:
+        import computer_use_skill
+
+        real_new_loop = asyncio.new_event_loop
+
+        def _slow_new_loop():
+            time.sleep(0.02)  # a slower machine: the window between start and ready
+            return real_new_loop()
+
+        manager = computer_use_skill.BrowserSessionManager()
+        barrier = threading.Barrier(6)
+        loops: list[object] = []
+
+        def _first_call():
+            barrier.wait()
+            manager._ensure_thread()
+            loops.append(manager._loop)
+
+        with patch.object(computer_use_skill.asyncio, "new_event_loop", _slow_new_loop):
+            workers = [threading.Thread(target=_first_call) for _ in range(6)]
+            for worker in workers:
+                worker.start()
+            for worker in workers:
+                worker.join()
+        runtime_threads = [thread for thread in threading.enumerate() if thread.name == "narad-browser-runtime"]
+        try:
+            self.assertEqual(len({id(loop) for loop in loops}), 1)
+            self.assertIs(loops[0], manager._loop)
+        finally:
+            for loop in {id(item): item for item in [*loops, manager._loop] if item is not None}.values():
+                loop.call_soon_threadsafe(loop.stop)
+            for thread in runtime_threads:
+                thread.join(timeout=5)
+
+
+class VectorManifestRaceTests(unittest.TestCase):
+    def test_parallel_upserts_into_one_manifest_all_survive(self) -> None:
+        store = importlib.import_module("smriti_vector_store")
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(store, "SMRITI_MANIFEST_DIR", Path(tmp) / "manifests"), \
+             patch.object(store, "SMRITI_VECTOR_DIR", Path(tmp) / "vectors"):
+
+            def _record(index: int) -> object:
+                return store.VectorMemoryRecord(
+                    record_id=f"r{index:04d}", namespace="episodic_summary", tier="hot", user_id="asha",
+                    project_id="", source_kind="episode", source_path="", source_ref="",
+                    created_at=f"2026-09-{1 + index // 100:02d}T00:00:{index % 60:02d}",
+                    updated_at=f"2026-09-{1 + index // 100:02d}T00:00:{index % 60:02d}",
+                    preview="p" * 40, text="t" * 400, content_hash=str(index), embedding_model="m", dim=4,
+                    embedding=[0.1, 0.2, 0.3, 0.4],
+                )
+
+            store.sync_records(user_id="asha", namespace="episodic_summary", records=[_record(i) for i in range(300)])
+            barrier = threading.Barrier(4)
+
+            def _capture(index: int) -> None:
+                barrier.wait()
+                store.upsert_record(_record(900 + index))
+
+            workers = [threading.Thread(target=_capture, args=(index,)) for index in range(4)]
+            for worker in workers:
+                worker.start()
+            for worker in workers:
+                worker.join()
+            manifest = store._manifest_path("asha", "episodic_summary", "hot", "m")
+            self.assertEqual(len(store._load_records(manifest)), 304)
+            self.assertEqual(list(manifest.parent.glob("*.tmp")), [])
 
 
 if __name__ == "__main__":

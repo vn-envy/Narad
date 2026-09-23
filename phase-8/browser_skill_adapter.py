@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from computer_use_skill import _validate_url
+from computer_use_skill import _upload_path, _validate_url
 
 from narad_config import ARTIFACTS_DIR
 from profile_context import current_profile_id, validate_profile_id
@@ -327,10 +327,7 @@ def _command_for_action(
             raise ValueError("upload requires path or paths")
         args = ["upload", *_target_args(action)]
         for value in paths:
-            path = Path(str(value)).expanduser().resolve()
-            if not path.is_file():
-                raise ValueError(f"Upload file does not exist: {path}")
-            args.extend(["--file", str(path)])
+            args.extend(["--file", str(_upload_path(value))])
         args.extend(["--session", sid])
         return args, None
     if kind == "download":

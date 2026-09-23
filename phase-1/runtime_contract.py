@@ -625,8 +625,8 @@ def collect_runtime_contract() -> dict[str, Any]:
     }
 
 
-def health_payload() -> dict[str, Any]:
-    contract = collect_runtime_contract()
+def health_payload(contract: dict[str, Any] | None = None) -> dict[str, Any]:
+    contract = contract if contract is not None else collect_runtime_contract()
     return {
         "status": contract["status"],
         "agent": "Narad",

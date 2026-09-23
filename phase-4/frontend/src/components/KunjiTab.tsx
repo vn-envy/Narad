@@ -8,7 +8,7 @@
  * shown honestly: installed / signed-in / available.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { apiFetch, type LocalModelStatus } from '@/lib/api'
+import { apiFetch, getProfileSession, isOwnerSession, type FamilyProfile, type LocalModelStatus } from '@/lib/api'
 
 interface Connection {
   provider: string
@@ -113,13 +113,41 @@ export function KunjiTab({ onOpenSetup }: { onOpenSetup?: () => void }) {
   const [googleWorkspace, setGoogleWorkspace] = useState<GoogleWorkspaceStatus | null>(null)
   const [interactionRuntimes, setInteractionRuntimes] = useState<InteractionRuntimes | null>(null)
   const localPollRef = useRef<number | null>(null)
+  // Device grants are owner-only: the owner picks whose devices to manage.
+  const isOwner = isOwnerSession()
+  const ownProfileId = getProfileSession()?.profile.user_id ?? 'default'
+  const [familyProfiles, setFamilyProfiles] = useState<FamilyProfile[]>([])
+  const [grantProfileId, setGrantProfileId] = useState(ownProfileId)
+  const [profileGrants, setProfileGrants] = useState<InteractionTarget[] | null>(null)
+  const managingOther = isOwner && grantProfileId !== ownProfileId
+  const grantProfileName = familyProfiles.find(item => item.user_id === grantProfileId)?.display_name ?? 'this profile'
+
+  const loadProfileGrants = useCallback(async () => {
+    if (!managingOther) {
+      setProfileGrants(null)
+      return
+    }
+    try {
+      const response = await apiFetch(`/interaction-targets?profile_id=${encodeURIComponent(grantProfileId)}`)
+      if (!response.ok) throw new Error(`${response.status}`)
+      const data = await response.json() as { targets?: InteractionTarget[] }
+      setProfileGrants(data.targets ?? [])
+    } catch {
+      setProfileGrants([])
+    }
+  }, [grantProfileId, managingOther])
+
+  useEffect(() => {
+    void loadProfileGrants()
+  }, [loadProfileGrants])
 
   const load = useCallback(async () => {
     try {
-      const [response, localResponse, interactionResponse] = await Promise.all([
+      const [response, localResponse, interactionResponse, profilesResponse] = await Promise.all([
         apiFetch('/connections'),
         apiFetch('/local-model/status').catch(() => null),
         apiFetch('/interaction-runtimes').catch(() => null),
+        isOwner ? apiFetch('/profiles').catch(() => null) : Promise.resolve(null),
       ])
       if (!response.ok) throw new Error(`${response.status}`)
       const data: ConnectionsPayload = await response.json()
@@ -128,13 +156,14 @@ export function KunjiTab({ onOpenSetup }: { onOpenSetup?: () => void }) {
       setGoogleWorkspace(data.google_workspace ?? null)
       if (localResponse?.ok) setLocalModel(await localResponse.json() as LocalModelStatus)
       if (interactionResponse?.ok) setInteractionRuntimes(await interactionResponse.json() as InteractionRuntimes)
+      if (profilesResponse?.ok) setFamilyProfiles(((await profilesResponse.json()) as { profiles?: FamilyProfile[] }).profiles ?? [])
       setLoadError(null)
     } catch {
       setLoadError('Could not reach /connections — is the server running?')
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [isOwner])
 
   useEffect(() => {
     void load()
@@ -279,30 +308,33 @@ export function KunjiTab({ onOpenSetup }: { onOpenSetup?: () => void }) {
       const response = await apiFetch('/interaction-targets', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ kind, external_id: externalId, label }),
+        body: JSON.stringify({ kind, external_id: externalId, label, ...(managingOther ? { profile_id: grantProfileId } : {}) }),
       })
       if (!response.ok) throw new Error('target grant failed')
-      setNotice(`${label} is now available to this profile`)
+      setNotice(`${label} is now available to ${managingOther ? grantProfileName : 'this profile'}`)
       await load()
+      await loadProfileGrants()
     } catch {
       setNotice('Could not grant that local control target')
     } finally {
       setBusy(null)
     }
-  }, [load])
+  }, [load, loadProfileGrants, managingOther, grantProfileId, grantProfileName])
 
   const revokeInteractionTarget = useCallback(async (targetId: string) => {
     setBusy(`interaction:revoke:${targetId}`)
     try {
-      const response = await apiFetch(`/interaction-targets/${encodeURIComponent(targetId)}`, {
+      const scope = managingOther ? `?profile_id=${encodeURIComponent(grantProfileId)}` : ''
+      const response = await apiFetch(`/interaction-targets/${encodeURIComponent(targetId)}${scope}`, {
         method: 'DELETE',
       })
       if (!response.ok) throw new Error('target revoke failed')
       await load()
+      await loadProfileGrants()
     } finally {
       setBusy(null)
     }
-  }, [load])
+  }, [load, loadProfileGrants, managingOther, grantProfileId])
 
   const importEnv = useCallback(async () => {
     setBusy('import')
@@ -408,6 +440,8 @@ export function KunjiTab({ onOpenSetup }: { onOpenSetup?: () => void }) {
               </div>
               {localModel.ready ? (
                 <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--tulsi)' }}>✓ Offline fallback ready</span>
+              ) : !isOwner ? (
+                <span style={{ fontSize: 10, color: `${INK}0.5)` }}>The Narad owner can add it</span>
               ) : localModel.runtime_installed ? (
                 <button type="button" onClick={() => void installLocalModel()} disabled={busy === 'local-model' || localModel.install.state === 'running'} style={{ padding: '8px 13px', borderRadius: 9, border: 0, background: 'var(--tulsi)', color: '#fff', fontSize: 10.5, fontWeight: 700, cursor: busy === 'local-model' || localModel.install.state === 'running' ? 'wait' : 'pointer' }}>
                   {busy === 'local-model' || localModel.install.state === 'running' ? `${Math.round((localModel.install.progress || 0) * 100)}%` : `Download ${localModel.download_gb} GB`}
@@ -452,13 +486,22 @@ export function KunjiTab({ onOpenSetup }: { onOpenSetup?: () => void }) {
       {interactionRuntimes && (
         <>
           {microLabel('Local control')}
+          {isOwner && familyProfiles.length > 1 && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 10.5, color: `${INK}0.6)` }}>
+              Manage devices for
+              <select value={grantProfileId} onChange={event => setGrantProfileId(event.target.value)} aria-label="Family profile whose devices to manage" style={{ padding: '5px 8px', borderRadius: 8, border: `1px solid ${INK}0.14)`, background: 'var(--paper)', color: `${INK}0.8)`, fontSize: 10.5 }}>
+                {familyProfiles.map(item => <option key={item.user_id} value={item.user_id}>{item.user_id === ownProfileId ? `${item.display_name} (you)` : item.display_name}</option>)}
+              </select>
+            </label>
+          )}
+          {!isOwner && <div style={{ marginTop: 8, fontSize: 10.5, color: `${INK}0.5)` }}>Ask the Narad owner to allow a browser, desktop, or phone for your profile.</div>}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 260px), 1fr))', gap: 10, margin: '10px 0 20px' }}>
             {([
               { kind: 'browser_skill' as const, title: 'Signed-in browser', runtime: interactionRuntimes.browser_skill, items: interactionRuntimes.browser_skill.browsers ?? [] },
               { kind: 'cua' as const, title: 'Desktop computer', runtime: interactionRuntimes.desktop, items: interactionRuntimes.desktop.adapters?.cua?.targets ?? [] },
               { kind: 'artemis' as const, title: 'Android phone', runtime: interactionRuntimes.artemis, items: interactionRuntimes.artemis.devices ?? [] },
             ]).map(section => {
-              const grants = interactionRuntimes.grants.filter(item => item.kind === section.kind)
+              const grants = (profileGrants ?? interactionRuntimes.grants).filter(item => item.kind === section.kind)
               return (
                 <div key={section.kind} style={{ padding: '14px 15px', borderRadius: 15, border: `1px solid ${section.runtime.ready ? 'rgba(53,94,59,0.24)' : `${INK}0.09)`}`, background: 'rgba(252,250,242,0.88)', minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -474,14 +517,14 @@ export function KunjiTab({ onOpenSetup }: { onOpenSetup?: () => void }) {
                   {grants.map(grant => (
                     <div key={grant.target_id} style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10, padding: '8px 9px', borderRadius: 10, background: `${INK}0.035)` }}>
                       <span style={{ minWidth: 0, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 10.5, color: `${INK}0.7)` }}>{grant.label}</span>
-                      <button type="button" onClick={() => void revokeInteractionTarget(grant.target_id)} disabled={busy === `interaction:revoke:${grant.target_id}`} style={{ border: 0, background: 'transparent', color: 'var(--sindoor)', fontSize: 9.5, cursor: 'pointer' }}>Remove</button>
+                      {isOwner && <button type="button" onClick={() => void revokeInteractionTarget(grant.target_id)} disabled={busy === `interaction:revoke:${grant.target_id}`} style={{ border: 0, background: 'transparent', color: 'var(--sindoor)', fontSize: 9.5, cursor: 'pointer' }}>Remove</button>}
                     </div>
                   ))}
-                  {section.items.map((item, index) => {
+                  {isOwner && section.items.map((item, index) => {
                     const externalId = String(item.instance_id ?? item.serial ?? item.device_serial ?? item.id ?? '')
                     if (!externalId || grants.some(grant => grant.external_id === externalId)) return null
                     const label = String(item.label ?? item.name ?? item.model ?? externalId)
-                    return <button key={`${externalId}:${index}`} type="button" onClick={() => void grantInteractionTarget(section.kind, externalId, label)} disabled={busy === `interaction:${section.kind}:${externalId}`} style={{ width: '100%', marginTop: 8, padding: '8px 10px', borderRadius: 9, border: `1px solid ${INK}0.12)`, background: 'transparent', color: `${INK}0.7)`, fontSize: 10.5, textAlign: 'left', cursor: 'pointer' }}>Allow {label} for this profile</button>
+                    return <button key={`${externalId}:${index}`} type="button" onClick={() => void grantInteractionTarget(section.kind, externalId, label)} disabled={busy === `interaction:${section.kind}:${externalId}`} style={{ width: '100%', marginTop: 8, padding: '8px 10px', borderRadius: 9, border: `1px solid ${INK}0.12)`, background: 'transparent', color: `${INK}0.7)`, fontSize: 10.5, textAlign: 'left', cursor: 'pointer' }}>Allow {label} for {managingOther ? grantProfileName : 'this profile'}</button>
                   })}
                 </div>
               )
@@ -606,7 +649,7 @@ export function KunjiTab({ onOpenSetup }: { onOpenSetup?: () => void }) {
                     <span style={{ fontFamily: 'monospace' }}>{conn.hint || '····'}</span>
                     <span>this month: <strong style={{ color: `${INK}0.75)` }}>${conn.mtd_spend_usd.toFixed(2)}</strong></span>
                   </div>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  {isOwner && <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                     <button
                       onClick={() => void testConnection(conn.provider)}
                       disabled={busy === `test:${conn.provider}`}
@@ -626,7 +669,7 @@ export function KunjiTab({ onOpenSetup }: { onOpenSetup?: () => void }) {
                         {test.ok ? '✓' : '✕'} {test.detail}
                       </span>
                     )}
-                  </div>
+                  </div>}
                 </>
               ) : (
                 <div style={{ marginTop: 10 }}>

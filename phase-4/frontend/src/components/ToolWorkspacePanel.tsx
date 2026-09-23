@@ -38,7 +38,9 @@ function ArtifactPreview({ artifact }: { artifact: ToolArtifact | null }) {
     )
   }
   if (lower.endsWith('.html')) {
-    return <iframe src={artifact.url} title={artifact.label} className="w-full h-full rounded border-0" style={{ background: 'white' }} />
+    // No allow-same-origin: the page's scripts run in an opaque origin and can
+    // never read this app's session.
+    return <iframe src={artifact.url} title={artifact.label} sandbox="allow-scripts" className="w-full h-full rounded border-0" style={{ background: 'white' }} />
   }
   return (
     <div className="flex items-center justify-center h-full">

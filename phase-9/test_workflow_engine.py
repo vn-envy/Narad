@@ -214,6 +214,15 @@ def test_scheduled_check_in_never_drops_a_pending_or_approved_confirmation() -> 
     assert run.current_stage_id == "track"
 
 
+_TRAVEL_INPUTS = {
+    "origin": "Delhi",
+    "destination": "Japan",
+    "dates": "10-18 November",
+    "travelers": "2 adults",
+    "budget": "INR 300,000",
+}
+
+
 def test_price_watch_never_rewinds_a_booked_trip() -> None:
     run = workflow_engine.start_workflow_run(
         "travel",
@@ -246,6 +255,70 @@ def test_price_watch_never_rewinds_a_booked_trip() -> None:
     assert run.status == "completed"
     assert run.current_stage_id is None
     assert run.completed_at is not None
+
+
+def test_weekly_scan_starts_a_new_cycle_once_the_career_path_is_complete() -> None:
+    run = workflow_engine.start_workflow_run("career", user_id="asha", inputs=_career_inputs())
+    for stage in ("market_scan", "shortlist", "tailor"):
+        run = workflow_engine.complete_current_stage(run.run_id, summary=f"Completed {stage}")
+    run = _approve_and_complete(run.run_id, "Application submitted")
+    while run.current_stage_id:
+        run = workflow_engine.complete_current_stage(run.run_id, summary=f"Completed {run.current_stage_id}")
+    assert run.status == "completed"
+
+    due = datetime(2026, 9, 14, 3, 30, tzinfo=timezone.utc)
+    _make_due(run.run_id, "weekly_scan", due)
+    with patch("vahana.deliver", return_value={"status": "delivered"}) as deliver:
+        workflow_engine.fire_due_workflow_schedules(due)
+    run = workflow_engine.get_workflow_run(run.run_id)
+    assert run is not None
+    assert run.status == "active"
+    assert run.current_stage_id == "market_scan"
+    assert run.completed_at is None
+    assert run.state["cycle"] == 2
+    assert "market_scan" not in run.state["completed_stage_ids"]
+    assert run.state["scheduled_prompt"]["mode"] == "new_cycle"
+    assert "ready for its next checkpoint" in deliver.call_args.kwargs["body"]
+    stage = workflow_engine._stage(workflow_engine.get_pack("career") or {}, run.current_stage_id)
+    assert workflow_engine._next_action(run, stage)["label"] != "Path complete"
+
+
+def test_schedule_pushes_match_what_the_schedule_did() -> None:
+    run = workflow_engine.start_workflow_run(
+        "travel",
+        user_id="priya",
+        inputs={**_TRAVEL_INPUTS, "price_watch": True},
+    )
+    due = datetime(2026, 9, 12, 4, 30, tzinfo=timezone.utc)
+    _make_due(run.run_id, "price_watch", due)
+    with patch("vahana.deliver", return_value={"status": "delivered"}) as deliver:
+        workflow_engine.fire_due_workflow_schedules(due)
+    body = deliver.call_args.kwargs["body"]
+    assert "ready for its next checkpoint" not in body
+    assert body.startswith("Reminder for ")
+
+    for stage in ("research", "compare", "itinerary"):
+        run = workflow_engine.complete_current_stage(run.run_id, summary=f"Completed {stage}")
+    workflow_engine.request_stage_confirmation(run.run_id, summary="Book flights")
+    later = datetime(2026, 9, 13, 4, 30, tzinfo=timezone.utc)
+    _make_due(run.run_id, "price_watch", later)
+    with patch("vahana.deliver", return_value={"status": "delivered"}) as deliver:
+        workflow_engine.fire_due_workflow_schedules(later)
+    assert "waiting for your approval" in deliver.call_args.kwargs["body"]
+
+    with patch("dharma.gate_action", return_value=SimpleNamespace(allowed=True, reasons=[])):
+        workflow_engine.approve_stage(run.run_id, approved_by="priya")
+    run = workflow_engine.complete_current_stage(run.run_id, summary="Booked")
+    while run.current_stage_id:
+        run = workflow_engine.complete_current_stage(run.run_id, summary=f"Completed {run.current_stage_id}")
+    finished = datetime(2026, 9, 20, 4, 30, tzinfo=timezone.utc)
+    _make_due(run.run_id, "price_watch", finished)
+    with patch("vahana.deliver") as deliver:
+        fired = workflow_engine.fire_due_workflow_schedules(finished)
+    deliver.assert_not_called()  # a finished trip is not "ready for a checkpoint"
+    assert fired["items"][0]["delivery"]["status"] == "skipped"
+    run = workflow_engine.get_workflow_run(run.run_id)
+    assert run is not None and run.status == "completed"
 
 
 def test_recurring_loop_stage_reopens_only_after_the_run_reaches_it() -> None:

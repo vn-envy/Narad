@@ -5,8 +5,12 @@ Runs real shell commands in the user's working directory.
 Covers git, npm, pytest, docker, cargo, go, and file inspection tools.
 
 Safety model:
-  - Base command must be in _ALLOWLIST
+  - Owner only: every family profile reaches Parashurama, and a host shell
+    reads host secrets, so shell/script/cron tools refuse other profiles
+  - Every command in a chain (; && || |) must be in _ALLOWLIST
   - Pattern blocklist catches destructive flags (rm -rf, sudo, pipe-to-shell, etc.)
+  - Secret-looking environment variables never reach the subprocess
+  - read_file never opens Narad's config dir or another profile's files
   - Hard timeout (default 60s, configurable via SHELL_TIMEOUT env var)
   - Working directory must be under home or an explicitly passed path
   - stdout/stderr are capped to avoid context overflow
@@ -18,8 +22,11 @@ import re
 import shlex
 import stat
 import subprocess
+import threading
 import time
 from pathlib import Path
+
+from host_access import owner_only, path_access_error
 
 TIMEOUT_S = int(os.environ.get("SHELL_TIMEOUT", "60"))
 
@@ -43,8 +50,7 @@ _ALLOWLIST = {
     "ls", "cat", "find", "grep", "head", "tail", "wc", "sort",
     "uniq", "diff", "file", "stat", "du", "df", "md5", "sha256sum",
     # Safe filesystem ops
-    "mkdir", "cp", "mv", "touch", "pwd", "which", "env",
-    "printenv", "echo", "printf",
+    "mkdir", "cp", "mv", "touch", "pwd", "which", "echo", "printf",
     # Text processing
     "jq", "yq", "sed", "awk", "cut", "xargs", "tr",
     # Network (read-only or targeted)
@@ -66,27 +72,57 @@ _BLOCKLIST_PATTERNS = [
     r"\bdd\s+if=",               # disk dump
     r"\bmkfs\b",                 # format disk
     r"--no-verify\b",            # git bypass
+    r"\$\(|`",                   # command substitution runs unlisted commands
 ]
 
 _BLOCKED_REs = [re.compile(p, re.IGNORECASE) for p in _BLOCKLIST_PATTERNS]
 
+# Tokens after which the shell starts a new command (redirections are not).
+_COMMAND_BOUNDARIES = frozenset({";", ";;", "&", "&&", "|", "||", "|&", "(", ")"})
+# Provider keys, the API token and OAuth secrets live in the server's env.
+_SECRET_ENV = re.compile(r"KEY|TOKEN|SECRET|PASSW|CREDENTIAL", re.IGNORECASE)
+# crontab has no atomic edit: serialize read-modify-write across worker threads.
+_CRONTAB_LOCK = threading.Lock()
+
+
+def _command_starts(command: str) -> list[str]:
+    """The first word of every command in a chain, quotes respected."""
+    lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    starts: list[str] = []
+    expect_command = True
+    for token in lexer:
+        if token in _COMMAND_BOUNDARIES:
+            expect_command = True
+        elif expect_command:
+            starts.append(token)
+            expect_command = False
+    return starts
+
+
+def _subprocess_env() -> dict[str, str]:
+    return {name: value for name, value in os.environ.items() if not _SECRET_ENV.search(name)}
+
 
 def _check_command(command: str) -> str | None:
     """Return an error message if the command is unsafe, else None."""
+    if "\n" in command or "\r" in command:
+        return "Run one command line at a time; use write_script for multi-line scripts."
     try:
-        tokens = shlex.split(command)
+        starts = _command_starts(command)
     except ValueError as exc:
         return f"Could not parse command: {exc}"
 
-    if not tokens:
+    if not starts:
         return "Empty command."
 
-    base = Path(tokens[0]).name.lower()
-    if base not in _ALLOWLIST:
-        return (
-            f"Command '{base}' is not in the allowlist. "
-            f"Allowed: {', '.join(sorted(_ALLOWLIST))}"
-        )
+    for start in starts:
+        base = Path(start).name.lower()
+        if base not in _ALLOWLIST:
+            return (
+                f"Command '{base}' is not in the allowlist. "
+                f"Allowed: {', '.join(sorted(_ALLOWLIST))}"
+            )
 
     for pattern in _BLOCKED_REs:
         if pattern.search(command):
@@ -122,7 +158,8 @@ def run_shell(command: str, working_dir: str = "~", timeout_s: int = TIMEOUT_S) 
           2. run_shell("git status", working_dir="~/myproject")
           3. run_shell("npm test", working_dir="~/myproject")
     """
-    blocked = _check_command(command)
+    denied = owner_only("run_shell")
+    blocked = denied["message"] if denied else _check_command(command)
     if blocked:
         return {
             "status":    "blocked",
@@ -155,7 +192,7 @@ def run_shell(command: str, working_dir: str = "~", timeout_s: int = TIMEOUT_S) 
             text=True,
             timeout=timeout_s,
             cwd=str(cwd),
-            env={**os.environ},
+            env=_subprocess_env(),
         )
         duration = round(time.time() - start, 2)
         status = "ok" if result.returncode == 0 else "error"
@@ -223,6 +260,9 @@ def read_file(path: str, max_chars: int = 50_000) -> dict:
                 "message": f"read_file is restricted to paths under ~. Got: {resolved}",
                 "content": "",
             }
+        denied = path_access_error(resolved)
+        if denied:
+            return {"status": "blocked", "message": denied, "content": ""}
         if not resolved.exists():
             return {"status": "error", "message": f"File not found: {resolved}", "content": ""}
         if not resolved.is_file():
@@ -261,12 +301,18 @@ def write_script(content: str, path: str) -> dict:
         file_path: Resolved absolute path
         message:   Bytes written or error description
     """
+    denied = owner_only("write_script")
+    if denied:
+        return {**denied, "file_path": ""}
     try:
         resolved = Path(path).expanduser().resolve()
         # Restrict writes to home directory
         home = Path.home().resolve()
         if not str(resolved).startswith(str(home)):
             return {"status": "error", "message": f"write_script is restricted to paths under ~. Got: {resolved}"}
+        refused = path_access_error(resolved)
+        if refused:
+            return {"status": "blocked", "message": refused, "file_path": ""}
         resolved.parent.mkdir(parents=True, exist_ok=True)
         resolved.write_text(content, encoding="utf-8")
         # Make executable if it looks like a script with a shebang
@@ -308,17 +354,21 @@ def schedule_cron(schedule: str, command: str, comment: str) -> dict:
         schedule: The schedule string installed
         command:  The command installed
     """
+    denied = owner_only("schedule_cron")
+    if denied:
+        return denied
     try:
-        existing_result = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
-        existing = existing_result.stdout if existing_result.returncode == 0 else ""
+        with _CRONTAB_LOCK:
+            existing_result = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
+            existing = existing_result.stdout if existing_result.returncode == 0 else ""
 
-        # Remove any existing entry with the same tag
-        tag = f"{_NARAD_TAG}{comment}"
-        lines = [ln for ln in existing.splitlines() if tag not in ln]
-        lines.append(f"{schedule} {command}  {tag}")
-        new_crontab = "\n".join(lines) + "\n"
+            # Remove any existing entry with the same tag
+            tag = f"{_NARAD_TAG}{comment}"
+            lines = [ln for ln in existing.splitlines() if tag not in ln]
+            lines.append(f"{schedule} {command}  {tag}")
+            new_crontab = "\n".join(lines) + "\n"
 
-        proc = subprocess.run(["crontab", "-"], input=new_crontab, capture_output=True, text=True)
+            proc = subprocess.run(["crontab", "-"], input=new_crontab, capture_output=True, text=True)
         if proc.returncode == 0:
             return {
                 "status":   "ok",
@@ -343,6 +393,9 @@ def list_cron_jobs() -> dict:
         raw:        Full crontab output for reference
         message:    Summary
     """
+    denied = owner_only("list_cron_jobs")
+    if denied:
+        return {**denied, "narad_jobs": [], "raw": ""}
     try:
         result = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
         if result.returncode != 0:
@@ -369,14 +422,18 @@ def remove_cron_job(comment: str) -> dict:
         status:  "ok" | "error"
         message: Confirmation or error description
     """
+    denied = owner_only("remove_cron_job")
+    if denied:
+        return denied
     try:
-        result = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
-        if result.returncode != 0:
-            return {"status": "ok", "message": "No crontab found — nothing to remove."}
-        tag = f"{_NARAD_TAG}{comment}"
-        lines = [ln for ln in result.stdout.splitlines() if tag not in ln]
-        new_crontab = "\n".join(lines) + "\n"
-        proc = subprocess.run(["crontab", "-"], input=new_crontab, capture_output=True, text=True)
+        with _CRONTAB_LOCK:
+            result = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
+            if result.returncode != 0:
+                return {"status": "ok", "message": "No crontab found — nothing to remove."}
+            tag = f"{_NARAD_TAG}{comment}"
+            lines = [ln for ln in result.stdout.splitlines() if tag not in ln]
+            new_crontab = "\n".join(lines) + "\n"
+            proc = subprocess.run(["crontab", "-"], input=new_crontab, capture_output=True, text=True)
         if proc.returncode == 0:
             return {"status": "ok", "message": f"Removed cron job: {comment}"}
         return {"status": "error", "message": proc.stderr[:300]}

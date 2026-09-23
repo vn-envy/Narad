@@ -91,6 +91,13 @@ export function getProfileSession(): FamilyProfileSession | null {
   }
 }
 
+/** Host-wide settings (keys, the offline model, device grants) are the
+ *  owner's. No session means a trusted host request, which acts as the owner. */
+export function isOwnerSession(): boolean {
+  const session = getProfileSession()
+  return !session || session.profile.is_owner
+}
+
 export function setProfileSession(session: FamilyProfileSession): void {
   const value = JSON.stringify(session)
   try {

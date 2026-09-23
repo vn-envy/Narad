@@ -43,8 +43,15 @@ def classify_message(sender: str, subject: str, headers: dict[str, str] | None =
     return "other"
 
 
-def triage_inbox(limit: int = 25, deliver: bool = False, user_id: str = "default") -> dict:
-    """Group unread Gmail messages without changing their read state."""
+def triage_inbox(limit: int = 25, deliver: bool = False) -> dict:
+    """Group unread Gmail messages without changing their read state.
+
+    The mail read and the notification both belong to the calling profile:
+    there is deliberately no user_id argument for the model to fill in.
+    """
+    from profile_context import current_profile_id
+
+    user_id = current_profile_id()
     try:
         from google_workspace_skill import search_google_mail
 
