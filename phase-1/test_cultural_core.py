@@ -18,6 +18,9 @@ import narad_paths  # noqa: F401  — registers all phase dirs; must precede pha
 
 _RELOADED_MODULES = [
     "narad_config",
+    "smriti_indexer",
+    "smriti_vector_store",
+    "smriti_recall_ranker",
     "conversation_memory",
     "dharma",
     "smriti_core",
@@ -160,7 +163,6 @@ class CulturalCoreTests(unittest.TestCase):
         scorecard = self.smriti_core.architecture_scorecard()
         self.assertGreaterEqual(scorecard["smriti_core_imports"], 1)
         self.assertLess(scorecard["legacy_direct_memory_imports"], 6)
-        self.assertTrue(scorecard["swapna_enabled"])
 
     def test_conversation_memory_restores_recent_thread_and_working_state(self) -> None:
         for idx in range(10):

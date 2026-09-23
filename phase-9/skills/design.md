@@ -199,6 +199,24 @@ M3 defines 5 shape scales:
 
 ## 6. MOTION
 
+### Purpose and Frequency Gate
+
+- Motion must explain state, causality, continuity, or narrative. If removing it changes
+  nothing the user understands, remove it.
+- Do not animate high-frequency keyboard actions or routine repeated interactions.
+- Keep normal UI transitions under 300ms. Longer timing is reserved for explanatory
+  sequences where the learner must follow a causal chain.
+- Use strong ease-out for entering/exiting elements, ease-in-out for objects already moving
+  on screen, and linear timing only for genuinely continuous motion.
+- Animate explicit properties; never use `transition: all`.
+- Every animated surface must support `prefers-reduced-motion` with a useful static state.
+
+### Lottie Output Rule
+
+Lottie is an on-demand artifact format, not an app-shell dependency. Before export, validate
+the exact first frame, midpoint, every handoff, and final frame against a typed motion recipe.
+Load an official player only inside an artifact that explicitly requests Lottie playback.
+
 ### Easing Curves
 | Curve | cubic-bezier | Use |
 |-------|-------------|-----|

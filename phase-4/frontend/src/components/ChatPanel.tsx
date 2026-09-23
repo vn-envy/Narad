@@ -1,15 +1,51 @@
 import { useState, useRef, useEffect } from 'react'
-import type { ActiveArtifactSession, Message, AvatarName, AvatarStatus, TokenUsage, GuidedSessionMeta } from '../hooks/useAvatara'
+import type {
+  ActiveArtifactSession,
+  ChatAttachment,
+  ChatAttachmentBatch,
+  Message,
+  AvatarName,
+  AvatarStatus,
+  TokenUsage,
+  GuidedSessionMeta,
+} from '../hooks/useAvatara'
 import { useTTS, VOICE_AVATARS } from '../hooks/useTTS'
 import type { TTSAvatar } from '../hooks/useTTS'
 import { MahatiLogo } from './MahatiLogo'
 import { ZigzagBank } from './Motifs'
 import { GuruMessage } from './GuruCards'
 import { cn } from '@/lib/utils'
-import { Pencil, RotateCcw, Square, Copy, Check, Volume2, VolumeX, Loader, Paperclip, X, Mic, GraduationCap } from 'lucide-react'
+import {
+  Archive,
+  Check,
+  Code2,
+  Copy,
+  File as FileIcon,
+  FileSpreadsheet,
+  FileText,
+  Files,
+  FolderOpen,
+  GraduationCap,
+  Image,
+  Link2,
+  Loader,
+  Mic,
+  Paperclip,
+  Pencil,
+  RotateCcw,
+  Square,
+  Volume2,
+  VolumeX,
+  X,
+} from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { AVATAR_COLOURS, AVATAR_RGB, DEVA, isAvatarName } from '@/lib/avatara-constants'
+import { apiFetch, apiPath, apiUrl, type WorkflowRun } from '@/lib/api'
+import type { FamilyProfile } from '@/lib/api'
+import { useIsMobile } from '@/hooks/useIsMobile'
+import { ProfileBadge } from './ProfileBadge'
+import { toast } from 'sonner'
 
 const SUGGESTIONS: Array<{ label: string; prompt: string }> = [
   { label: 'Plan my week',        prompt: 'Plan my week from my calendar and open tasks.' },
@@ -19,6 +55,49 @@ const SUGGESTIONS: Array<{ label: string; prompt: string }> = [
 ]
 
 const MEDIA_RE = /https?:\/\/\S+\/media\/[^\s"')]+\.(mp4|wav|mp3)/gi
+const LIVE_URL_RE = /https?:\/\/[^\s<>\]\[()"']+/gi
+const MAX_UPLOAD_FILES = 256
+const IGNORED_FOLDER_PARTS = new Set(['.git', 'node_modules', '.next', 'dist', 'build', '__pycache__'])
+
+function formatBytes(value: number): string {
+  if (value < 1024) return `${value} B`
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function AttachmentIcon({ kind, size = 14 }: { kind: ChatAttachment['kind']; size?: number }) {
+  if (kind === 'image') return <Image size={size} />
+  if (kind === 'archive') return <Archive size={size} />
+  if (kind === 'code') return <Code2 size={size} />
+  if (kind === 'data') return <FileSpreadsheet size={size} />
+  if (kind === 'document' || kind === 'text') return <FileText size={size} />
+  return <FileIcon size={size} />
+}
+
+function MessageAttachments({ attachments }: { attachments?: ChatAttachment[] }) {
+  if (!attachments?.length) return null
+  const shown = attachments.slice(0, 6)
+  return (
+    <div className="flex flex-wrap gap-1.5 mt-2 pt-2" style={{ borderTop: '1px solid rgba(250,247,240,0.16)' }}>
+      {shown.map(item => (
+        <span
+          key={item.attachment_id}
+          className="inline-flex items-center gap-1.5 max-w-[210px] rounded px-2 py-1 font-mono text-[10px]"
+          style={{ background: 'rgba(250,247,240,0.10)', color: 'rgba(250,247,240,0.82)' }}
+          title={item.relative_path}
+        >
+          <AttachmentIcon kind={item.kind} size={11} />
+          <span className="truncate">{item.name}</span>
+        </span>
+      ))}
+      {attachments.length > shown.length && (
+        <span className="font-mono text-[10px] px-1.5 py-1" style={{ color: 'rgba(250,247,240,0.62)' }}>
+          +{attachments.length - shown.length} more
+        </span>
+      )}
+    </div>
+  )
+}
 
 function MediaEmbed({ url }: { url: string }) {
   const lc = url.toLowerCase()
@@ -271,16 +350,22 @@ const ACTION_BTN = cn(
 )
 
 interface Props {
+  userId: string
+  profile: FamilyProfile
+  onSwitchProfile: () => void
   messages: Message[]
   avatars: Record<AvatarName, AvatarStatus>
   streaming: boolean
   error: string | null
-  onSend: (query: string, images?: string[]) => void
+  onSend: (query: string, attachments?: ChatAttachment[]) => void
   stop: () => void
   onClear?: () => void
   onOpenVoice?: () => void
   activeArtifact?: ActiveArtifactSession | null
   onCloseArtifact?: () => void
+  activeWorkflow?: WorkflowRun | null
+  onOpenWorkflow?: () => void
+  onLeaveWorkflow?: () => void
   guidedSession?: GuidedSessionMeta | null
   onGuidedAnswer?: (messageId: string, answer?: string, choiceIndex?: number) => void
   onGuidedSkip?: () => void
@@ -288,6 +373,9 @@ interface Props {
 }
 
 export function ChatPanel({
+  userId,
+  profile,
+  onSwitchProfile,
   messages,
   avatars,
   streaming,
@@ -298,18 +386,26 @@ export function ChatPanel({
   onOpenVoice,
   activeArtifact,
   onCloseArtifact,
+  activeWorkflow,
+  onOpenWorkflow,
+  onLeaveWorkflow,
   guidedSession,
   onGuidedAnswer,
   onGuidedSkip,
   onGuidedExit,
 }: Props) {
+  const isMobile = useIsMobile()
   const [input, setInput] = useState('')
-  const [pendingImages, setPendingImages] = useState<string[]>([])
+  const [pendingBatches, setPendingBatches] = useState<ChatAttachmentBatch[]>([])
+  const [uploading, setUploading] = useState(false)
+  const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false)
   const scrollerRef = useRef<HTMLDivElement>(null)
   const nearBottomRef = useRef(true)
   const [showJump, setShowJump] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  const folderRef = useRef<HTMLInputElement>(null)
+  const attachmentMenuRef = useRef<HTMLDivElement>(null)
   const tts = useTTS()
 
   // Stick-near-bottom autoscroll: only follow the stream when the reader is
@@ -354,23 +450,70 @@ export function ChatPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages])
 
-  const attachImages = (files: FileList) => {
-    Array.from(files).forEach(file => {
-      const reader = new FileReader()
-      reader.onload = () => {
-        const dataUri = reader.result as string  // full "data:image/png;base64,..." URI
-        if (dataUri) setPendingImages(prev => [...prev, dataUri])
+  useEffect(() => {
+    if (!attachmentMenuOpen) return
+    const closeMenu = (event: MouseEvent) => {
+      if (!attachmentMenuRef.current?.contains(event.target as Node)) {
+        setAttachmentMenuOpen(false)
       }
-      reader.readAsDataURL(file)
+    }
+    document.addEventListener('mousedown', closeMenu)
+    return () => document.removeEventListener('mousedown', closeMenu)
+  }, [attachmentMenuOpen])
+
+  const uploadSelection = async (fileList: FileList, source: 'files' | 'folder') => {
+    const selected = Array.from(fileList).filter(file => {
+      if (source !== 'folder') return true
+      const relativePath = file.webkitRelativePath || file.name
+      const parts = relativePath.split('/')
+      return !parts.some(part => IGNORED_FOLDER_PARTS.has(part)) && !relativePath.endsWith('/.DS_Store')
     })
+    if (selected.length === 0) {
+      toast.error('No usable files found in that selection.')
+      return
+    }
+    if (selected.length > MAX_UPLOAD_FILES) {
+      toast.error(`That selection has ${selected.length} files. Choose a folder with ${MAX_UPLOAD_FILES} files or fewer.`)
+      return
+    }
+
+    setUploading(true)
+    setAttachmentMenuOpen(false)
+    try {
+      const form = new FormData()
+      selected.forEach(file => form.append('files', file, file.name))
+      form.append('user_id', userId)
+      form.append('source', source)
+      form.append('relative_paths', JSON.stringify(
+        selected.map(file => file.webkitRelativePath || file.name)
+      ))
+      const response = await apiFetch('/chat/attachments', { method: 'POST', body: form })
+      const payload = await response.json().catch(() => ({})) as ChatAttachmentBatch & { detail?: string }
+      if (!response.ok) throw new Error(payload.detail || `Upload failed (HTTP ${response.status})`)
+      setPendingBatches(current => [...current, payload])
+    } catch (error) {
+      toast.error('Could not attach that selection.', {
+        description: error instanceof Error ? error.message : 'Upload failed.',
+      })
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  const removeBatch = (batchId: string) => {
+    setPendingBatches(current => current.filter(batch => batch.batch_id !== batchId))
+    apiFetch(apiUrl(`/chat/attachment-batches/${batchId}`, { user_id: userId }), {
+      method: 'DELETE',
+    }).catch(() => {})
   }
 
   const handleSend = () => {
-    const q = input.trim()
-    if (!q || streaming) return
-    onSend(q, pendingImages)
+    const attachments = pendingBatches.flatMap(batch => batch.attachments)
+    const q = input.trim() || (attachments.length > 0 ? 'Review the attached inputs and summarize what matters.' : '')
+    if (!q || streaming || uploading) return
+    onSend(q, attachments)
     setInput('')
-    setPendingImages([])
+    setPendingBatches([])
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
     // Sending always re-engages follow mode — jump to your own message.
     requestAnimationFrame(() => scrollToBottom())
@@ -404,7 +547,7 @@ export function ChatPanel({
   const handleRestart = (msgId: string) => {
     const idx = messages.findIndex(m => m.id === msgId)
     const prev = idx > 0 ? messages[idx - 1] : null
-    if (prev?.role === 'user') onSend(prev.text)
+    if (prev?.role === 'user') onSend(prev.text, prev.attachments)
   }
 
   const [copiedId, setCopiedId] = useState<string | null>(null)
@@ -416,13 +559,15 @@ export function ChatPanel({
   }
 
   const activeAvatar = Object.values(avatars).find(a => a.state === 'active') ?? null
+  const pendingAttachmentCount = pendingBatches.reduce((sum, batch) => sum + batch.file_count, 0)
+  const liveUrls = Array.from(new Set((input.match(LIVE_URL_RE) ?? []).map(url => url.replace(/[.,;:!?]+$/, ''))))
 
   return (
     <div className="flex flex-col h-full overflow-hidden" style={{ background: 'var(--paper)' }}>
 
       {/* Header — dark kajal with Playfair italic */}
       <div
-        className="flex items-center gap-3 px-5 py-3 flex-shrink-0 relative overflow-hidden"
+        className="flex items-center gap-2 sm:gap-3 px-3 sm:px-5 py-3 flex-shrink-0 relative overflow-hidden"
         style={{ background: 'var(--kajal)', minHeight: 56 }}
       >
         <MahatiLogo size={32} />
@@ -437,35 +582,38 @@ export function ChatPanel({
             नारद  अवतारा
           </span>
         </div>
+        <div className="ml-auto z-10 flex items-center gap-1.5">
+        <ProfileBadge profile={profile} onSwitch={onSwitchProfile} compact={isMobile} />
         {onOpenVoice && (
           <button
             onClick={onOpenVoice}
             title="Voice mode — talk to Narad"
-            className="ml-auto z-10 flex items-center gap-1 px-2 py-1 rounded text-[11px] transition-opacity opacity-50 hover:opacity-100"
+            className="flex items-center gap-1 px-2 py-1 rounded text-[11px] transition-opacity opacity-50 hover:opacity-100"
             style={{ color: 'rgba(252,250,242,0.7)', background: 'rgba(252,250,242,0.08)', border: '1px solid rgba(252,250,242,0.15)' }}
           >
             <Mic size={12} />
-            voice
+            {!isMobile && 'voice'}
           </button>
         )}
         {onClear && messages.length > 0 && (
           <button
             onClick={onClear}
             title="Clear conversation"
-            className={`${onOpenVoice ? '' : 'ml-auto '}z-10 flex items-center gap-1 px-2 py-1 rounded text-[11px] transition-opacity opacity-50 hover:opacity-100`}
+            className="flex items-center gap-1 px-2 py-1 rounded text-[11px] transition-opacity opacity-50 hover:opacity-100"
             style={{ color: 'rgba(252,250,242,0.7)', background: 'rgba(252,250,242,0.08)', border: '1px solid rgba(252,250,242,0.15)' }}
           >
             <RotateCcw size={12} />
-            clear
+            {!isMobile && 'clear'}
           </button>
         )}
+        </div>
         {/* Zigzag motif at bottom edge of header */}
         <div className="absolute bottom-0 left-0 w-full overflow-hidden" style={{ height: 16, opacity: 0.12 }}>
           <ZigzagBank color="var(--paper)" className="w-full" />
         </div>
       </div>
 
-      {/* G7: guru-mode banner — visible whenever a guided session is active */}
+      {/* The teaching workflow stays in the primary chat instead of a separate surface. */}
       {guidedSession && (
         <div
           className="flex items-center gap-2 px-4 py-1.5 flex-shrink-0"
@@ -476,7 +624,7 @@ export function ChatPanel({
         >
           <GraduationCap size={12} style={{ color: '#1d4ed8' }} />
           <span className="font-mono text-[10.5px] uppercase tracking-wider" style={{ color: '#1d4ed8' }}>
-            Guru mode
+            Teach workflow
           </span>
           <span className="text-[11.5px] truncate flex-1" style={{ color: 'var(--kajal)', fontFamily: 'var(--font-body)', opacity: 0.75 }}>
             {guidedSession.topic}
@@ -485,7 +633,7 @@ export function ChatPanel({
             onClick={() => onGuidedExit?.()}
             className="text-[10.5px] font-mono px-2 py-0.5 rounded opacity-60 hover:opacity-100 transition-opacity"
             style={{ color: '#1d4ed8', border: '1px solid rgba(29,78,216,0.3)' }}
-            title="Exit guru mode (or type /exit)"
+            title="Exit the teaching workflow (or type /exit)"
           >
             exit
           </button>
@@ -609,6 +757,7 @@ export function ChatPanel({
                   ? <MarkdownMessage text={msg.text} />
                   : <UserMessageText text={msg.text} />
                 }
+                {msg.role === 'user' && <MessageAttachments attachments={msg.attachments} />}
               </div>
 
               {/* Action buttons + token ticker */}
@@ -826,6 +975,35 @@ export function ChatPanel({
           borderTop: '1px solid color-mix(in srgb, var(--kajal) 10%, transparent)',
         }}
       >
+        {activeWorkflow && (
+          <div
+            className="flex items-center justify-between gap-3 rounded px-3 py-2"
+            style={{
+              background: `linear-gradient(90deg, ${activeWorkflow.definition.accent}10, rgba(255,255,255,0.58))`,
+              border: `1px solid ${activeWorkflow.definition.accent}28`,
+            }}
+          >
+            <button type="button" onClick={onOpenWorkflow} className="min-w-0 text-left" style={{ background: 'transparent', border: 0, padding: 0, cursor: 'pointer' }}>
+              <div className="font-mono text-[9px] uppercase tracking-[0.13em]" style={{ color: activeWorkflow.definition.accent }}>
+                Active path · {activeWorkflow.definition.title}
+              </div>
+              <div className="text-[12px] font-semibold truncate" style={{ color: 'var(--kajal)' }}>
+                {activeWorkflow.current_stage?.title || (activeWorkflow.status === 'completed' ? 'Path complete' : activeWorkflow.title)}
+              </div>
+            </button>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <button type="button" onClick={onOpenWorkflow} className="font-mono text-[9px] uppercase tracking-[0.08em]" style={{ border: 0, background: 'transparent', color: activeWorkflow.definition.accent, cursor: 'pointer' }}>
+                {activeWorkflow.progress_percent}% · view
+              </button>
+              {onLeaveWorkflow && (
+                <button onClick={onLeaveWorkflow} className="w-7 h-7 rounded flex items-center justify-center" style={{ border: '1px solid color-mix(in srgb, var(--kajal) 10%, transparent)', color: 'rgba(45,42,38,0.52)', cursor: 'pointer' }} title="Leave path context">
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
         {activeArtifact && (
           <div
             className="flex items-center justify-between gap-3 rounded px-3 py-2"
@@ -858,65 +1036,152 @@ export function ChatPanel({
           </div>
         )}
 
-        {/* Thumbnail strip */}
-        {pendingImages.length > 0 && (
+        {(pendingBatches.length > 0 || liveUrls.length > 0) && (
           <div className="flex flex-wrap gap-2">
-            {pendingImages.map((b64, i) => (
-              <div key={i} className="relative w-14 h-14 flex-shrink-0 rounded overflow-hidden"
-                style={{ border: '1px solid color-mix(in srgb, var(--kajal) 15%, transparent)' }}>
-                <img
-                  src={b64}
-                  alt=""
-                  className="w-full h-full object-cover"
-                />
-                <button
-                  className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full flex items-center justify-center"
-                  style={{ background: 'rgba(45,42,38,0.7)' }}
-                  onClick={() => setPendingImages(prev => prev.filter((_, idx) => idx !== i))}
+            {pendingBatches.map(batch => {
+              const first = batch.attachments[0]
+              const singleImage = batch.file_count === 1 && first?.kind === 'image'
+              return (
+                <div
+                  key={batch.batch_id}
+                  className="group/attachment relative flex items-center gap-2.5 rounded px-2.5 py-2 max-w-[260px]"
+                  style={{
+                    background: 'rgba(255,255,255,0.62)',
+                    border: '1px solid color-mix(in srgb, var(--kajal) 12%, transparent)',
+                  }}
+                  title={batch.source === 'folder' ? `${batch.file_count} files from ${batch.label}` : batch.label}
                 >
-                  <X size={8} style={{ color: 'var(--paper)' }} />
-                </button>
-              </div>
-            ))}
+                  {singleImage ? (
+                    <img
+                      src={apiPath(first.content_url)}
+                      alt=""
+                      className="w-9 h-9 rounded object-cover flex-shrink-0"
+                    />
+                  ) : (
+                    <span
+                      className="w-9 h-9 rounded flex items-center justify-center flex-shrink-0"
+                      style={{ background: 'rgba(45,42,38,0.06)', color: 'rgba(45,42,38,0.62)' }}
+                    >
+                      {batch.source === 'folder'
+                        ? <FolderOpen size={16} />
+                        : first ? <AttachmentIcon kind={first.kind} size={16} /> : <Files size={16} />}
+                    </span>
+                  )}
+                  <div className="min-w-0 pr-4">
+                    <div className="text-[11px] font-medium truncate" style={{ color: 'var(--kajal)' }}>
+                      {batch.label}
+                    </div>
+                    <div className="font-mono text-[9px]" style={{ color: 'rgba(45,42,38,0.48)' }}>
+                      {batch.file_count === 1 ? formatBytes(batch.size_bytes) : `${batch.file_count} files · ${formatBytes(batch.size_bytes)}`}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="absolute top-1 right-1 w-5 h-5 rounded flex items-center justify-center opacity-55 hover:opacity-100"
+                    style={{ color: 'var(--kajal)' }}
+                    onClick={() => removeBatch(batch.batch_id)}
+                    title="Remove attachment"
+                  >
+                    <X size={10} />
+                  </button>
+                </div>
+              )
+            })}
+            {liveUrls.map(url => {
+              let label = url
+              try { label = new URL(url).hostname.replace(/^www\./, '') } catch { /* show the URL */ }
+              return (
+                <div
+                  key={url}
+                  className="inline-flex items-center gap-2 rounded px-2.5 py-2 max-w-[220px]"
+                  style={{
+                    background: 'rgba(15,118,110,0.06)',
+                    border: '1px solid rgba(15,118,110,0.18)',
+                    color: '#0f766e',
+                  }}
+                  title={`${url} · Matsya will retrieve the live page`}
+                >
+                  <Link2 size={13} className="flex-shrink-0" />
+                  <span className="font-mono text-[10px] truncate">{label}</span>
+                  <span className="font-mono text-[8px] uppercase tracking-wide opacity-60">live</span>
+                </div>
+              )
+            })}
           </div>
         )}
 
         <div className="flex items-end gap-2.5">
-        {/* Hidden file input */}
+        {/* Browser inputs stay separate because folder picking uses webkitdirectory. */}
         <input
           ref={fileRef}
           type="file"
-          accept="image/*"
           multiple
           className="hidden"
-          onChange={e => { if (e.target.files) attachImages(e.target.files); e.target.value = '' }}
+          onChange={e => { if (e.target.files) void uploadSelection(e.target.files, 'files'); e.target.value = '' }}
         />
-        {/* Paperclip button */}
-        <button
-          onClick={() => fileRef.current?.click()}
-          disabled={streaming}
-          className={cn(
-            'w-10 h-10 rounded flex-shrink-0 flex items-center justify-center',
-            'transition-all duration-150 border outline-none cursor-pointer',
-            streaming ? 'opacity-30 cursor-not-allowed' : 'hover:scale-105 active:scale-95'
+        <input
+          ref={folderRef}
+          type="file"
+          multiple
+          className="hidden"
+          {...({ webkitdirectory: '', directory: '' } as React.InputHTMLAttributes<HTMLInputElement>)}
+          onChange={e => { if (e.target.files) void uploadSelection(e.target.files, 'folder'); e.target.value = '' }}
+        />
+        <div ref={attachmentMenuRef} className="relative flex-shrink-0">
+          {attachmentMenuOpen && (
+            <div
+              className="absolute bottom-12 left-0 w-44 rounded p-1.5 z-30"
+              style={{
+                background: 'var(--paper)',
+                border: '1px solid color-mix(in srgb, var(--kajal) 14%, transparent)',
+                boxShadow: '0 12px 32px rgba(45,42,38,0.14)',
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                className="w-full flex items-center gap-2.5 rounded px-2.5 py-2 text-left hover:bg-kajal/5"
+              >
+                <Files size={14} style={{ color: 'var(--sindoor)' }} />
+                <span className="text-[11px]" style={{ color: 'var(--kajal)' }}>Files or documents</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => folderRef.current?.click()}
+                className="w-full flex items-center gap-2.5 rounded px-2.5 py-2 text-left hover:bg-kajal/5"
+              >
+                <FolderOpen size={14} style={{ color: '#0f766e' }} />
+                <span className="text-[11px]" style={{ color: 'var(--kajal)' }}>Folder</span>
+              </button>
+            </div>
           )}
-          style={{
-            background: 'var(--paper)',
-            borderColor: 'color-mix(in srgb, var(--kajal) 12%, transparent)',
-            color: 'var(--kajal)',
-            opacity: streaming ? 0.3 : 0.55,
-            borderRadius: '4px',
-          }}
-          title="Attach image"
-        >
-          <Paperclip size={15} />
-        </button>
+          <button
+            type="button"
+            onClick={() => setAttachmentMenuOpen(open => !open)}
+            disabled={streaming || uploading}
+            className={cn(
+              'w-10 h-10 rounded flex-shrink-0 flex items-center justify-center',
+              'transition-[transform,opacity,border-color] duration-150 border outline-none cursor-pointer',
+              (streaming || uploading) ? 'opacity-30 cursor-not-allowed' : 'hover:scale-105 active:scale-95'
+            )}
+            style={{
+              background: 'var(--paper)',
+              borderColor: pendingAttachmentCount > 0 ? 'rgba(194,65,12,0.34)' : 'color-mix(in srgb, var(--kajal) 12%, transparent)',
+              color: 'var(--kajal)',
+              opacity: (streaming || uploading) ? 0.3 : 0.62,
+              borderRadius: '4px',
+            }}
+            title="Attach files or a folder"
+          >
+            {uploading ? <Loader size={15} className="animate-spin" /> : <Paperclip size={15} />}
+          </button>
+        </div>
         <textarea
           ref={textareaRef}
           value={input}
           onChange={autoResize}
           onKeyDown={handleKey}
-          placeholder="Ask Narad…"
+          placeholder="Ask Narad or paste a live URL…"
           disabled={streaming}
           rows={1}
           className={cn(
@@ -945,12 +1210,12 @@ export function ChatPanel({
         />
         <button
           onClick={handleSend}
-          disabled={streaming || !input.trim()}
+          disabled={streaming || uploading || (!input.trim() && pendingAttachmentCount === 0)}
           className={cn(
             'w-10 h-10 rounded flex-shrink-0 flex items-center justify-center',
             'font-bold text-[18px] transition-all duration-150',
             'border-0 outline-none cursor-pointer',
-            (streaming || !input.trim())
+            (streaming || uploading || (!input.trim() && pendingAttachmentCount === 0))
               ? 'opacity-30 cursor-not-allowed'
               : 'hover:scale-105 active:scale-95'
           )}

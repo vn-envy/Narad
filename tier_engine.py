@@ -2,13 +2,10 @@
 Sopan tier engine (S1) — hardware detection → deployment-tier recommendation.
 
 Detects RAM, GPU/Apple Silicon, disk headroom, and CPU class, then walks the
-Gemma 4 ladder (GURU-AND-ONBOARDING-PLAN.md Part C):
+Gemma 4 edge ladder:
 
-    <8 GB RAM            → T0 Kinara   · E2B QAT   (~3 GB)
-    8–16 GB              → T1 Sthanik  · E4B QAT   (~5 GB; 12B-Q4 opt-in, reduced ctx)
-    ≥16 GB               → T1 Sthanik  · 12B QAT Q4 (~7 GB, default)
-    ≥32 GB               → T1 Sthanik  · 12B Q8    (~14 GB)
-    ≥24 GB VRAM          → offer 26B-A4B (~15 GB) as an alternative
+    <16 GB RAM           → E2B Q4, loaded on demand
+    ≥16 GB RAM           → E4B Q4, kept warm when practical
     cloud key present    → T4 Sangam (hybrid) recommended over pure local
     subscription present → T3 Sadasya available
 
@@ -34,49 +31,24 @@ from typing import Any
 
 from narad_config import NARAD_HOME, ONBOARDING_PATH
 
-# ── Gemma 4 model catalog (S1 ladder; O2 downloads the weights) ───────────────
+# ── Gemma 4 model catalog (official Ollama tags) ──────────────────────────────
 
 MODELS: dict[str, dict[str, Any]] = {
     "e2b": {
-        "id": "narad-local/gemma4-e2b-it-qat",
+        "id": "ollama/gemma4:e2b-it-q4_K_M",
         "label": "Gemma 4 E2B (edge)",
-        "quant": "Q4 QAT",
-        "download_gb": 3.0,
-        "min_ram_gb": 4,
-        "context_hint": "32K",
+        "quant": "Q4_K_M",
+        "download_gb": 7.2,
+        "min_ram_gb": 8,
+        "context_hint": "16K working (128K model max)",
     },
     "e4b": {
-        "id": "narad-local/gemma4-e4b-it-qat",
+        "id": "ollama/gemma4:e4b-it-q4_K_M",
         "label": "Gemma 4 E4B (edge+)",
-        "quant": "Q4 QAT",
-        "download_gb": 5.0,
-        "min_ram_gb": 8,
-        "context_hint": "64K",
-    },
-    "12b-q4": {
-        "id": "narad-local/gemma4-12b-it-qat",
-        "label": "Gemma 4 12B (flagship)",
-        "quant": "Q4 QAT",
-        "download_gb": 7.0,
-        "min_ram_gb": 8,   # runs at 8 GB with reduced context; 16 GB comfortable
-        "context_hint": "128K (256K max)",
-    },
-    "12b-q8": {
-        "id": "narad-local/gemma4-12b-it-q8",
-        "label": "Gemma 4 12B (high precision)",
-        "quant": "Q8",
-        "download_gb": 14.0,
-        "min_ram_gb": 32,
-        "context_hint": "256K",
-    },
-    "26b-a4b": {
-        "id": "narad-local/gemma4-26b-a4b",
-        "label": "Gemma 4 26B-A4B (MoE, big GPU)",
-        "quant": "A4B",
-        "download_gb": 15.0,
-        "min_ram_gb": 32,
-        "min_vram_gb": 24,
-        "context_hint": "256K",
+        "quant": "Q4_K_M",
+        "download_gb": 9.6,
+        "min_ram_gb": 16,
+        "context_hint": "32K working (128K model max)",
     },
 }
 
@@ -179,7 +151,7 @@ def _has_subscription() -> bool:
 
 def _est_tokens_per_sec(model_key: str, hw: dict[str, Any]) -> int:
     """Order-of-magnitude generation speed for the wizard card. Coarse on purpose."""
-    base = {"e2b": 30, "e4b": 22, "12b-q4": 12, "12b-q8": 8, "26b-a4b": 20}.get(model_key, 10)
+    base = {"e2b": 30, "e4b": 22}.get(model_key, 10)
     if hw.get("apple_silicon"):
         factor = 2.0 if hw.get("ram_gb", 0) >= 32 else 1.5
     elif hw.get("gpu") == "nvidia" and hw.get("vram_gb", 0) >= 8:
@@ -194,34 +166,21 @@ def _est_tokens_per_sec(model_key: str, hw: dict[str, Any]) -> int:
 def _pick_model_key(hw: dict[str, Any]) -> tuple[str, list[str], list[str]]:
     """(model_key, reasons, alternative_keys) from the Gemma 4 ladder."""
     ram = float(hw.get("ram_gb") or 0)
-    vram = float(hw.get("vram_gb") or 0)
     reasons: list[str] = []
     alternatives: list[str] = []
 
-    if ram and ram < 8:
-        key = "e2b"
-        reasons.append(f"{ram:.0f} GB RAM → edge model keeps everything responsive")
-        alternatives = ["e4b"]
-    elif ram < 16:
+    if ram >= 16:
         key = "e4b"
-        reasons.append(f"{ram:.0f} GB RAM → E4B is the comfortable fit")
-        reasons.append("12B Q4 also runs here with reduced context — opt in if you prefer depth over speed")
-        alternatives = ["12b-q4", "e2b"]
-    elif ram < 32:
-        key = "12b-q4"
-        reasons.append(f"{ram:.0f} GB RAM → flagship 12B at Q4 (default)")
-        alternatives = ["e4b"]
+        reasons.append(f"{ram:.0f} GB RAM → automatic E4B quality upgrade")
     else:
-        key = "12b-q8"
-        reasons.append(f"{ram:.0f} GB RAM → 12B at Q8 for maximum quality")
-        alternatives = ["12b-q4"]
-    if vram >= 24:
-        alternatives = ["26b-a4b"] + [a for a in alternatives if a != "26b-a4b"]
-        reasons.append(f"{vram:.0f} GB GPU memory → 26B-A4B available as an alternative")
+        key = "e2b"
+        detected = f"{ram:.0f} GB RAM" if ram else "unknown memory"
+        reasons.append(f"{detected} → reliable E2B edge default")
+        reasons.append("Narad loads the model only when local inference is first used")
 
     # Disk headroom: step down the ladder until the download fits.
     disk = float(hw.get("disk_free_gb") or 0)
-    ladder_down = ["12b-q8", "12b-q4", "e4b", "e2b"]
+    ladder_down = ["e4b", "e2b"]
     while disk and key in ladder_down:
         need = MODELS[key]["download_gb"] + _DISK_BUFFER_GB
         if disk >= need:
@@ -261,12 +220,13 @@ def recommend(hw: dict[str, Any] | None = None, *,
         tier = "T1"
 
     model = MODELS[model_key]
+    model_id = model["id"]
     return {
         "tier": tier,
         "tier_name": TIERS[tier]["name"],
         "tier_card": TIERS[tier]["card"],
         "model_key": model_key,
-        "model": model["id"],
+        "model": model_id,
         "model_label": model["label"],
         "quant": model["quant"],
         "est_download_gb": model["download_gb"],

@@ -13,21 +13,21 @@ authors = [{ name = "Neekhil Vatsa", email = "vatsaneekhil@gmail.com" }]
 
 # Core runtime — server, routing, memory, learning loop.
 dependencies = [
-    "fastapi[standard]>=0.136.0",
+    "fastapi>=0.136.0,<0.137.0",
+    "uvicorn>=0.30.0",
+    "python-multipart>=0.0.9",
+    "python-dotenv>=1.0.0",
     "sse-starlette>=3.4.0",
-    "google-adk[extensions]>=1.32.0",
-    "google-genai>=1.0.0",
-    "openai>=1.30.0",
-    "anthropic>=0.40.0",
+    "google-adk==1.32.0",
+    "google-genai>=1.74.0,<1.75.0",
+    "litellm>=1.83.0,<1.84.0",
     "httpx>=0.27.0",
     "requests>=2.32.0",
     "pydantic>=2.6.0",
     "nest_asyncio>=1.6.0",
-    "lancedb>=0.20.0",
-    "pyarrow>=18.0.0",
     "numpy>=1.26.0",
     "sqlalchemy>=2.0.0",
-    "tavily-python>=0.5.0",
+    "turbovec>=0.7.0,<0.8.0",
 ]
 
 [project.optional-dependencies]
@@ -41,17 +41,21 @@ media = [
     "midiutil>=1.2.1",
     "matplotlib>=3.8.0",
 ]
-documents = ["python-docx>=1.1.0", "docling>=2.0.0"]
+documents = [
+    "PyMuPDF>=1.24.0",
+    "pypdf>=5.0.0",
+    "python-docx>=1.1.0",
+    "python-pptx>=1.0.0",
+    "openpyxl>=3.1.0",
+]
 browser = ["playwright>=1.44.0"]
+# Host desktop control is opt-in at runtime and always confirmation-gated.
+computer = ["narad-harness[browser]", "pyautogui>=0.9.54"]
 local-files = ["send2trash>=1.8.3"]
 # Voice in/out: Kokoro-82M TTS (CPU-fast) + faster-whisper STT. Runs fully local.
 voice = ["kokoro>=0.9.0", "faster-whisper>=1.0.0", "numpy>=1.26.0"]
-# Optional pro tier: VoxCPM TTS (needs GPU/MPS) — higher quality, cloning, Hindi.
-voice-pro = ["narad-harness[voice]", "voxcpm>=0.1.0"]
-# phase-0a spike only (macOS Apple Silicon); not part of the product runtime.
-mlx-spike = ["mlx>=0.16.0", "mlx-lm>=0.14.0", "outlines>=0.1.0", "huggingface-hub>=0.23.0"]
 dev = ["pytest>=8.0.0", "ruff>=0.6.0", "pre-commit>=3.7.0"]
-all = ["narad-harness[media,documents,browser,local-files]"]
+all = ["narad-harness[media,documents,browser,computer,local-files]"]
 
 [project.scripts]
 narad-server = "narad_server_entry:main"
@@ -68,16 +72,17 @@ py-modules = [
     "smriti_indexer",
     "smriti_recall_ranker",
     "harness_contract",
+    "decision_engine",
+    "decision_contracts",
     "learning_workspace",
     "conversation_memory",
     "dharma",
-    "swapna",
     "tool_result",
     "init_workspace",
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["phase-1", "phase-2", "phase-7", "phase-9"]
+testpaths = ["phase-1", "phase-2", "phase-3", "phase-7", "phase-9"]
 python_files = ["test_*.py"]
 addopts = "-q"
 

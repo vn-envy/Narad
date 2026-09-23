@@ -19,6 +19,7 @@ import ipaddress
 import json
 import os
 import re
+import shutil
 import socket
 import time
 from collections import Counter
@@ -48,6 +49,104 @@ _STOPWORDS = {
     "people", "topic", "query", "last", "days", "month", "just", "been", "more",
 }
 
+_SOURCE_BACKENDS = {
+    "reddit": {"direct": "reddit_public_json", "domains": ["reddit.com"]},
+    "hn": {"direct": "hn_algolia", "domains": ["news.ycombinator.com"]},
+    "github": {"direct": "github_public_api", "domains": ["github.com"]},
+    "x": {"direct": "nitter_public", "domains": ["x.com", "twitter.com"]},
+    "youtube": {"direct": None, "domains": ["youtube.com", "youtu.be"]},
+}
+
+
+def source_reach_status() -> dict:
+    """Report channel/back-end readiness without reading cookies or making calls."""
+    exa = bool(os.environ.get("EXA_API_KEY", "").strip())
+    agent_reach = shutil.which("agent-reach")
+    yt_dlp = shutil.which("yt-dlp")
+    channels = {}
+    for platform, config in _SOURCE_BACKENDS.items():
+        direct = config["direct"]
+        direct_ready = bool(direct) and platform != "x"
+        if platform == "youtube":
+            direct_ready = bool(yt_dlp)
+            direct = "yt-dlp" if yt_dlp else None
+        channels[platform] = {
+            "available": direct_ready or exa,
+            "ordered_backends": [item for item in (direct, "exa_domain_search" if exa else None) if item],
+            "selected": direct if direct_ready else ("exa_domain_search" if exa else None),
+            "reason": None if direct_ready or exa else "No direct backend or Exa fallback is ready",
+        }
+    return {
+        "available": any(item["available"] for item in channels.values()),
+        "mode": "ordered_native_backends",
+        "channels": channels,
+        "agent_reach_cli": {
+            "available": bool(agent_reach),
+            "path": agent_reach,
+            "used_automatically": False,
+        },
+        "cookie_policy": "never_auto_read_or_import",
+    }
+
+
+def _platform_from_url(url: str) -> str | None:
+    host = (urlparse(url).hostname or "").lower()
+    if host.endswith("reddit.com"):
+        return "reddit"
+    if host.endswith("ycombinator.com"):
+        return "hn"
+    if host.endswith("github.com"):
+        return "github"
+    if host.endswith("x.com") or host.endswith("twitter.com"):
+        return "x"
+    if host.endswith("youtube.com") or host.endswith("youtu.be"):
+        return "youtube"
+    return None
+
+
+def _exa_source_fallback(query: str, platforms: list[str]) -> tuple[list[dict], str | None]:
+    if not platforms or not os.environ.get("EXA_API_KEY", "").strip():
+        return [], None
+    try:
+        from web_enrichment_skill import exa_search
+
+        domains = sorted({
+            domain
+            for platform in platforms
+            for domain in _SOURCE_BACKENDS.get(platform, {}).get("domains", [])
+        })
+        payload = exa_search(
+            f"{query} discussions and reactions from the last 30 days",
+            search_type="auto",
+            max_results=8,
+            include_domains=domains,
+            timeout_s=45,
+        )
+        if payload.get("status") != "ok":
+            return [], str(payload.get("summary") or payload.get("error") or "Exa fallback failed")
+        raw = payload.get("result", {}).get("results", [])
+        results: list[dict] = []
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            url = str(item.get("url") or "")
+            platform = _platform_from_url(url)
+            if not platform or platform not in platforms:
+                continue
+            results.append({
+                "platform": platform,
+                "title": str(item.get("title") or url)[:120],
+                "url": url,
+                "snippet": str(item.get("snippet") or "")[:240],
+                "engagement": 0,
+                "comments": 0,
+                "published_date": item.get("published_date"),
+                "backend": "exa_domain_search",
+            })
+        return results, None
+    except Exception as exc:
+        return [], f"Exa source fallback: {type(exc).__name__}: {exc}"
+
 
 def _summarize_last30days(results: list[dict], query: str) -> tuple[str, list[str]]:
     if not results:
@@ -68,10 +167,10 @@ def _summarize_last30days(results: list[dict], query: str) -> tuple[str, list[st
         + "."
     )
     gaps: list[str] = []
-    if not os.environ.get("YOUTUBE_API_KEY"):
-        gaps.append("YouTube transcript/search enrichment is not configured.")
-    if not os.environ.get("X_BEARER_TOKEN"):
-        gaps.append("Direct X API enrichment is not configured; public scrape fallback may be sparse.")
+    if not any(item.get("platform") == "youtube" for item in results):
+        gaps.append("No YouTube signal was recovered; transcript-level evidence is unavailable.")
+    if not any(item.get("platform") == "x" for item in results):
+        gaps.append("No X signal was recovered; public access paths may be sparse or unavailable.")
     if not any(item.get("platform") == "github" for item in results):
         gaps.append("No recent GitHub signal was found for this query.")
     return summary, gaps
@@ -283,8 +382,8 @@ def search_last30days(
 
     Args:
         query:     Search query string — topic, product name, or keyword phrase.
-        platforms: Optional list to restrict results. Choices: "reddit", "hn", "x".
-                   Default: all three.
+        platforms: Optional list to restrict results. Choices: "reddit", "hn", "x",
+                   "github", and "youtube". Default: all five.
 
     Returns:
         status:    "ok" | "partial" | "error"
@@ -302,7 +401,16 @@ def search_last30days(
         )
 
     import time as _time
-    platforms = [p.lower().strip() for p in (platforms or ["reddit", "hn", "x", "github"])]
+    platforms = [p.lower().strip() for p in (platforms or ["reddit", "hn", "x", "github", "youtube"])]
+    unsupported = sorted(set(platforms) - set(_SOURCE_BACKENDS))
+    if unsupported:
+        return envelope(
+            status="error",
+            summary=f"Unsupported source channel(s): {', '.join(unsupported)}",
+            error="invalid_platforms",
+            results=[],
+            query=query,
+        )
     results: list[dict] = []
     errors: list[str] = []
 
@@ -411,6 +519,31 @@ def search_last30days(
         except Exception as _exc:
             errors.append(f"x/nitter: {_exc}")
 
+    direct_platforms = {str(item.get("platform")) for item in results}
+    missing_platforms = [platform for platform in platforms if platform not in direct_platforms]
+    fallback_results, fallback_error = _exa_source_fallback(query, missing_platforms)
+    if fallback_error:
+        errors.append(fallback_error)
+    results.extend(fallback_results)
+    fallback_platforms = {str(item.get("platform")) for item in fallback_results}
+    source_backends = {
+        platform: {
+            "selected": (
+                _SOURCE_BACKENDS[platform]["direct"]
+                if platform in direct_platforms
+                else ("exa_domain_search" if platform in fallback_platforms else None)
+            ),
+            "ordered": [
+                item for item in (
+                    _SOURCE_BACKENDS[platform]["direct"],
+                    "exa_domain_search" if os.environ.get("EXA_API_KEY", "").strip() else None,
+                ) if item
+            ],
+            "status": "ok" if platform in direct_platforms or platform in fallback_platforms else "gap",
+        }
+        for platform in platforms
+    }
+
     if not results and errors:
         return envelope(
             status="error",
@@ -422,6 +555,7 @@ def search_last30days(
             engagement_signals={},
             judge_summary="No evidence could be synthesized.",
             coverage_gaps=errors,
+            source_backends=source_backends,
         )
 
     results.sort(key=lambda r: r.get("engagement", 0), reverse=True)
@@ -469,6 +603,7 @@ def search_last30days(
             ],
             primary_artifact_label="Last 30 days report",
         ),
-        provenance={"tool": "search_last30days", "platforms": platforms},
+        provenance={"tool": "search_last30days", "platforms": platforms, "source_backends": source_backends},
+        source_backends=source_backends,
         errors=errors,
     )

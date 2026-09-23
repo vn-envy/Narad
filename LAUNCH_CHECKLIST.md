@@ -44,7 +44,7 @@
 
 ## E. One truth (M3)
 
-- [x] **E1 —** Reconcile docs: 4 avatars everywhere (AGENTS.md rewritten code-verified; ARCHITECTURE.md, README, WORKFLOWS, docs/, phase-9 skill prompts fixed 2026-07-04). Notion cut entirely rather than re-labelled. *(Remaining: single `v0.x` version scheme — tracked in AUDIT-AND-ROADMAP.md.)*
+- [x] **E1 —** Reconcile docs: 4 avatars everywhere; retired Projects/Kanban/Guru surfaces and optional runtimes removed in the 2026-09-16 cleanup.
 - [x] **E2 —** README rewritten against the new package layout + checklist status *(2026-07-09: accurate layout incl. harness-layer modules and real component names, `pip install -e .` + `narad-server` quick start, security defaults, phone/PWA section, Tauri in phase table)*.
 
 ## F. Launch verification

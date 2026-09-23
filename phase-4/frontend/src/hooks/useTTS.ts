@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef } from 'react'
 import { toast } from 'sonner'
-import { apiPath } from '@/lib/api'
+import { apiFetch } from '@/lib/api'
 
 export type TTSAvatar = 'Krishna' | 'Rama' | 'Parashurama'
 export const VOICE_AVATARS: TTSAvatar[] = ['Krishna', 'Rama', 'Parashurama']
@@ -80,7 +80,7 @@ export function useTTS() {
     try {
       // Unified voice endpoint (Smallest.ai → VoxCPM → Kokoro); same
       // request/response shape as the old Sarvam /tts route.
-      const res = await fetch(apiPath('/voice/tts'), {
+      const res = await apiFetch('/voice/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: speakText, avatar, lang }),

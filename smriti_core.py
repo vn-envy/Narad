@@ -7,7 +7,6 @@ It keeps the current stores intact while making the runtime think in terms of:
   - contextual recall
   - sutra promotion
   - sankalpa updates
-  - swapna consolidation
   - provenance lookup
 """
 
@@ -251,7 +250,7 @@ async def recall_context(
     provenance: list[dict[str, Any]] = []
     blocks: list[str] = []
     compaction_applied: list[str] = []
-    budget_model = model or "deepseek/deepseek-v4-flash"
+    budget_model = model or "deepseek/deepseek-flash"
     remaining_budget = token_budget
 
     def _fit_block(kind: str, text: str, preview_limit: int = 200) -> str:
@@ -718,7 +717,6 @@ def architecture_scorecard() -> dict[str, Any]:
         "legacy_direct_memory_imports": direct_legacy_imports,
         "smriti_core_imports": new_imports,
         "episode_store_enabled": True,
-        "swapna_enabled": True,
         "karma_mutation_log_enabled": True,
         "baseline_test_files": baseline_tests,
     }
@@ -1001,7 +999,7 @@ def evolution_history(*, days: int = 30) -> dict[str, Any]:
         "config": {
             "tapas_promote_threshold": float(os.environ.get("TAPAS_PROMOTE_THRESHOLD", "0.80")),
             "sutra_cooldown_hours": int(os.environ.get("SUTRA_COOLDOWN_HOURS", "24")),
-            "tapas_judge_model": os.environ.get("TAPAS_JUDGE_MODEL", "deepseek/deepseek-v4-pro"),
+            "tapas_judge_model": os.environ.get("TAPAS_JUDGE_MODEL", "deepseek/deepseek-flash"),
         },
         "agents": [agents[name] for name in agent_names],
         "timeline": timeline,

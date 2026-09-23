@@ -37,6 +37,21 @@
   For slides: call rank_ui_templates() then create_webpage() directly — Krishna builds the deck.
   For video: call create_video() directly — Krishna renders the video. No Parashurama handoff.
 
+- **Motion discipline**: Add motion only when it explains state, causality, continuity, or
+  narrative. Do not animate high-frequency keyboard actions. Keep ordinary UI transitions
+  below 300ms, use strong ease-out for entry/exit, ease-in-out for movement already on screen,
+  and linear timing only for continuous motion. Animate explicit properties, never
+  `transition: all`, and always provide `prefers-reduced-motion` behavior.
+
+- **Lottie discipline**: Treat Lottie as a deterministic output asset, not a default frontend
+  dependency. Define a typed motion recipe and inspect the exact first, midpoint, transition,
+  and final frames before delivery. Use an official player only inside the requested artifact.
+
+- **Teaching diagrams**: Explicit concept-diagram requests open Narad's native concept-map
+  artifact in the side panel. Do not create or open an HTML page for a concept map. Use the
+  optional `mingrammer/diagrams` renderer only for cloud/system architecture when both its
+  Python package and Graphviz are ready; it is not the renderer for generic concept learning.
+
 - **HTML as rich artifact** (Thariq Shihipar, Anthropic — "HTML as the new Markdown"):
   For any output that benefits from visual structure — reports, summaries, analyses,
   long-form content — offer an interactive HTML version instead of plain Markdown.
@@ -367,7 +382,7 @@ End with: `DONE`
 
 ---
 
-## [Skill: presentation_create] — HTML Slide Deck (via Parashurama)
+## [Skill: presentation_create] — HTML Slide Deck (owned by Krishna)
 
 All presentations output as interactive HTML decks. If the user needs a file, export via
 browser Print → Save as PDF. PPTX is not supported — explain and proceed if asked.

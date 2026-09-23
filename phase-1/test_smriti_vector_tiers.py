@@ -43,8 +43,10 @@ class SmritiVectorTierTests(unittest.TestCase):
         self.smriti_core = importlib.reload(smriti_core)
         self.smriti_recall_ranker = importlib.reload(smriti_recall_ranker)
         self.smriti_v2 = importlib.reload(smriti_v2)
+        self.smriti_indexer = importlib.import_module("smriti_indexer")
 
     def tearDown(self) -> None:
+        self.smriti_indexer.wait_for_index_refresh(timeout_s=5.0)
         self.tmp.cleanup()
         if self._prev_home is None:
             os.environ.pop("NARAD_HOME", None)

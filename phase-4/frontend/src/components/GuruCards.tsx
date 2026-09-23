@@ -68,7 +68,7 @@ function GuruBadge() {
     >
       <GraduationCap size={10} />
       <span style={{ fontFamily: 'var(--font-deva)', fontSize: 10 }}>कृ</span>
-      Krishna · guru
+      Krishna · teach
     </span>
   )
 }

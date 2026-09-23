@@ -18,6 +18,8 @@
       "tool_families": [
         "search",
         "browser",
+        "computer",
+        "phone",
         "documents",
         "filesystem",
         "http"
@@ -106,7 +108,8 @@
         "sql",
         "automation",
         "filesystem",
-        "media"
+        "media",
+        "security"
       ],
       "routing_hints": [
         "code",

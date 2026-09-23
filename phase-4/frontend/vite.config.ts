@@ -20,8 +20,9 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5173,
-    // No proxy: src/lib/api.ts targets http://localhost:8000 directly in dev
+    host: '127.0.0.1',
+    port: 5174,
+    // No proxy: src/lib/api.ts targets the same host on port 8000 in dev
     // (or VITE_API_BASE_URL), and the backend's CORS allows the Vite origins.
     // In production the backend serves dist/ itself — same origin, no base.
   },

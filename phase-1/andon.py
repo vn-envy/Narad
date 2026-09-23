@@ -20,8 +20,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from narad_config import CONFIG_DIR
+from profile_context import profile_data_path
 
 ANDON_LOG_PATH: Path = CONFIG_DIR / "andon_log.jsonl"
+
+
+def _andon_log_path() -> Path:
+    return profile_data_path("andon_log.jsonl", legacy_default=ANDON_LOG_PATH)
 
 # ── Thresholds (env-overridable) ──────────────────────────────────────────────
 ANDON_MIN_LENGTH  = int(os.environ.get("ANDON_MIN_LENGTH",  "80"))
@@ -76,15 +81,18 @@ def log_andon(
         "task_preview":   task_preview[:200],
         "result_preview": result_preview[:200],
     }
-    with open(ANDON_LOG_PATH, "a", encoding="utf-8") as f:
+    path = _andon_log_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(event) + "\n")
 
 
 def load_andon_log(limit: int = 50) -> list[dict]:
     """Return the last `limit` andon events, newest first."""
-    if not ANDON_LOG_PATH.exists():
+    path = _andon_log_path()
+    if not path.exists():
         return []
-    lines = ANDON_LOG_PATH.read_text(encoding="utf-8").splitlines()
+    lines = path.read_text(encoding="utf-8").splitlines()
     events = []
     for line in lines:
         line = line.strip()

@@ -25,6 +25,39 @@ export interface TokenUsage {
   costUsd?:         number
 }
 
+export interface ChatAttachment {
+  attachment_id: string
+  batch_id: string
+  name: string
+  relative_path: string
+  mime_type: string
+  kind: 'image' | 'audio' | 'video' | 'document' | 'archive' | 'data' | 'code' | 'text' | 'file'
+  size_bytes: number
+  sha256: string
+  content_url: string
+}
+
+export interface ChatAttachmentBatch {
+  batch_id: string
+  source: 'files' | 'folder'
+  label: string
+  file_count: number
+  size_bytes: number
+  created_at: string
+  attachments: ChatAttachment[]
+}
+
+interface StoredThreadTurn {
+  role: 'user' | 'assistant'
+  text: string
+  metadata?: Record<string, unknown>
+}
+
+function storedTurnAttachments(turn: StoredThreadTurn): ChatAttachment[] | undefined {
+  const value = turn.metadata?.attachments
+  return Array.isArray(value) ? value as ChatAttachment[] : undefined
+}
+
 export interface Message {
   id: string
   role: 'user' | 'assistant'
@@ -37,6 +70,7 @@ export interface Message {
   usage?: TokenUsage
   avatarUsage?: Record<string, TokenUsage>
   avatarLatencies?: Record<string, number>
+  attachments?: ChatAttachment[]
   /** G7: present when this message is a guided-mode (guru) card, not prose. */
   guru?: GuruPayload
 }
@@ -137,6 +171,11 @@ export interface GuidedSessionMeta {
   topic: string
   mode: string
   status: string
+  workflowRunId?: string | null
+}
+
+export interface SendOptions {
+  workflowRunId?: string | null
 }
 
 export type GuruPayload =
@@ -181,14 +220,6 @@ export interface PendingToolUi {
   } | null
 }
 
-export interface KanbanUpdatePayload {
-  session_id: string
-  columns: Record<string, unknown[]>
-  total: number
-  done_count: number
-  blocked_count: number
-}
-
 export interface AndonAlertPayload {
   avatar: string
   trigger: string
@@ -206,7 +237,6 @@ interface AvatararState {
   sessionTotals: { promptTokens: number; completionTokens: number; totalTokens: number; costUsd: number }
   activeArtifactSession: ActiveArtifactSession | null
   pendingToolUi: PendingToolUi | null
-  kanbanUpdate: KanbanUpdatePayload | null
   andonAlert: AndonAlertPayload | null
   guidedSession: GuidedSessionMeta | null
 }
@@ -222,6 +252,10 @@ function initialAvatars(): Record<AvatarName, AvatarStatus> {
 const SESSION_KEY = 'avatara_messages'
 const CONVO_SESSION_KEY = 'avatara_convo_session_id'
 const GUIDED_KEY = 'narad_guided_session'
+
+function scopedKey(key: string, userId: string): string {
+  return `${key}:${userId}`
+}
 
 /** Parse guided-mode slash commands. Returns null for normal chat messages. */
 export function parseGuidedCommand(query: string):
@@ -239,9 +273,9 @@ export function parseGuidedCommand(query: string):
   return null
 }
 
-function loadGuidedSession(): GuidedSessionMeta | null {
+function loadGuidedSession(userId: string): GuidedSessionMeta | null {
   try {
-    const raw = readStorage(GUIDED_KEY)
+    const raw = readStorage(scopedKey(GUIDED_KEY, userId))
     return raw ? (JSON.parse(raw) as GuidedSessionMeta) : null
   } catch {
     return null
@@ -277,16 +311,24 @@ function removeStorage(key: string): void {
   try { sessionStorage.removeItem(key) } catch { /* ignore */ }
 }
 
-function emitKarmaRuntimeEvent(type: string, data: Record<string, unknown>): void {
+function emitWorkflowRuntimeEvent(type: string, data: Record<string, unknown>): void {
   if (typeof window === 'undefined') return
-  window.dispatchEvent(new CustomEvent('narad:karma-event', {
+  window.dispatchEvent(new CustomEvent('narad:workflow-event', {
     detail: { type, data, ts: Date.now() },
   }))
 }
 
-function loadMessages(): Message[] {
+function emitGuidedWorkflowUpdate(raw: unknown): void {
+  if (!raw || typeof raw !== 'object') return
+  const run = raw as Record<string, unknown>
+  const runId = String(run.run_id ?? '')
+  if (!runId) return
+  emitWorkflowRuntimeEvent('workflow_updated', { workflow_run_id: runId, run })
+}
+
+function loadMessages(userId: string): Message[] {
   try {
-    const raw = readStorage(SESSION_KEY)
+    const raw = readStorage(scopedKey(SESSION_KEY, userId))
     return raw ? (JSON.parse(raw) as Message[]) : []
   } catch {
     return []
@@ -327,12 +369,13 @@ function toActiveArtifactSession(raw: Record<string, unknown> | null | undefined
 
 // One stable session ID for the whole browser session — reused across all messages
 // so the backend's InMemorySessionService accumulates conversation history.
-function getOrCreateConvoSessionId(): string {
+function getOrCreateConvoSessionId(userId: string): string {
+  const key = scopedKey(CONVO_SESSION_KEY, userId)
   try {
-    const existing = readStorage(CONVO_SESSION_KEY)
+    const existing = readStorage(key)
     if (existing) return existing
     const id = crypto.randomUUID()
-    writeStorage(CONVO_SESSION_KEY, id)
+    writeStorage(key, id)
     return id
   } catch {
     return crypto.randomUUID()
@@ -341,15 +384,18 @@ function getOrCreateConvoSessionId(): string {
 
 // Called after a backend error — rotates the session ID so we don't keep
 // hitting a server-side session that was deleted due to corruption.
-function rotateConvoSessionId(): string {
+function rotateConvoSessionId(userId: string): string {
   const id = crypto.randomUUID()
-  writeStorage(CONVO_SESSION_KEY, id)
+  writeStorage(scopedKey(CONVO_SESSION_KEY, userId), id)
   return id
 }
 
 export function useAvatara(userId = 'default') {
-  const initialMessages = loadMessages()
-  const initialSessionId = getOrCreateConvoSessionId()
+  const messageStorageKey = scopedKey(SESSION_KEY, userId)
+  const conversationStorageKey = scopedKey(CONVO_SESSION_KEY, userId)
+  const guidedStorageKey = scopedKey(GUIDED_KEY, userId)
+  const initialMessages = loadMessages(userId)
+  const initialSessionId = getOrCreateConvoSessionId(userId)
   const fallbackSessionId = lastKnownSessionId(initialMessages)
   const [state, setState] = useState<AvatararState>({
     messages: initialMessages,
@@ -362,9 +408,8 @@ export function useAvatara(userId = 'default') {
     sessionTotals: { promptTokens: 0, completionTokens: 0, totalTokens: 0, costUsd: 0 },
     activeArtifactSession: null,
     pendingToolUi: null,
-    kanbanUpdate: null,
     andonAlert: null,
-    guidedSession: loadGuidedSession(),
+    guidedSession: loadGuidedSession(userId),
   })
 
   // Set to Date.now() on the FIRST narad_synthesis chunk — intentionally excludes
@@ -379,28 +424,28 @@ export function useAvatara(userId = 'default') {
   const abortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
-    writeStorage(CONVO_SESSION_KEY, convoSessionId.current)
-  }, [])
+    writeStorage(conversationStorageKey, convoSessionId.current)
+  }, [conversationStorageKey])
 
   // Persist messages to sessionStorage whenever they change
   useEffect(() => {
     try {
-      writeStorage(SESSION_KEY, JSON.stringify(state.messages))
+      writeStorage(messageStorageKey, JSON.stringify(state.messages))
     } catch {
       // storage unavailable — silent fail
     }
-  }, [state.messages])
+  }, [messageStorageKey, state.messages])
 
   useEffect(() => {
     let cancelled = false
     const hydrateThread = (
       sessionId: string,
-      turns: Array<{ role: 'user' | 'assistant'; text: string }>,
+      turns: StoredThreadTurn[],
       workingState?: Record<string, unknown> | null,
     ) => {
       if (cancelled || turns.length === 0) return
       convoSessionId.current = sessionId
-      writeStorage(CONVO_SESSION_KEY, sessionId)
+      writeStorage(conversationStorageKey, sessionId)
       const activeArtifact = toActiveArtifactSession(workingState)
       setState(current => {
         if (current.messages.length >= turns.length && current.currentSession?.sessionId === sessionId) {
@@ -414,6 +459,7 @@ export function useAvatara(userId = 'default') {
           role: turn.role,
           text: turn.text,
           sessionId,
+          attachments: storedTurnAttachments(turn),
         }))
         return {
           ...current,
@@ -440,7 +486,7 @@ export function useAvatara(userId = 'default') {
           if (cancelled || !payload?.has_thread || !latestSessionId) return
           return apiFetch(apiUrl(`/thread/${latestSessionId}`, { user_id: userId }))
             .then(response => (response.ok ? response.json() : null))
-            .then((data: { turns?: Array<{ role: 'user' | 'assistant'; text: string }>; working_state?: Record<string, unknown> | null } | null) => {
+            .then((data: { turns?: StoredThreadTurn[]; working_state?: Record<string, unknown> | null } | null) => {
               if (!Array.isArray(data?.turns) || data.turns.length === 0) return
               hydrateThread(latestSessionId, data.turns, data.working_state)
             })
@@ -453,7 +499,7 @@ export function useAvatara(userId = 'default') {
     } else {
       apiFetch(apiUrl(`/thread/${sessionId}`, { user_id: userId }))
         .then(response => (response.ok ? response.json() : null))
-        .then((data: { turns?: Array<{ role: 'user' | 'assistant'; text: string }>; working_state?: Record<string, unknown> | null } | null) => {
+        .then((data: { turns?: StoredThreadTurn[]; working_state?: Record<string, unknown> | null } | null) => {
           if (Array.isArray(data?.turns) && data.turns.length > 0) {
             hydrateThread(sessionId, data.turns, data.working_state)
             return
@@ -474,14 +520,14 @@ export function useAvatara(userId = 'default') {
 
   // ── Guided mode (G7): /teach loop, deterministic server state machine ───────
   // Ref mirrors state.guidedSession so send()'s closure never goes stale.
-  const guidedRef = useRef<GuidedSessionMeta | null>(loadGuidedSession())
+  const guidedRef = useRef<GuidedSessionMeta | null>(loadGuidedSession(userId))
 
   const setGuided = useCallback((meta: GuidedSessionMeta | null) => {
     guidedRef.current = meta
-    if (meta) writeStorage(GUIDED_KEY, JSON.stringify(meta))
-    else removeStorage(GUIDED_KEY)
+    if (meta) writeStorage(guidedStorageKey, JSON.stringify(meta))
+    else removeStorage(guidedStorageKey)
     setState(s => ({ ...s, guidedSession: meta }))
-  }, [])
+  }, [guidedStorageKey])
 
   const appendMessages = useCallback((newMessages: Message[]) => {
     setState(s => ({ ...s, messages: [...s.messages, ...newMessages] }))
@@ -521,14 +567,16 @@ export function useAvatara(userId = 'default') {
     return data
   }, [userId])
 
-  const startGuided = useCallback(async (rawQuery: string, topic: string, mode = 'teach') => {
+  const startGuided = useCallback(async (rawQuery: string, topic: string, mode = 'teach', workflowRunId?: string | null) => {
     const userMsg: Message = { id: crypto.randomUUID(), role: 'user', text: rawQuery }
     appendMessages([userMsg])
     setState(s => ({ ...s, streaming: true, error: null }))
     try {
-      const data = await guidedPost('/learning/guided/start', { topic, mode })
+      const data = await guidedPost('/learning/guided/start', { topic, mode, workflow_run_id: workflowRunId ?? null })
       const session = data.session as { workspace_id: string; topic: string; mode: string; status: string }
       const step = data.step as GuidedStep
+      emitGuidedWorkflowUpdate(data.workflow_run)
+      const resolvedWorkflowRunId = String((data.workflow_run as Record<string, unknown> | undefined)?.run_id ?? workflowRunId ?? '') || null
       if (step.kind === 'complete') {
         setGuided(null)
       } else {
@@ -537,6 +585,7 @@ export function useAvatara(userId = 'default') {
           topic: session.topic,
           mode: session.mode,
           status: 'active',
+          workflowRunId: resolvedWorkflowRunId,
         })
       }
       const intro: Message[] = []
@@ -573,7 +622,9 @@ export function useAvatara(userId = 'default') {
         workspace_id: meta.workspaceId,
         answer: answer ?? '',
         choice_index: choiceIndex ?? null,
+        workflow_run_id: meta.workflowRunId ?? null,
       })
+      emitGuidedWorkflowUpdate(data.workflow_run)
       const grade: GuidedGrade = {
         correct: Boolean(data.grade?.correct),
         feedback: String(data.grade?.feedback ?? ''),
@@ -608,7 +659,8 @@ export function useAvatara(userId = 'default') {
     if (!meta) return
     setState(s => ({ ...s, streaming: true }))
     try {
-      const data = await guidedPost('/learning/guided/skip', { workspace_id: meta.workspaceId })
+      const data = await guidedPost('/learning/guided/skip', { workspace_id: meta.workspaceId, workflow_run_id: meta.workflowRunId ?? null })
+      emitGuidedWorkflowUpdate(data.workflow_run)
       const step = data.step as GuidedStep
       if (step.kind === 'complete') setGuided(null)
       appendMessages([stepToMessage(step)])
@@ -627,8 +679,9 @@ export function useAvatara(userId = 'default') {
       appendMessages([{ id: crypto.randomUUID(), role: 'user', text: rawQuery }])
     }
     try {
-      const data = await guidedPost('/learning/guided/exit', { workspace_id: meta.workspaceId })
-      const message = String(data.message ?? 'Guru mode closed.')
+      const data = await guidedPost('/learning/guided/exit', { workspace_id: meta.workspaceId, workflow_run_id: meta.workflowRunId ?? null })
+      emitGuidedWorkflowUpdate(data.workflow_run)
+      const message = String(data.message ?? 'Teaching workflow closed.')
       appendMessages([{
         id: crypto.randomUUID(),
         role: 'assistant',
@@ -643,13 +696,15 @@ export function useAvatara(userId = 'default') {
     }
   }, [appendMessages, guidedPost, setGuided])
 
-  const send = useCallback(async (query: string, images: string[] = []) => {
-    if (!query.trim() || state.streaming) return
+  const send = useCallback(async (query: string, attachments: ChatAttachment[] = [], options: SendOptions = {}) => {
+    if ((!query.trim() && attachments.length === 0) || state.streaming) return
+
+    const resolvedQuery = query.trim() || 'Review the attached inputs and summarize what matters.'
 
     // G7: slash commands route to the guided-mode state machine, not /chat.
-    const guidedCmd = parseGuidedCommand(query)
+    const guidedCmd = attachments.length === 0 ? parseGuidedCommand(resolvedQuery) : null
     if (guidedCmd?.action === 'teach') {
-      await startGuided(query.trim(), guidedCmd.topic)
+      await startGuided(resolvedQuery, guidedCmd.topic, 'teach', options.workflowRunId)
       return
     }
     if (guidedCmd?.action === 'teach-empty') {
@@ -671,7 +726,12 @@ export function useAvatara(userId = 'default') {
     }
 
     // Append user message
-    const userMsg: Message = { id: crypto.randomUUID(), role: 'user', text: query }
+    const userMsg: Message = {
+      id: crypto.randomUUID(),
+      role: 'user',
+      text: resolvedQuery,
+      attachments,
+    }
     sessionAvatarsRef.current = []
     synthRef.current = ''
     msgIdRef.current = crypto.randomUUID()
@@ -687,7 +747,6 @@ export function useAvatara(userId = 'default') {
       error: null,
       currentSession: null,
       stepEvents: [],
-      kanbanUpdate: null,
       andonAlert: null,
     }))
 
@@ -760,7 +819,6 @@ export function useAvatara(userId = 'default') {
             }
 
             case 'thread_restored': {
-              emitKarmaRuntimeEvent(evt.type, evt.data)
               const turnCount = Number(evt.data.turn_count ?? 0)
               const lastTraceSessionId = evt.data.last_trace_session_id as string | undefined
               const threadSummary = evt.data.thread_summary as string | undefined
@@ -871,7 +929,6 @@ export function useAvatara(userId = 'default') {
             }
 
             case 'avatar_done': {
-              emitKarmaRuntimeEvent(evt.type, evt.data)
               const avatar = evt.data.avatar as AvatarName
               const discipline = evt.data.discipline as string | undefined
               sessionAvatarsRef.current = [...sessionAvatarsRef.current, avatar]
@@ -959,7 +1016,6 @@ export function useAvatara(userId = 'default') {
 
             case 'done': {
               gotTerminal = true
-              emitKarmaRuntimeEvent(evt.type, evt.data)
               const sessionId = evt.data.session_id as string
               const tokenEstimate = Math.ceil(synthRef.current.length / 4)
               // Synthesis duration: first chunk → done. This is the correct window
@@ -1019,7 +1075,7 @@ export function useAvatara(userId = 'default') {
                 }
               })
               convoSessionId.current = sessionId
-              writeStorage(CONVO_SESSION_KEY, sessionId)
+              writeStorage(conversationStorageKey, sessionId)
               break
             }
 
@@ -1072,17 +1128,8 @@ export function useAvatara(userId = 'default') {
               break
             }
 
-            case 'kanban_update': {
-              const d = evt.data as unknown as KanbanUpdatePayload
-              emitKarmaRuntimeEvent(evt.type, evt.data)
-              setState(s => ({ ...s, kanbanUpdate: d }))
-              break
-            }
-
-            case 'project_state_changed':
-            case 'task_state_changed':
-            case 'execution_state_changed': {
-              emitKarmaRuntimeEvent(evt.type, evt.data)
+            case 'workflow_updated': {
+              emitWorkflowRuntimeEvent(evt.type, evt.data)
               break
             }
 
@@ -1106,7 +1153,7 @@ export function useAvatara(userId = 'default') {
               gotTerminal = true
               // Rotate session ID — the backend deleted the corrupt session,
               // so the old ID is dead. Next message gets a fresh session.
-              convoSessionId.current = rotateConvoSessionId()
+              convoSessionId.current = rotateConvoSessionId(userId)
               const errMsg = evt.data.message as string
               toast.error('Error', { description: errMsg, duration: 6000 })
               setState(s => ({
@@ -1130,7 +1177,7 @@ export function useAvatara(userId = 'default') {
         const response = await apiFetch(apiUrl(`/thread/${turnSessionId}`, { user_id: userId }))
         if (!response.ok) return false
         const data = await response.json() as {
-          turns?: Array<{ role: 'user' | 'assistant'; text: string }>
+          turns?: StoredThreadTurn[]
         }
         const turns = Array.isArray(data.turns) ? data.turns : []
         const last = turns[turns.length - 1]
@@ -1138,7 +1185,7 @@ export function useAvatara(userId = 'default') {
         // to *this* user turn (our query is the preceding user message).
         if (!last || last.role !== 'assistant') return false
         const prevUser = turns[turns.length - 2]
-        if (!prevUser || prevUser.role !== 'user' || prevUser.text.trim() !== query.trim()) return false
+        if (!prevUser || prevUser.role !== 'user' || prevUser.text.trim() !== resolvedQuery) return false
 
         const id = msgIdRef.current
         setState(s => {
@@ -1162,17 +1209,18 @@ export function useAvatara(userId = 'default') {
 
     try {
       abortRef.current = new AbortController()
-      const res = await fetch(apiPath('/chat'), {
+      const res = await apiFetch(apiPath('/chat'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          query,
+          query: resolvedQuery,
           user_id: userId,
           session_id: convoSessionId.current,
-          images,
+          attachment_ids: attachments.map(item => item.attachment_id),
           active_artifact_id: state.activeArtifactSession?.artifactId ?? null,
           active_artifact_workspace_id: state.activeArtifactSession?.workspaceId ?? null,
           active_artifact_type: state.activeArtifactSession?.artifactType ?? null,
+          workflow_run_id: options.workflowRunId ?? null,
         }),
         signal: abortRef.current.signal,
       })
@@ -1200,7 +1248,7 @@ export function useAvatara(userId = 'default') {
       }
       await sleep(800 * (attempt + 1))
       try {
-        const attach = await fetch(apiPath(`/chat/attach/${turnSessionId}`), {
+        const attach = await apiFetch(apiPath(`/chat/attach/${turnSessionId}`), {
           signal: abortRef.current?.signal,
         })
         if (attach.ok && attach.body) {
@@ -1252,7 +1300,7 @@ export function useAvatara(userId = 'default') {
       const response = await apiFetch(apiUrl(`/thread/${sessionId}`, { user_id: userId }))
       if (!response.ok) return false
       const data = await response.json() as {
-        turns?: Array<{ role: 'user' | 'assistant'; text: string }>
+        turns?: StoredThreadTurn[]
         thread_summary?: string
         working_state?: Record<string, unknown> | null
       }
@@ -1262,10 +1310,11 @@ export function useAvatara(userId = 'default') {
         role: turn.role,
         text: turn.text,
         sessionId,
+        attachments: storedTurnAttachments(turn),
       }))
       convoSessionId.current = sessionId
-      writeStorage(CONVO_SESSION_KEY, sessionId)
-      writeStorage(SESSION_KEY, JSON.stringify(restoredMessages))
+      writeStorage(conversationStorageKey, sessionId)
+      writeStorage(messageStorageKey, JSON.stringify(restoredMessages))
       setState(s => ({
         ...s,
         messages: restoredMessages,
@@ -1301,15 +1350,15 @@ export function useAvatara(userId = 'default') {
 
   const clearSession = useCallback(() => {
     const previousSessionId = convoSessionId.current
-    removeStorage(SESSION_KEY)
-    removeStorage(CONVO_SESSION_KEY)
-    removeStorage(GUIDED_KEY)
+    removeStorage(messageStorageKey)
+    removeStorage(conversationStorageKey)
+    removeStorage(guidedStorageKey)
     guidedRef.current = null
     if (previousSessionId) {
       apiFetch(apiUrl(`/thread/${previousSessionId}`, { user_id: userId }), { method: 'DELETE' }).catch(() => {})
     }
     convoSessionId.current = crypto.randomUUID()
-    writeStorage(CONVO_SESSION_KEY, convoSessionId.current)
+    writeStorage(conversationStorageKey, convoSessionId.current)
     setState(s => ({
       ...s,
       messages:       [],

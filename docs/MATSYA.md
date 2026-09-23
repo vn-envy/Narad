@@ -58,8 +58,12 @@ knows how to navigate.
 | Tool | Sanskrit lens | Purpose |
 |------|--------------|---------|
 | `web_search(query)` | *Vartā* — news and current state of the world | Live search across the open web |
+| `exa_search(query, search_type)` | *Gambhira-Khoj* — deep grounded inquiry | Structured search, highlights, freshness, and field-level grounding |
+| `exa_contents(urls)` | *Patra-Uddharana* — exact page retrieval | Bounded full text from known public URLs |
 | `browse_url(url)` | *Darshan* — direct vision of a specific page | Navigate to and read a URL |
 | `http_request(url, method, params)` | *Sandesh* — precise API messenger | Structured API calls with method and params |
+| `computer_use(task, start_url, session_id, actions, browser_context)` | *Yantra-Drishti* — persistent web operation | Use isolated Playwright or an explicitly granted signed-in Chromium target |
+| `phone_use(task, device_id, mode, dry_run)` | *Hasta-Yantra* — Android operation | Preview and run tasks on a profile-granted Artemis device |
 | `browser_screenshot(url)` | *Chitra* — visual capture of a web page | Capture what a page looks like |
 | `browser_fill(url, fields, dry_run)` | *Lekhapatra* — form writing with preview | Fill form fields; dry_run before submit |
 | `browser_upload_and_submit(url, fields, files)` | *Samarpan* — submission with evidence | Upload files and submit a form |
@@ -75,7 +79,6 @@ knows how to navigate.
 | `organize_by_type(path, dry_run)` | *Vyavastha* — ordering with confirmation | Sort files by type; dry_run before execute |
 | `find_large_files(path, min_size_mb)` | *Bhar-Khoj* — weight-based discovery | Find files exceeding a size threshold |
 | `get_disk_info()` | *Kshetra-Mapa* — space inventory | Report disk usage across volumes |
-| `narad_shuddhi(dry_run)` | *Shuddhi* — the 5S purification of Narad's own data | Clean Narad's internal data directories |
 
 ---
 
@@ -114,9 +117,8 @@ undifferentiated chaos — every tide follows one inviolable through-line:
    he knew which ones he was carrying
 5. **No code, no scripts** — filesystem operations use Matsya's tools only; if a task
    requires code to be written, route to Parashurama before returning
-6. **Confirm destructive actions** — `move_to_trash`, `organize_by_type`, and
-   `narad_shuddhi` always run dry first; the flood does not distinguish recoverable
-   from lost
+6. **Confirm destructive actions** — `move_to_trash` and `organize_by_type`
+   always run dry first; the flood does not distinguish recoverable from lost
 
 ---
 
@@ -127,8 +129,8 @@ randomly; it is sounded.
 
 ```
 formulate   → one-sentence retrieval goal; identify what "found" looks like
-search      → web_search / search_arxiv / search_papers; ≥2 independent queries
-              to triangulate; browse_url for promising results
+search      → web_search / exa_search / search_arxiv / search_papers; ≥2 independent
+              queries to triangulate; exa_contents for promising known URLs
 verify      → cross-check key claims across ≥2 sources; flag contradictions
 synthesize  → structured output: findings, sources, gaps, confidence level
 ```
@@ -212,7 +214,7 @@ proper teacher.
 
 ## Architecture Reference
 
-**Model:** `deepseek/deepseek-v4-flash` (default; override via `MATSYA_MODEL` env)  
+**Model:** `xai/grok-4.6` priority (default when Grok is connected; override via `MATSYA_MODEL` env)
 **Context window:** 128K tokens  
 **Skills file:** `phase-9/skills/matsya_skill.md`  
 **Prompt layers (injection order, innermost → outermost):**
@@ -237,7 +239,7 @@ proper teacher.
 | Sessions | `~/.narad/sessions/{id}.jsonl` | Full trajectory traces |
 
 **Dry-run enforcement:**  
-Any call to `move_to_trash`, `organize_by_type`, or `narad_shuddhi` without
+Any call to `move_to_trash` or `organize_by_type` without
 `dry_run=True` is blocked at the skill layer. The preview must be presented and
 confirmed before the live call is issued. The flood does not give back what it takes.
 

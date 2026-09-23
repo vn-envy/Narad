@@ -32,12 +32,12 @@ Thresholds (tunable via env vars):
   TAPAS_SUTRA_TTL_DAYS      int,   default 90
 
 Judge model (independent from the avatar models):
-  TAPAS_JUDGE_MODEL         str    model string for LiteLLM (default: deepseek/deepseek-v4-pro)
+  TAPAS_JUDGE_MODEL         str    model string for LiteLLM (default: deepseek/deepseek-flash)
   TAPAS_JUDGE_API_BASE      str    custom API base URL (e.g. for MiMo, local vLLM)
   TAPAS_JUDGE_API_KEY       str    API key if different from the default provider key
 
   Recommended: keep TAPAS_JUDGE_MODEL on a stable critique-capable model that your provider
-  actually supports. For the current DeepSeek endpoint, v4-pro is the safest default.
+  actually supports. DeepSeek V4.1 Flash is Narad's current default judge.
 """
 
 from __future__ import annotations
@@ -47,6 +47,8 @@ import math
 import os
 import time
 import uuid
+from contextvars import ContextVar
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -54,16 +56,49 @@ from typing import Any
 from narad_config import SUTRA_DEMOTIONS_PATH as _DEMOTIONS_PATH
 from narad_config import SUTRAS_PATH as _SUTRAS_PATH
 from narad_config import WEAK_SESSIONS_PATH as _WEAK_PATH
+from profile_context import profile_data_path
 
 PROMOTE_THRESHOLD = float(os.environ.get("TAPAS_PROMOTE_THRESHOLD", "0.80"))  # raised from 0.75
 FLAG_THRESHOLD    = float(os.environ.get("TAPAS_FLAG_THRESHOLD",    "0.45"))
 SIM_THRESHOLD     = float(os.environ.get("TAPAS_SIM_THRESHOLD",     "0.92"))
 SUTRA_TTL_DAYS    = int(os.environ.get("TAPAS_SUTRA_TTL_DAYS",      "90"))
 
-# Judge model — default to a provider-supported DeepSeek model unless explicitly overridden.
-_JUDGE_MODEL    = os.environ.get("TAPAS_JUDGE_MODEL",    "deepseek/deepseek-v4-pro")
+# Judge model — use the same current DeepSeek lane as Narad orchestration.
+_JUDGE_MODEL    = os.environ.get("TAPAS_JUDGE_MODEL",    "deepseek/deepseek-flash")
 _JUDGE_API_BASE = os.environ.get("TAPAS_JUDGE_API_BASE") or None
 _JUDGE_API_KEY  = os.environ.get("TAPAS_JUDGE_API_KEY")  or None
+
+
+@dataclass(frozen=True)
+class TapasScore:
+    score: float
+    reason: str
+    hallucination_free: bool
+    sequence_correct: bool
+    provider: str
+    model: str
+    confidence: float
+    latency_ms: int
+    input_tokens: int = 0
+    output_tokens: int = 0
+    estimated_cost_usd: float = 0.0
+    fallback_reason: str | None = None
+    dimensions: dict[str, float] | None = None
+
+    def metadata(self) -> dict[str, Any]:
+        payload = asdict(self)
+        for key in ("score", "reason", "hallucination_free", "sequence_correct"):
+            payload.pop(key, None)
+        return payload
+
+
+_SCORE_METADATA: ContextVar[dict[str, Any]] = ContextVar(
+    "tapas_score_metadata", default={}
+)
+
+
+def score_metadata() -> dict[str, Any]:
+    return dict(_SCORE_METADATA.get())
 
 
 # ── Scoring (independent judge) ───────────────────────────────────────────────
@@ -83,6 +118,7 @@ Dimensions (each 0–10):
 Query: {query}
 Avatar: {avatar}
 Response: {result}
+Independent run evidence: {evidence}
 
 Step 1 — Score each dimension A/B/C/D as an integer 0–10.
 Step 2 — Compute: final = (A*0.35 + B*0.30 + C*0.25 + D*0.10) / 10.0
@@ -221,13 +257,17 @@ def _record_judge_cost(response: Any, source: str) -> None:
         pass
 
 
-def score_session(query: str, avatar: str, result: str) -> tuple[float, str, bool, bool]:
-    """Score an avatar response using the configured judge model.
-
-    Returns (score, reason, hallucination_free, sequence_correct).
-    hallucination_free=False blocks promotion (hard zero).
-    sequence_correct=False applies a -0.20 score penalty.
-    """
+def _score_session_llm(
+    query: str,
+    avatar: str,
+    result: str,
+    evidence: dict[str, Any] | None = None,
+) -> TapasScore:
+    """Existing deliberative judge path, retained as ambiguity fallback."""
+    started = time.perf_counter()
+    input_tokens = 0
+    output_tokens = 0
+    estimated_cost = 0.0
     try:
         import litellm
         avatar_rubric = _AVATAR_RUBRIC.get(avatar, "")
@@ -236,13 +276,20 @@ def score_session(query: str, avatar: str, result: str) -> tuple[float, str, boo
             query=query[:600],
             avatar=avatar,
             result=result[:1200],
+            evidence=json.dumps(evidence or {"available": False}, ensure_ascii=False)[:2400],
         )
         kwargs: dict = dict(
             model=_JUDGE_MODEL,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
-            max_tokens=500,
+            max_tokens=1200,
+            response_format={"type": "json_object"},
         )
+        # Tapas needs a short structured verdict, not a long hidden chain of
+        # thought. DeepSeek otherwise can consume the entire output budget in
+        # reasoning_content and return an empty JSON response.
+        if _JUDGE_MODEL.lower().startswith("deepseek/"):
+            kwargs["reasoning_effort"] = "none"
         if _JUDGE_API_BASE:
             kwargs["api_base"] = _JUDGE_API_BASE
         if _JUDGE_API_KEY:
@@ -250,8 +297,28 @@ def score_session(query: str, avatar: str, result: str) -> tuple[float, str, boo
 
         response = _litellm_with_retry(litellm, kwargs)
         _record_judge_cost(response, "tapas_judge")
-        raw = response.choices[0].message.content.strip()
+        usage = getattr(response, "usage", None)
+        input_tokens = int(getattr(usage, "prompt_tokens", 0) or 0) if usage else 0
+        output_tokens = int(getattr(usage, "completion_tokens", 0) or 0) if usage else 0
+        try:
+            from cost_ledger import estimate_cost
+
+            estimated_cost, _ = estimate_cost(_JUDGE_MODEL, input_tokens, output_tokens)
+        except Exception:
+            estimated_cost = 0.0
+        message = response.choices[0].message
+        raw = str(
+            getattr(message, "content", None)
+            or getattr(message, "reasoning_content", None)
+            or ""
+        ).strip()
         data              = _extract_judge_json(raw)
+        required = {"score", "reason", "hallucination_free", "sequence_correct"}
+        if not required.issubset(data):
+            missing = ", ".join(sorted(required - set(data)))
+            raise ValueError(f"judge response missing required fields: {missing}")
+        if not isinstance(data["hallucination_free"], bool) or not isinstance(data["sequence_correct"], bool):
+            raise ValueError("judge response gates must be booleans")
         score             = float(data.get("score", 0.5))
         reason            = str(data.get("reason", ""))
         hallucination_free = bool(data.get("hallucination_free", True))
@@ -261,10 +328,215 @@ def score_session(query: str, avatar: str, result: str) -> tuple[float, str, boo
         if not sequence_correct:
             score = max(0.0, score - 0.20)
             reason = f"[sequence violation -0.20] {reason}"
-
-        return max(0.0, min(1.0, score)), reason, hallucination_free, sequence_correct
+        return TapasScore(
+            score=max(0.0, min(1.0, score)),
+            reason=reason,
+            hallucination_free=hallucination_free,
+            sequence_correct=sequence_correct,
+            provider="llm",
+            model=_JUDGE_MODEL,
+            confidence=0.5,
+            latency_ms=int((time.perf_counter() - started) * 1000),
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            estimated_cost_usd=estimated_cost,
+        )
     except Exception as exc:
-        return 0.5, f"scoring unavailable: {exc}", True, True
+        return TapasScore(
+            score=0.5,
+            reason=f"scoring unavailable: {exc}",
+            hallucination_free=True,
+            sequence_correct=True,
+            provider="llm",
+            model=_JUDGE_MODEL,
+            confidence=0.0,
+            latency_ms=int((time.perf_counter() - started) * 1000),
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            estimated_cost_usd=estimated_cost,
+            fallback_reason=str(exc)[:300],
+        )
+
+
+_JEV_SCORE_LEVELS = [
+    "1/10 - absent, wrong, or actively harmful",
+    "2/10 - almost entirely wrong or unusable",
+    "3/10 - major failures dominate",
+    "4/10 - materially deficient",
+    "5/10 - mixed or minimally acceptable",
+    "6/10 - useful but has clear gaps",
+    "7/10 - solid and fit for purpose",
+    "8/10 - strong with only minor gaps",
+    "9/10 - excellent and unusually complete",
+    "10/10 - fully satisfies the stated dimension",
+]
+
+
+def _score_session_jev(
+    query: str,
+    avatar: str,
+    result: str,
+    evidence: dict[str, Any] | None = None,
+) -> TapasScore:
+    """Use Jev for narrow judgments; Narad code owns the final arithmetic."""
+    from decision_engine import DecisionQuestion, evaluate_decision
+
+    state = {
+        "query": query[:600],
+        "avatar": avatar,
+        "response": result[:1200],
+        "independent_run_evidence": evidence or {"available": False},
+        "avatar_rubric": _AVATAR_RUBRIC.get(avatar, ""),
+        "scoring_policy": {
+            "correctness": "Judge only against supplied material and widely established facts; unsupported specifics are a defect.",
+            "specificity": "Prefer concrete relevant details over vague prose.",
+            "actionability": "The user should be able to make progress without avoidable follow-up.",
+            "conciseness": "Use no more detail than the task needs; do not punish necessary completeness.",
+        },
+    }
+    questions = {
+        name: DecisionQuestion(
+            "score",
+            instruction,
+            _JEV_SCORE_LEVELS,
+        )
+        for name, instruction in {
+            "correctness": "Score the response's factual and task-level correctness from 0 to 10.",
+            "specificity": "Score how concrete and specifically useful the response is from 0 to 10.",
+            "actionability": "Score how readily the user can act on the response from 0 to 10.",
+            "conciseness": "Score whether the response is appropriately concise for the task from 0 to 10.",
+        }.items()
+    }
+    questions.update({
+        "unsupported_claims": DecisionQuestion(
+            "noul",
+            "Does the response contain a fabricated, contradicted, or unsupported factual claim, citation, API, statistic, or completion claim?",
+            {
+                "true": "At least one material claim lacks support or conflicts with supplied state",
+                "false": "No material unsupported claim is detectable from supplied state",
+            },
+        ),
+        "sequence_violation": DecisionQuestion(
+            "noul",
+            "For a phase-gated workflow, did the response skip a mandatory phase or stopping point? Answer false when no phased workflow applies.",
+        ),
+    })
+    decision = evaluate_decision(
+        "tapas_score_v1",
+        state,
+        questions,
+        allow_sensitive=False,
+    )
+    if not decision.available:
+        return TapasScore(
+            score=0.5,
+            reason=f"Jev scoring unavailable: {decision.error or decision.status}",
+            hallucination_free=True,
+            sequence_correct=True,
+            provider="jev",
+            model=decision.model,
+            confidence=0.0,
+            latency_ms=decision.latency_ms,
+            fallback_reason=decision.error or decision.status,
+        )
+
+    dimensions = {
+        name: (max(0.0, min(9.0, float(decision.answers[name].value))) + 1.0) / 10.0
+        for name in ("correctness", "specificity", "actionability", "conciseness")
+    }
+    score = (
+        dimensions["correctness"] * 0.35
+        + dimensions["specificity"] * 0.30
+        + dimensions["actionability"] * 0.25
+        + dimensions["conciseness"] * 0.10
+    )
+    unsupported = decision.answers["unsupported_claims"]
+    sequence = decision.answers["sequence_violation"]
+    unsupported_probability = float(unsupported.probabilities.get("true", 0.5))
+    sequence_probability = float(sequence.probabilities.get("true", 0.5))
+    # Hard gates need stronger evidence than the primitive's ordinary 0.5
+    # decision boundary. Ambiguous gates lower promotion confidence instead.
+    hallucination_free = unsupported_probability < 0.75
+    sequence_correct = sequence_probability < 0.75
+    if not sequence_correct:
+        score = max(0.0, score - 0.20)
+
+    strongest = max(dimensions, key=dimensions.get)
+    weakest = min(dimensions, key=dimensions.get)
+    notes = [f"strongest: {strongest} {dimensions[strongest]:.2f}; weakest: {weakest} {dimensions[weakest]:.2f}"]
+    if not hallucination_free:
+        notes.insert(0, "unsupported claim detected")
+    if not sequence_correct:
+        notes.insert(0, "sequence violation -0.20")
+    dimension_confidence = sum(
+        decision.answers[name].confidence
+        for name in ("correctness", "specificity", "actionability", "conciseness")
+    ) / 4.0
+    confidence = dimension_confidence
+    if score >= PROMOTE_THRESHOLD:
+        confidence = min(confidence, unsupported.confidence, sequence.confidence)
+    return TapasScore(
+        score=round(max(0.0, min(1.0, score)), 4),
+        reason="; ".join(notes),
+        hallucination_free=hallucination_free,
+        sequence_correct=sequence_correct,
+        provider="jev",
+        model=decision.model,
+        confidence=confidence,
+        latency_ms=decision.latency_ms,
+        input_tokens=decision.input_tokens,
+        output_tokens=decision.output_tokens,
+        estimated_cost_usd=decision.estimated_cost_usd,
+        dimensions=dimensions,
+    )
+
+
+def score_session_detailed(
+    query: str,
+    avatar: str,
+    result: str,
+    *,
+    provider: str | None = None,
+    evidence: dict[str, Any] | None = None,
+) -> TapasScore:
+    """Score with Jev when confident, otherwise retain the deliberative judge."""
+    selected = (provider or os.environ.get("TAPAS_JUDGE_PROVIDER", "auto")).strip().lower()
+    if selected not in {"auto", "jev", "llm"}:
+        selected = "auto"
+    if selected in {"auto", "jev"}:
+        jev = _score_session_jev(query, avatar, result, evidence)
+        if selected == "jev":
+            return jev
+        try:
+            minimum_confidence = float(os.environ.get("TAPAS_JEV_MIN_CONFIDENCE", "0.45"))
+        except ValueError:
+            minimum_confidence = 0.45
+        if jev.confidence >= minimum_confidence and not jev.reason.startswith("Jev scoring unavailable:"):
+            return jev
+        llm = _score_session_llm(query, avatar, result, evidence)
+        return TapasScore(
+            **{
+                **asdict(llm),
+                "fallback_reason": (
+                    jev.fallback_reason
+                    or f"Jev confidence {jev.confidence:.2f} below {minimum_confidence:.2f}"
+                ),
+            }
+        )
+    return _score_session_llm(query, avatar, result, evidence)
+
+
+def score_session(
+    query: str,
+    avatar: str,
+    result: str,
+    *,
+    evidence: dict[str, Any] | None = None,
+) -> tuple[float, str, bool, bool]:
+    """Compatibility wrapper returning Tapas's established four-value contract."""
+    scored = score_session_detailed(query, avatar, result, evidence=evidence)
+    _SCORE_METADATA.set(scored.metadata())
+    return scored.score, scored.reason, scored.hallucination_free, scored.sequence_correct
 
 
 # ── Rule distillation (M4.4) ─────────────────────────────────────────────────
@@ -441,13 +713,25 @@ def _is_duplicate(query: str, result: str) -> bool:
 
 # ── Sutra storage ─────────────────────────────────────────────────────────────
 
+def _sutras_path() -> Path:
+    return profile_data_path("sutras.jsonl", legacy_default=_SUTRAS_PATH)
+
+
+def _weak_path() -> Path:
+    return profile_data_path("weak_sessions.jsonl", legacy_default=_WEAK_PATH)
+
+
+def _demotions_path() -> Path:
+    return profile_data_path("sutra_demotions.jsonl", legacy_default=_DEMOTIONS_PATH)
+
 def load_sutras(active_only: bool = True) -> list[dict]:
     """Load all sutras from disk, optionally filtering expired ones."""
-    if not _SUTRAS_PATH.exists():
+    path = _sutras_path()
+    if not path.exists():
         return []
     now = datetime.now(timezone.utc)
     sutras = []
-    for line in _SUTRAS_PATH.read_text().splitlines():
+    for line in path.read_text().splitlines():
         if not line.strip():
             continue
         try:
@@ -484,8 +768,9 @@ def _strike_sutras(applied_sutra_ids: list[str], session_id: str, avatar: str,
         if not sutra_id:
             continue
         try:
-            _DEMOTIONS_PATH.parent.mkdir(parents=True, exist_ok=True)
-            _append(_DEMOTIONS_PATH, {
+            path = _demotions_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            _append(path, {
                 "sutra_id":   sutra_id,
                 "ts":         ts,
                 "session_id": session_id,
@@ -508,6 +793,61 @@ def _strike_sutras(applied_sutra_ids: list[str], session_id: str, avatar: str,
 
 # ── Main entry point ──────────────────────────────────────────────────────────
 
+def _load_run_evidence(session_id: str, avatar: str) -> dict[str, Any]:
+    """Build a bounded fact packet from Yantra instead of trusting prose claims."""
+    try:
+        from yantra import Tracer
+
+        events = Tracer.load(session_id)
+    except Exception:
+        events = []
+    if not events:
+        return {"available": False}
+    done = next(
+        (
+            event
+            for event in reversed(events)
+            if event.get("event") == "avatar_done" and event.get("avatar") == avatar
+        ),
+        {},
+    )
+    trajectory = done.get("trajectory") if isinstance(done.get("trajectory"), dict) else {}
+    tool_calls: list[dict[str, Any]] = []
+    for turn in trajectory.get("turns", []) if isinstance(trajectory.get("turns"), list) else []:
+        if not isinstance(turn, dict):
+            continue
+        for call in turn.get("tool_calls", []) if isinstance(turn.get("tool_calls"), list) else []:
+            if not isinstance(call, dict):
+                continue
+            tool_calls.append({
+                "tool": str(call.get("tool") or "")[:100],
+                "result": str(call.get("result_preview") or "")[:300],
+                "error": str(call.get("error") or "")[:300] or None,
+                "latency_ms": int(call.get("latency_ms") or 0),
+            })
+    errors = [
+        {
+            "type": event.get("error_type"),
+            "error": str(event.get("error") or "")[:300],
+        }
+        for event in events
+        if event.get("event") == "error" and event.get("avatar") in {None, avatar}
+    ]
+    return {
+        "available": bool(done or tool_calls or errors),
+        "avatar_done": bool(done),
+        "latency_ms": int(done.get("latency_ms") or 0),
+        "usage": done.get("usage") if isinstance(done.get("usage"), dict) else {},
+        "tool_calls": tool_calls[:30],
+        "tool_failures": sum(bool(call.get("error")) for call in tool_calls),
+        "errors": errors[:10],
+        "phase_transitions": [
+            str(event.get("phase"))[:100]
+            for event in events
+            if event.get("event") == "phase_transition" and event.get("avatar") == avatar
+        ][:20],
+    }
+
 def process_session(
     session_id: str,
     query: str,
@@ -521,7 +861,21 @@ def process_session(
     demotion if the session scores below FLAG_THRESHOLD (M4.4).
     Returns a dict with: score, reason, action (promoted|flagged|skipped…)
     """
-    score, reason, hallucination_free, sequence_correct = score_session(query, avatar, result)
+    _SCORE_METADATA.set({})
+    evidence = _load_run_evidence(session_id, avatar)
+    score, reason, hallucination_free, sequence_correct = score_session(
+        query,
+        avatar,
+        result,
+        evidence=evidence,
+    )
+    scoring = score_metadata()
+
+    def finish(payload: dict[str, Any]) -> dict[str, Any]:
+        if scoring:
+            payload["scoring"] = scoring
+        return payload
+
     now = datetime.now(timezone.utc).isoformat()
 
     if reason.startswith("scoring unavailable:"):
@@ -531,7 +885,7 @@ def process_session(
                       triggered_by=session_id, tapas_score=None)
         except Exception:
             pass
-        return {"score": score, "reason": reason, "action": "tapas_skipped"}
+        return finish({"score": score, "reason": reason, "action": "tapas_skipped"})
 
     # Hallucination hard gate — blocks regardless of other scores (P3-1)
     if not hallucination_free:
@@ -549,11 +903,11 @@ def process_session(
         out = {"score": 0.0, "reason": reason, "action": "blocked_hallucination"}
         if struck:
             out["sutras_struck"] = struck
-        return out
+        return finish(out)
 
     if score >= PROMOTE_THRESHOLD:
         if _is_duplicate(query, result):
-            return {"score": score, "reason": reason, "action": "skipped_duplicate"}
+            return finish({"score": score, "reason": reason, "action": "skipped_duplicate"})
 
         # M4.4: distill ONE transferable rule — no rule, no promotion (fail closed).
         rule, distill_note = _distill_rule(query, avatar, result)
@@ -564,8 +918,8 @@ def process_session(
                           triggered_by=session_id, tapas_score=score)
             except Exception:
                 pass
-            return {"score": score, "reason": reason, "action": "skipped_no_rule",
-                    "distill_note": distill_note}
+            return finish({"score": score, "reason": reason, "action": "skipped_no_rule",
+                           "distill_note": distill_note})
 
         # Jnana pass: Constitutional AI self-critique on the distilled rule.
         # Fails closed — a critique error blocks promotion.
@@ -577,8 +931,8 @@ def process_session(
                           triggered_by=session_id, tapas_score=score, critique_passed=False)
             except Exception:
                 pass
-            return {"score": score, "reason": reason, "action": "blocked_by_critique",
-                    "concerns": concerns}
+            return finish({"score": score, "reason": reason, "action": "blocked_by_critique",
+                           "concerns": concerns})
 
         sutra = {
             "id":           str(uuid.uuid4()),
@@ -593,14 +947,14 @@ def process_session(
             "score_reason": reason,
             "ttl_days":     SUTRA_TTL_DAYS,
         }
-        _append(_SUTRAS_PATH, sutra)
+        _append(_sutras_path(), sutra)
         try:
             from karma_log import log_karma
             log_karma("promoted", sutra["id"], avatar, rule[:120],
                       triggered_by=session_id, tapas_score=score, critique_passed=True)
         except Exception:
             pass
-        return {"score": score, "reason": reason, "action": "promoted", "rule": rule}
+        return finish({"score": score, "reason": reason, "action": "promoted", "rule": rule})
 
     elif score < FLAG_THRESHOLD:
         weak = {
@@ -612,15 +966,15 @@ def process_session(
             "score":      score,
             "reason":     reason,
         }
-        _append(_WEAK_PATH, weak)
+        _append(_weak_path(), weak)
         # M4.4: the sutras that steered this failing run take a strike each.
         struck = _strike_sutras(applied_sutra_ids or [], session_id, avatar, score, reason)
         out = {"score": score, "reason": reason, "action": "flagged"}
         if struck:
             out["sutras_struck"] = struck
-        return out
+        return finish(out)
 
-    return {"score": score, "reason": reason, "action": "none"}
+    return finish({"score": score, "reason": reason, "action": "none"})
 
 
 def sutra_summary() -> dict:
@@ -632,5 +986,5 @@ def sutra_summary() -> dict:
     return {
         "total_active_sutras": len(sutras),
         "by_avatar": by_avatar,
-        "path": str(_SUTRAS_PATH),
+        "path": str(_sutras_path()),
     }

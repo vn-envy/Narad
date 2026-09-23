@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { X, Mic, MicOff, Languages } from 'lucide-react'
 import { toast } from 'sonner'
-import { apiPath } from '@/lib/api'
+import { apiFetch } from '@/lib/api'
 import { prepareText } from '../hooks/useTTS'
 import type { Message } from '../hooks/useAvatara'
 
@@ -115,7 +115,7 @@ export function VoiceMode({ open, onClose, messages, streaming, onSend }: Props)
     setReply(msg.text.slice(0, 280))
     setVoiceState('speaking')
     try {
-      const res = await fetch(apiPath('/voice/tts'), {
+      const res = await apiFetch('/voice/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text, avatar: avatar.toLowerCase(), lang: langRef.current }),
@@ -155,7 +155,7 @@ export function VoiceMode({ open, onClose, messages, streaming, onSend }: Props)
         if (!hadSpeech || stateRef.current !== 'transcribing') return
         const form = new FormData()
         form.append('audio', blob, 'utterance.webm')
-        fetch(apiPath('/voice/stt'), { method: 'POST', body: form })
+        apiFetch('/voice/stt', { method: 'POST', body: form })
           .then(async res => {
             if (!res.ok) throw new Error((await res.json().catch(() => null))?.detail ?? `STT ${res.status}`)
             return res.json()
@@ -227,7 +227,7 @@ export function VoiceMode({ open, onClose, messages, streaming, onSend }: Props)
     const boot = async () => {
       let serverStt = false
       try {
-        const res = await fetch(apiPath('/voice/status'))
+        const res = await apiFetch('/voice/status')
         serverStt = res.ok && (await res.json())?.stt?.available === true
       } catch { /* server unreachable → try browser */ }
 

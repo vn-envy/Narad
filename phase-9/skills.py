@@ -148,6 +148,24 @@ SKILLS: dict[str, list[str]] = {
         "execute",    # Run with dry_run=False only after confirmation
         "report",     # What was done, space freed, where files went
     ],
+    "browser_task": [
+        "observe",    # Open/reuse the persistent session and inspect page + screenshot
+        "act",        # Execute the smallest safe semantic action batch
+        "verify",     # Check visible state; stop after repeated failure or injection signal
+    ],
+    "mobile_task": [
+        "preview",    # Resolve the profile-bound Android device and show the exact task
+        "confirm",    # Stop for explicit approval when the task can create side effects
+        "execute",    # Use Artemis fast or verified mode according to task risk
+        "verify",     # Return the durable result manifest and visible completion state
+    ],
+    "source_reach": [
+        "channels",   # Select useful public channels instead of querying everything
+        "doctor",     # Report direct and fallback backend readiness per channel
+        "retrieve",   # Use direct source first, then Exa domain fallback
+        "verify",     # Deduplicate and cross-check source identity and recency
+        "gaps",       # State unavailable/weak channels explicitly
+    ],
 
     # ── Rama (planning + calendar + budget) ──────────────────────────────────
     "project_plan": [
@@ -239,22 +257,24 @@ SKILLS: dict[str, list[str]] = {
         "design_redesign", # Refine the visual direction before rendering
         "build",  # Veo → moviepy fallback cascade
     ],
+    "motion_design": [
+        "purpose_gate",   # Decide whether motion clarifies state/story or is decorative noise
+        "storyboard",     # Define beats, timing, continuity, and reduced-motion behavior
+        "recipe",         # Build deterministic Lottie/HTML motion from explicit primitives
+        "validate_frames", # Inspect exact start, midpoint, transition, and final frames
+        "deliver",        # Export a lightweight asset plus fallback; no app-wide runtime dependency
+    ],
+    "concept_visualization": [
+        "concept_graph",  # Define nodes, relations, examples, and the intended learner insight
+        "choose_renderer", # Native concept map by default; Diagrams only for technical architecture
+        "render",         # Produce the requested native artifact or optional diagram-as-code output
+        "teach_back",     # Explain how to read it and ask one transfer question
+    ],
     "dogfood_ui": [
         "scope",       # Define the UI or flow to inspect
         "exercise",    # Drive the product through key user journeys
         "capture",     # Save screenshots, traces, and visible regressions
         "report",      # Summarize the UX failures and likely root causes
-    ],
-    "kanban_orchestrator": [
-        "intake",      # Read the incoming goal or project state
-        "structure",   # Create or reshape board columns and milestones
-        "assign",      # Map tasks to avatars or owners
-        "monitor",     # Update blocked/done state from live execution signals
-    ],
-    "kanban_worker": [
-        "claim",       # Pick the next eligible card
-        "execute",     # Perform the assigned work slice
-        "handoff",     # Record outputs and update board status
     ],
     "native_mcp": [
         "inventory",   # Detect the server/tool surface and schemas
@@ -290,6 +310,67 @@ SKILLS: dict[str, list[str]] = {
 }
 
 
+# The validator uses these ownership contracts instead of guessing from labels.
+# A skill may be prompt-driven; an empty tool list is a legitimate contract.
+SKILL_OWNERS: dict[str, tuple[str, ...]] = {
+    "Matsya": (
+        "web_research", "form_submit", "document_review", "analysis", "research",
+        "file_cleanup", "browser_task", "mobile_task", "source_reach", "dogfood_ui", "youtube_content",
+    ),
+    "Rama": (
+        "project_plan", "budget_plan", "schedule_event", "finance_import",
+        "spending_review", "health_log", "wellness_plan", "financial_decision",
+    ),
+    "Krishna": (
+        "email_send", "teach", "content_create", "presentation_create", "video_create",
+        "motion_design", "concept_visualization", "health_guidance", "symptom_check",
+        "mental_health_check",
+    ),
+    "Parashurama": (
+        "tdd", "diagnose", "scaffold", "refactor", "prototype", "review", "migrate", "ui",
+        "security_audit", "data_pipeline", "perf_audit", "financial_model", "native_mcp",
+    ),
+}
+
+
+SKILL_TOOL_REQUIREMENTS: dict[str, tuple[str, ...]] = {
+    "tdd": ("read_file", "write_script", "run_shell"),
+    "diagnose": ("read_file", "write_script", "run_shell"),
+    "scaffold": ("write_script", "run_shell"),
+    "refactor": ("read_file", "write_script", "run_shell"),
+    "prototype": ("write_script", "run_shell"),
+    "review": ("read_file",),
+    "migrate": ("read_file", "write_script", "run_shell"),
+    "ui": ("create_webpage", "list_shadcn_components", "fetch_shadcn_component"),
+    "security_audit": ("read_file", "run_shell"),
+    "data_pipeline": ("read_file", "write_script", "run_shell", "query_database"),
+    "perf_audit": ("read_file", "run_shell"),
+    "financial_model": ("write_script", "run_shell"),
+    "native_mcp": ("read_file", "write_script", "run_shell"),
+    "web_research": ("web_search",),
+    "form_submit": ("computer_use",),
+    "document_review": ("extract_document",),
+    "research": ("web_search",),
+    "file_cleanup": ("scan_directory", "find_large_files", "organize_by_type", "move_to_trash"),
+    "browser_task": ("computer_use",),
+    "mobile_task": ("phone_use",),
+    "source_reach": ("search_last30days", "exa_search"),
+    "dogfood_ui": ("computer_use",),
+    "youtube_content": ("search_last30days",),
+    "budget_plan": ("get_spending", "get_recurring_expenses"),
+    "schedule_event": ("get_upcoming_events", "create_event"),
+    "finance_import": ("import_csv", "get_financial_context"),
+    "spending_review": ("get_spending", "get_recurring_expenses"),
+    "health_log": ("log_symptom", "get_health_log"),
+    "wellness_plan": ("get_upcoming_events", "create_event"),
+    "financial_decision": ("get_financial_context", "get_spending"),
+    "email_send": ("compose_email", "send_email"),
+    "presentation_create": ("rank_ui_templates", "create_webpage"),
+    "video_create": ("create_video",),
+    "motion_design": ("create_webpage", "create_video"),
+}
+
+
 def get_skill_for_task_type(task_type: str) -> list[str] | None:
     """Return the phase list for a given TASK_TYPE label, or None if not found."""
     mapping = {
@@ -313,6 +394,11 @@ def get_skill_for_task_type(task_type: str) -> list[str] | None:
         "analysis":       "analysis",
         "research":       "research",
         "file_cleanup":   "file_cleanup",
+        "browser_task":   "browser_task",
+        "mobile_task":    "mobile_task",
+        "source_reach":   "source_reach",
+        "dogfood_ui":     "dogfood_ui",
+        "youtube_content": "youtube_content",
         # Rama
         "project_plan":   "project_plan",
         "budget_plan":    "budget_plan",
@@ -328,6 +414,8 @@ def get_skill_for_task_type(task_type: str) -> list[str] | None:
         "content_create": "content_create",
         "presentation_create": "presentation_create",
         "video_create":   "video_create",
+        "motion_design":  "motion_design",
+        "concept_visualization": "concept_visualization",
         "health_guidance": "health_guidance",
         "symptom_check":  "symptom_check",
         "mental_health_check": "mental_health_check",

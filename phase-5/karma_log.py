@@ -37,6 +37,15 @@ from typing import Any
 
 from narad_config import KARMA_MUTATIONS_PATH as _KARMA_MUTATIONS_PATH
 from narad_config import KARMA_PATH as _KARMA_PATH
+from profile_context import profile_data_path
+
+
+def _karma_mutations_path():
+    return profile_data_path("karma_mutations.jsonl", legacy_default=_KARMA_MUTATIONS_PATH)
+
+
+def _karma_path():
+    return profile_data_path("karma.jsonl", legacy_default=_KARMA_PATH)
 
 
 def log_karma(
@@ -96,8 +105,9 @@ def log_karma(
 
         # Single audit ledger: KARMA_MUTATIONS_PATH. (Events used to be written
         # to both files; load_karma merge-reads so pre-merge history survives.)
-        _KARMA_MUTATIONS_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with _KARMA_MUTATIONS_PATH.open("a") as f:
+        path = _karma_mutations_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a") as f:
             f.write(json.dumps(record) + "\n")
     except Exception:
         pass
@@ -151,7 +161,7 @@ def load_karma(limit: int = 100) -> list[dict]:
     """
     seen: set[str] = set()
     events: list[dict] = []
-    for row in _read_jsonl(_KARMA_MUTATIONS_PATH) + _read_jsonl(_KARMA_PATH):
+    for row in _read_jsonl(_karma_mutations_path()) + _read_jsonl(_karma_path()):
         rid = str(row.get("id", ""))
         if rid and rid in seen:
             continue

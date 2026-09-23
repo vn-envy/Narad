@@ -6,8 +6,7 @@ const DEV_BACKEND_PORT = '8000'
 function inferLocalApiBase(): string {
   if (typeof window === 'undefined') return ''
   const { hostname, port, protocol } = window.location
-  const isLocalHost = hostname === 'localhost' || hostname === '127.0.0.1'
-  if (isLocalHost && VITE_DEV_PORTS.has(port)) {
+  if (VITE_DEV_PORTS.has(port)) {
     return `${protocol}//${hostname}:${DEV_BACKEND_PORT}`
   }
   return ''
@@ -36,8 +35,63 @@ export function apiUrl(path: string, params?: Record<string, string | number | b
   return API_BASE ? `${API_BASE}${url.pathname}${url.search}` : `${url.pathname}${url.search}`
 }
 
+const PROFILE_SESSION_KEY = 'narad_profile_session'
+
+export interface FamilyProfile {
+  user_id: string
+  display_name: string
+  initial: string
+  color: string
+  has_pin: boolean
+  is_owner: boolean
+  created_at?: string | null
+  last_active_at?: string | null
+}
+
+export interface FamilyProfileSession {
+  profile: FamilyProfile
+  token: string
+  expires_at: number
+}
+
+export function getProfileSession(): FamilyProfileSession | null {
+  try {
+    const raw = localStorage.getItem(PROFILE_SESSION_KEY) || sessionStorage.getItem(PROFILE_SESSION_KEY)
+    if (!raw) return null
+    const session = JSON.parse(raw) as FamilyProfileSession
+    if (!session?.token || !session.profile?.user_id || session.expires_at * 1000 <= Date.now()) {
+      localStorage.removeItem(PROFILE_SESSION_KEY)
+      sessionStorage.removeItem(PROFILE_SESSION_KEY)
+      return null
+    }
+    return session
+  } catch {
+    return null
+  }
+}
+
+export function setProfileSession(session: FamilyProfileSession): void {
+  const value = JSON.stringify(session)
+  try {
+    localStorage.setItem(PROFILE_SESSION_KEY, value)
+  } catch {
+    sessionStorage.setItem(PROFILE_SESSION_KEY, value)
+  }
+}
+
+export function clearProfileSession(): void {
+  try { localStorage.removeItem(PROFILE_SESSION_KEY) } catch { /* storage is optional */ }
+  try { sessionStorage.removeItem(PROFILE_SESSION_KEY) } catch { /* storage is optional */ }
+}
+
 export function apiFetch(path: string, init?: RequestInit): Promise<Response> {
-  return fetch(apiPath(path), init)
+  const session = getProfileSession()
+  const headers = new Headers(init?.headers)
+  if (session?.token) {
+    headers.set('Authorization', `Bearer ${session.token}`)
+    headers.set('X-Narad-Profile-ID', session.profile.user_id)
+  }
+  return fetch(apiPath(path), { ...init, headers })
 }
 
 export async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
@@ -158,6 +212,132 @@ export interface RuntimeCapabilities {
   memory_tiers?: MemoryTierPolicy
 }
 
+export interface OnboardingReadiness {
+  model_ready: boolean
+  research_ready: boolean
+  connected_model_providers: string[]
+  connected_search_providers: string[]
+  connected_subscriptions: string[]
+  local_model_ready: boolean
+  local_model: LocalModelStatus
+  google_workspace: GoogleWorkspaceStatus
+  jev: JevStatus
+  phone: InteractionRuntimeStatus
+  desktop: DesktopRuntimeStatus
+  interaction_grants: InteractionTarget[]
+}
+
+export interface GoogleWorkspaceStatus {
+  configured: boolean
+  connected: boolean
+  can_configure?: boolean
+  user_id?: string
+  services: Record<string, { read: boolean; write: boolean }>
+  photos_access?: string
+  reason?: string | null
+}
+
+export interface JevStatus {
+  available: boolean
+  configured: boolean
+  enabled?: boolean
+  reason?: string | null
+}
+
+export interface InteractionTarget {
+  target_id: string
+  kind: 'browser_skill' | 'artemis' | 'cua'
+  external_id: string
+  label: string
+}
+
+export interface InteractionRuntimeStatus {
+  available: boolean
+  ready: boolean
+  configured?: boolean
+  reason?: string | null
+  devices?: Array<Record<string, unknown>>
+}
+
+export interface DesktopRuntimeStatus {
+  available: boolean
+  enabled: boolean
+  selected_provider?: string
+  reason?: string | null
+  adapters?: Record<string, {
+    available?: boolean
+    ready?: boolean
+    reason?: string | null
+    targets?: Array<{ id: string; label: string }>
+  }>
+}
+
+export interface LocalModelStatus {
+  available: boolean
+  ready: boolean
+  runtime_installed: boolean
+  reachable: boolean
+  managed: boolean
+  local_host: boolean
+  url: string
+  version?: string | null
+  model: string
+  model_tag: string
+  model_installed: boolean
+  model_size: 'E2B' | 'E4B' | string
+  optimized_variant: 'mlx' | 'qat-q4' | string
+  download_gb: number
+  upgrade_threshold_gb: number
+  ram_gb: number
+  memory_constrained: boolean
+  residency: 'on-demand' | 'warm' | string
+  keep_alive: string
+  configured_context_tokens: number
+  max_context_tokens: number
+  no_api_key: boolean
+  supports: Record<string, boolean>
+  install: {
+    state: 'idle' | 'running' | 'complete' | 'error' | string
+    progress: number
+    status: string
+    error?: string | null
+  }
+  reason?: string | null
+}
+
+export interface OnboardingStatus {
+  schema_version: number
+  user_id: string
+  completed: boolean
+  needs_onboarding: boolean
+  skipped: boolean
+  display_name: string
+  completed_at?: string | null
+  updated_at?: string | null
+  readiness: OnboardingReadiness
+}
+
+export interface ProviderConnection {
+  provider: string
+  label: string
+  key_page: string
+  connected: boolean
+  hint?: string
+}
+
+export interface ProviderSubscription {
+  provider: string
+  label: string
+  signed_in: boolean
+  available: boolean
+  detail: string
+}
+
+export interface ConnectionsPayload {
+  connections: ProviderConnection[]
+  subscriptions: ProviderSubscription[]
+}
+
 export interface LearningArtifact {
   artifact_id: string
   workspace_id: string
@@ -227,7 +407,6 @@ export interface ArchitectureScorecard {
   legacy_direct_memory_imports: number
   smriti_core_imports: number
   episode_store_enabled: boolean
-  swapna_enabled: boolean
   karma_mutation_log_enabled: boolean
   baseline_test_files: Record<string, string>
 }
@@ -243,80 +422,6 @@ export interface KarmaMutation {
   policy?: string | null
   provenance_ids?: string[]
   metadata?: Record<string, unknown>
-}
-
-export interface SwapnaInboxItem {
-  id: string
-  ts: string
-  user_id: string
-  project_id: string
-  apply: boolean
-  source_episode_ids: string[]
-  suggestions: {
-    facts: Array<Record<string, unknown>>
-    scenarios: Array<Record<string, unknown>>
-    candidate_keywords: string[]
-  }
-}
-
-export interface EvolutionAgentPoint {
-  agent: string
-  daily: Record<string, number>
-  cumulative: Record<string, number>
-}
-
-export interface EvolutionTimelineEntry {
-  date: string
-  agents: EvolutionAgentPoint[]
-}
-
-export interface EvolutionAgentSummary {
-  name: string
-  discipline: string
-  totals: Record<string, number>
-  tool_usage: Array<{ tool: string; count: number }>
-  models: Array<{ model: string; count: number }>
-  memory: {
-    episodes: number
-    commitments: number
-    reflections: number
-    swapna_touchpoints: number
-  }
-  learning: {
-    sutras_promoted: number
-    sutras_active: number
-    sutras_reverted: number
-    sankalpa_updates: number
-  }
-  behavior: {
-    sessions: number
-    avg_latency_ms: number
-    total_tokens: number
-    degraded_events: number
-  }
-  runtime: {
-    models_seen: string[]
-  }
-}
-
-export interface EvolutionHistory {
-  generated_at: string
-  window_days: number
-  categories: string[]
-  config: {
-    tapas_promote_threshold: number
-    sutra_cooldown_hours: number
-    tapas_judge_model: string
-  }
-  agents: EvolutionAgentSummary[]
-  timeline: EvolutionTimelineEntry[]
-  recent_changes: Array<{
-    ts: string
-    agent: string
-    category: string
-    title: string
-    detail: string
-  }>
 }
 
 export interface HarnessSessionRecord {
@@ -461,117 +566,140 @@ export interface HarnessOverview {
   scorecard?: ArchitectureScorecard | null
 }
 
-export interface ProjectListItem {
-  id: string
-  name: string
-  workspace_root?: string | null
-  workspace_label?: string | null
-  status?: string
-  project_status?: string
-  created_at: string | null
-  session_count: number
-  active_session_id?: string | null
-  last_activity_at?: string | null
-}
-
-export interface ProjectTask {
+export interface WorkflowTask {
   task_id: string
-  project_id: string
-  workspace_root?: string | null
-  source_session_id: string | null
+  workflow_run_id: string
+  workflow_stage_id: string
   title: string
   description: string
   status: string
-  priority: string
   owner: string | null
   kind: string
-  blocked_by: string[]
-  artifact_refs: Array<Record<string, unknown>>
-  sort_order: number
+}
+
+export interface WorkflowIntakeField {
+  key: string
+  label: string
+  kind: 'text' | 'textarea' | 'select' | 'number' | 'boolean' | 'time'
+  required: boolean
+  placeholder?: string
+  default?: unknown
+  options: string[]
+  help?: string
+}
+
+export interface WorkflowStage {
+  id: string
+  title: string
+  owner: string
+  kind: string
+  purpose: string
+  tools: string[]
+  requires_confirmation: boolean
+  confirmation_action?: string | null
+  status?: string
+  output?: {
+    status?: string
+    summary?: string
+    artifacts?: Array<Record<string, unknown>>
+    citations?: Array<Record<string, unknown>>
+  } | null
+}
+
+export interface WorkflowReadiness {
+  status: 'ready' | 'limited' | 'unavailable'
+  missing_required: string[]
+  missing_optional: string[]
+  capabilities: Record<string, boolean>
+}
+
+export interface WorkflowDefinition {
+  id: string
+  version: number
+  title: string
+  eyebrow: string
+  description: string
+  accent: string
+  owner: string
+  required_capabilities: string[]
+  optional_capabilities: string[]
+  intake: WorkflowIntakeField[]
+  stages: WorkflowStage[]
+  schedule_templates: Array<Record<string, unknown>>
+  feedback_routes: Record<string, string>
+  readiness: WorkflowReadiness
+}
+
+export interface WorkflowSchedule {
+  schedule_id: string
+  run_id: string
+  user_id: string
+  title: string
+  cadence: string
+  timezone: string
+  time_of_day?: string | null
+  weekdays: number[]
+  day_of_month?: number | null
+  next_run_at?: string | null
+  last_run_at?: string | null
+  enabled: boolean
+  payload: Record<string, unknown>
+}
+
+export interface WorkflowNextAction {
+  kind: 'chat' | 'request_confirmation' | 'approve' | 'resume' | 'complete' | 'none'
+  label: string
+  prompt: string
+}
+
+export interface WorkflowRun {
+  run_id: string
+  workflow_id: string
+  workflow_version: number
+  user_id: string
+  title: string
+  status: string
+  current_stage_id?: string | null
+  session_id?: string | null
+  inputs: Record<string, unknown>
+  state: {
+    cycle?: number
+    completed_stage_ids?: string[]
+    stage_outputs?: Record<string, Record<string, unknown>>
+    artifacts?: Array<Record<string, unknown>>
+    citations?: Array<Record<string, unknown>>
+    feedback?: Array<Record<string, unknown>>
+    confirmation?: {
+      stage_id?: string
+      action?: string
+      summary?: string
+      status?: string
+      details?: Record<string, unknown>
+    } | null
+    learning_workspace_id?: string | null
+  }
   created_at: string
   updated_at: string
-  completed_at: string | null
-}
-
-export interface ProjectWorkspace {
-  project: {
+  completed_at?: string | null
+  definition: {
     id: string
-    name: string
-    workspace_root?: string | null
-    workspace_label?: string | null
-    created_at: string | null
-    updated_at: string | null
-    status: string
-    project_status?: string
-    current_goal: string | null
-    active_session_id: string | null
-    session_count: number
-    last_activity_at: string | null
+    title: string
+    description: string
+    accent: string
+    owner: string
   }
-  active_session: {
-    session_id: string
-    ts: string | null
-    query: string | null
-    avatars: string[]
-    total_ms: number | null
-  } | null
-  recent_sessions: Array<{
-    session_id: string
-    ts: string | null
-    query: string | null
-    avatars: string[]
-    total_ms: number | null
+  current_stage?: WorkflowStage | null
+  stages: WorkflowStage[]
+  progress_percent: number
+  next_action: WorkflowNextAction
+  schedules: WorkflowSchedule[]
+  tasks: WorkflowTask[]
+  readiness: WorkflowReadiness
+  events?: Array<{
+    event_id: string
+    event_type: string
+    stage_id?: string | null
+    payload: Record<string, unknown>
+    created_at: string
   }>
-  task_summary: {
-    total: number
-    by_status: Record<string, number>
-    now: ProjectTask[]
-    next: ProjectTask[]
-    blocked: ProjectTask[]
-    recent_done: ProjectTask[]
-  }
-  memory_anchors: Array<{
-    entity: string
-    preview: string
-    size_chars: number
-  }>
-  avatars: string[]
-}
-
-export interface ProjectExecution {
-  project_id: string
-  project_name: string
-  workspace_root?: string | null
-  workspace_label?: string | null
-  current_goal: string | null
-  active_session: {
-    session_id: string
-    ts: string | null
-    query: string | null
-    avatars: string[]
-    total_ms: number | null
-  } | null
-  now: ProjectTask[]
-  next: ProjectTask[]
-  blocked: ProjectTask[]
-  recent_done: ProjectTask[]
-  artifacts: Array<Record<string, unknown>>
-  active_agents: string[]
-  recent_events: Array<{
-    ts: string | null
-    event: string | null
-    avatar: string | null
-    task: string | null
-  }>
-}
-
-export interface ProjectStateStore {
-  projectId: string
-  workspace: ProjectWorkspace | null
-  execution: ProjectExecution | null
-  tasks: ProjectTask[]
-  loading: boolean
-  refreshing: boolean
-  lastLoadedAt: number | null
-  error: string | null
 }

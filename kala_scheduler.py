@@ -10,10 +10,10 @@ NARAD_SCHEDULER_INTERVAL seconds (default 60) and:
      delivers each at most once per day via vahana.deliver().
      Missed slots earlier today (server was down) still fire once,
      annotated with their original time — never silently dropped.
-  2. Consumes Swapna nightly — at NARAD_SWAPNA_HOUR (default 2) runs
-     dream(apply=True) per user with episodes and delivers a digest.
+  2. Delivers due Teach Anything reviews.
+  3. Claims typed Workflow Path schedules and delivers restart-safe prompts.
 
-Restart-safe: state (delivered keys per day, last swapna date) persists
+Restart-safe: delivered keys and the last tick persist
 in NARAD_HOME/scheduler_state.json. Everything is best-effort — a tick
 never raises.
 """
@@ -30,7 +30,7 @@ from datetime import time as dtime
 from pathlib import Path
 from typing import Any
 
-from narad_config import EPISODE_DIR, HEALTH_DB, LEARNING_DIR, SCHEDULER_STATE_PATH
+from narad_config import HEALTH_DB, LEARNING_DIR, SCHEDULER_STATE_PATH
 
 log = logging.getLogger("narad.kala")
 
@@ -219,67 +219,13 @@ def _fire_due_reviews(now: datetime, state: dict) -> int:
     return fired
 
 
-# ── Nightly Swapna ────────────────────────────────────────────────────────────
-
-def _swapna_hour() -> int:
-    try:
-        return int(os.environ.get("NARAD_SWAPNA_HOUR", "2")) % 24
-    except ValueError:
-        return 2
-
-
-def _users_with_episodes() -> list[str]:
-    try:
-        return sorted(p.stem for p in EPISODE_DIR.glob("*.jsonl") if p.stat().st_size > 0)
-    except Exception:
-        return []
-
-
-def _run_nightly_swapna(now: datetime, state: dict) -> int:
-    """After NARAD_SWAPNA_HOUR, run one apply-cycle per user per day."""
-    from vahana import deliver
-
-    today = now.strftime("%Y-%m-%d")
-    if now.hour < _swapna_hour() or state.get("last_swapna_date") == today:
-        return 0
-
-    ran = 0
-    for user_id in _users_with_episodes():
-        try:
-            from swapna import dream
-            result = dream(user_id=user_id, apply=True)
-            if result.get("status") != "ok" or not result.get("inbox_id"):
-                continue
-            sug = result.get("suggestions", {})
-            deliver(
-                kind="swapna",
-                title="Swapna nightly digest",
-                body=(
-                    f"Consolidated {result.get('source_episode_count', 0)} episode(s): "
-                    f"{len(sug.get('facts', []))} fact(s), "
-                    f"{len(sug.get('scenarios', []))} scenario(s), "
-                    f"keywords: {', '.join(sug.get('candidate_keywords', [])[:6]) or '—'}. "
-                    f"Review in the Swapna inbox."
-                ),
-                user_id=user_id,
-                source="kala_scheduler.swapna",
-                priority="low",
-                data={"inbox_id": result.get("inbox_id")},
-            )
-            ran += 1
-        except Exception as exc:
-            log.warning("Kala: Swapna cycle failed for %s: %s", user_id, exc)
-    state["last_swapna_date"] = today
-    return ran
-
-
 # ── Tick + loop ───────────────────────────────────────────────────────────────
 
 def tick(now: datetime | None = None) -> dict:
     """One synchronous scheduler pass. Never raises."""
     now = now or datetime.now()
     state = _load_state()
-    fired = swapna_ran = reviews_fired = 0
+    fired = reviews_fired = workflow_fired = 0
     try:
         fired = _fire_due_reminders(now, state)
     except Exception as exc:
@@ -289,20 +235,22 @@ def tick(now: datetime | None = None) -> dict:
     except Exception as exc:
         log.warning("Kala: review pass failed: %s", exc)
     try:
-        swapna_ran = _run_nightly_swapna(now, state)
+        from workflow_engine import fire_due_workflow_schedules
+
+        workflow_fired = int(fire_due_workflow_schedules(now).get("fired", 0))
     except Exception as exc:
-        log.warning("Kala: swapna pass failed: %s", exc)
+        log.warning("Kala: workflow schedule pass failed: %s", exc)
     state["last_tick"] = now.isoformat(timespec="seconds")
     _save_state(state)
-    if fired or swapna_ran or reviews_fired:
+    if fired or reviews_fired or workflow_fired:
         log.info(
-            "Kala tick: %d reminder(s), %d review digest(s), %d swapna cycle(s)",
-            fired, reviews_fired, swapna_ran,
+            "Kala tick: %d reminder(s), %d review digest(s), %d workflow trigger(s)",
+            fired, reviews_fired, workflow_fired,
         )
     return {
         "fired": fired,
         "reviews_fired": reviews_fired,
-        "swapna_ran": swapna_ran,
+        "workflow_fired": workflow_fired,
         "ts": state["last_tick"],
     }
 
@@ -313,8 +261,7 @@ async def run_scheduler_loop() -> None:
         interval = max(10, int(os.environ.get("NARAD_SCHEDULER_INTERVAL", "60")))
     except ValueError:
         interval = 60
-    log.info("Kala scheduler started (interval %ds, swapna hour %02d:00)",
-             interval, _swapna_hour())
+    log.info("Kala scheduler started (interval %ds)", interval)
     while True:
         try:
             await asyncio.to_thread(tick)

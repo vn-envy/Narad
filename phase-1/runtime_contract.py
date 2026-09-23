@@ -13,7 +13,6 @@ from __future__ import annotations
 import importlib
 import json
 import os
-import shutil
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -23,19 +22,27 @@ _ROOT = Path(__file__).parent.parent
 
 from turbovec_policy import memory_tier_policy_payload
 
-from narad_config import ARTIFACTS_DIR, CONFIG_DIR, NARAD_HOME, TRACE_DIR, WIKI_DIR
+from narad_config import (
+    ARTIFACTS_DIR,
+    ATTACHMENTS_DIR,
+    CONFIG_DIR,
+    NARAD_HOME,
+    TRACE_DIR,
+    WIKI_DIR,
+)
 
 try:
-    from model_config import AVATAR_MODELS
+    from model_config import AVATAR_MODELS, refresh_avatar_models
 except Exception:
     AVATAR_MODELS: dict[str, str] = {}
+    refresh_avatar_models = None
 try:
     from model_registry import context_policy_payload as _context_policy_payload
 except Exception:
     _context_policy_payload = None
 _CONTRACT_PATH = _ROOT / "contracts" / "agent-contracts.json"
 _BUILD_PHASE = "pre-15"
-_BUILD_LABEL = "narad-4-agent-cloud"
+_BUILD_LABEL = "narad-4-agent-local-hybrid"
 _RUNTIME_MODE = "cloud"
 
 
@@ -61,6 +68,8 @@ def _detect_provider(model: str) -> str:
         return "narad-claude-sdk"  # subscription plan credits (S3)
     if "deepseek" in lower:
         return "deepseek"
+    if "grok" in lower or "xai" in lower:
+        return "xai"
     if "gemini" in lower or "google" in lower:
         return "google"
     if "gpt" in lower or "openai" in lower or "o1" in lower or "o3" in lower:
@@ -128,6 +137,65 @@ def primary_discipline(agent_name: str) -> str:
 
 
 def provider_status() -> dict[str, dict[str, Any]]:
+    try:
+        import xai_oauth
+
+        xai_available = xai_oauth.ensure_runtime_token()
+        xai_auth_mode = "oauth" if xai_oauth.signed_in() else (
+            "api_key" if _env_present("XAI_API_KEY") else None
+        )
+    except Exception:
+        xai_available = _env_present("XAI_API_KEY")
+        xai_auth_mode = "api_key" if xai_available else None
+    try:
+        from narad_litellm import xai_resilience_status
+
+        xai_resilience = xai_resilience_status()
+    except Exception:
+        xai_resilience = {
+            "request_timeout_s": 90.0,
+            "fallback_model": os.environ.get(
+                "NARAD_XAI_FALLBACK_MODEL", "deepseek/deepseek-flash"
+            ),
+            "circuit_open": False,
+            "circuit_remaining_s": 0.0,
+            "last_transient_error": None,
+        }
+    try:
+        from local_model_runtime import local_runtime_status
+
+        local_runtime = local_runtime_status()
+    except Exception as exc:
+        local_runtime = {
+            "available": False,
+            "ready": False,
+            "runtime_installed": False,
+            "reachable": False,
+            "reason": f"Local runtime probe failed: {type(exc).__name__}",
+        }
+    try:
+        from google_workspace import status as google_workspace_status
+
+        google_workspace = google_workspace_status()
+    except Exception as exc:
+        google_workspace = {
+            "configured": False,
+            "connected": False,
+            "services": {},
+            "reason": f"Google Workspace probe failed: {type(exc).__name__}",
+        }
+    try:
+        from decision_engine import jev_status
+
+        typesafe = jev_status()
+    except Exception as exc:
+        typesafe = {
+            "available": False,
+            "configured": False,
+            "enabled": False,
+            "reason": f"Jev status failed: {type(exc).__name__}",
+        }
+
     status = {
         "deepseek": {
             "available": _env_present("DEEPSEEK_API_KEY"),
@@ -149,33 +217,37 @@ def provider_status() -> dict[str, dict[str, Any]]:
             "kind": "cloud",
             "reason": None if _env_present("MIMO_API_KEY") else "MIMO_API_KEY not set",
         },
-        "tinyfish": {
-            "available": _env_present("TINYFISH_API_KEY"),
-            "kind": "cloud",
-            "reason": None if _env_present("TINYFISH_API_KEY") else "TINYFISH_API_KEY not set",
+        "xai": {
+            "available": xai_available,
+            "kind": "cloud_oauth_or_key",
+            "reason": None if xai_available else "Sign in with Grok or set XAI_API_KEY",
+            "auth_mode": xai_auth_mode,
+            "model": "xai/grok-4.6",
+            "service_tier": os.environ.get("GROK_SERVICE_TIER", "priority"),
+            "resilience": xai_resilience,
         },
-        "tavily": {
-            "available": _env_present("TAVILY_API_KEY"),
+        "exa": {
+            "available": _env_present("EXA_API_KEY"),
             "kind": "cloud",
-            "reason": None if _env_present("TAVILY_API_KEY") else "TAVILY_API_KEY not set",
+            "reason": None if _env_present("EXA_API_KEY") else "EXA_API_KEY not set",
         },
-        "smtp": {
-            "available": _env_present("EMAIL_ADDRESS") and _env_present("EMAIL_APP_PASSWORD"),
-            "kind": "cloud",
-            "reason": None if (_env_present("EMAIL_ADDRESS") and _env_present("EMAIL_APP_PASSWORD"))
-            else "EMAIL_ADDRESS or EMAIL_APP_PASSWORD not set",
+        "firecrawl": {
+            "available": _env_present("FIRECRAWL_API_KEY"),
+            "kind": "cloud_or_self_hosted",
+            "reason": None if _env_present("FIRECRAWL_API_KEY") else "FIRECRAWL_API_KEY not set",
         },
-        "caldav": {
-            "available": _env_present("CALDAV_URL", "CALDAV_USERNAME", "CALDAV_PASSWORD"),
-            "kind": "cloud",
-            "reason": None if _env_present("CALDAV_URL", "CALDAV_USERNAME", "CALDAV_PASSWORD")
-            else "CALDAV credentials not fully set",
+        "typesafe": {
+            "kind": "cloud_decision_accelerator",
+            **typesafe,
+        },
+        "google-workspace": {
+            "available": bool(google_workspace.get("connected")),
+            "kind": "oauth_connector",
+            **google_workspace,
         },
         "local-model-runtime": {
-            "available": bool(shutil.which("ollama") or os.environ.get("OLLAMA_HOST")),
             "kind": "local",
-            "reason": None if (shutil.which("ollama") or os.environ.get("OLLAMA_HOST"))
-            else "Ollama runtime not detected",
+            **local_runtime,
         },
     }
     return status
@@ -187,6 +259,27 @@ def tool_family_status() -> dict[str, dict[str, Any]]:
     docling_ok, docling_reason = _module_available("docling_skill")
     browser_ok, browser_reason = _module_available("browser_skill")
     browser_act_ok, browser_act_reason = _module_available("browser_act_skill")
+    computer_ok, computer_reason = _module_available("computer_use_skill")
+    computer_detail: dict[str, Any] = {}
+    if computer_ok:
+        try:
+            from computer_use_skill import browser_runtime_status
+
+            computer_detail = browser_runtime_status()
+        except Exception as exc:
+            computer_ok = False
+            computer_reason = f"computer-use status failed: {type(exc).__name__}"
+    computer_runtime_ok = computer_ok and bool(computer_detail.get("available", False))
+    try:
+        from artemis_adapter import artemis_status
+
+        phone_detail = artemis_status(include_devices=False)
+    except Exception as exc:
+        phone_detail = {
+            "available": False,
+            "ready": False,
+            "reason": f"Artemis status failed: {type(exc).__name__}: {exc}",
+        }
     finance_ok, finance_reason = _module_available("finance_skill")
     health_ok, health_reason = _module_available("health_skill")
     email_ok, email_reason = _module_available("email_skill")
@@ -203,21 +296,69 @@ def tool_family_status() -> dict[str, dict[str, Any]]:
     except Exception as _tts_exc:  # noqa: BLE001 — availability probe only
         tts_ok, tts_reason = False, str(_tts_exc)
 
-    search_available = providers["tinyfish"]["available"] or providers["tavily"]["available"]
-    media_provider_available = providers["google"]["available"] or providers["mimo"]["available"]
+    search_available = (
+        providers["exa"]["available"]
+        or providers["firecrawl"]["available"]
+    )
+    source_reach: dict[str, Any] = {}
+    try:
+        from http_skill import source_reach_status
+
+        source_reach = source_reach_status()
+        search_available = search_available or bool(source_reach.get("available", False))
+    except Exception:
+        pass
+    media_provider_available = (
+        providers["google"]["available"]
+        or providers["mimo"]["available"]
+        or providers["local-model-runtime"].get("ready", False)
+    )
 
     return {
         "search": {
             "available": search_available,
             "reason": None if search_available else "No live search provider configured",
+            "source_reach": source_reach,
         },
         "browser": {
-            "available": browser_ok and browser_act_ok,
-            "reason": browser_reason or browser_act_reason,
+            "available": browser_ok and browser_act_ok and computer_runtime_ok,
+            "reason": (
+                browser_reason
+                or browser_act_reason
+                or computer_reason
+                or computer_detail.get("reason")
+            ),
+            "runtime": computer_detail,
+        },
+        "computer": {
+            "available": computer_runtime_ok,
+            "reason": computer_reason or computer_detail.get("reason"),
+            "browser": {
+                "available": computer_runtime_ok,
+                "persistent_sessions": bool(computer_detail.get("persistent_sessions", False)),
+                "batched_actions": bool(computer_detail.get("batched_actions", False)),
+                "contexts": computer_detail.get("contexts", {}),
+            },
+            "desktop": computer_detail.get("desktop", {}),
+        },
+        "phone": {
+            "available": bool(phone_detail.get("ready", False)),
+            "reason": phone_detail.get("reason"),
+            "android_only": True,
+            "managed": False,
+            "runtime": phone_detail,
         },
         "documents": {
             "available": docling_ok,
             "reason": docling_reason,
+        },
+        "attachments": {
+            "available": True,
+            "reason": None,
+            "local_first": True,
+            "folder_uploads": True,
+            "exact_reread": True,
+            "url_handoff": "Matsya",
         },
         "filesystem": {
             "available": filesystem_ok,
@@ -232,8 +373,14 @@ def tool_family_status() -> dict[str, dict[str, Any]]:
             "reason": None,
         },
         "calendar": {
-            "available": calendar_ok and providers["caldav"]["available"],
-            "reason": calendar_reason or providers["caldav"]["reason"],
+            "available": calendar_ok and bool(
+                providers["google-workspace"].get("services", {}).get("calendar", {}).get("read")
+            ),
+            "optional": True,
+            "reason": calendar_reason or (
+                None if bool(providers["google-workspace"].get("services", {}).get("calendar", {}).get("read"))
+                else "Connect Google Calendar to check and manage events"
+            ),
         },
         "finance": {
             "available": finance_ok,
@@ -244,8 +391,14 @@ def tool_family_status() -> dict[str, dict[str, Any]]:
             "reason": health_reason,
         },
         "email": {
-            "available": email_ok and providers["smtp"]["available"],
-            "reason": email_reason or providers["smtp"]["reason"],
+            "available": email_ok and bool(
+                providers["google-workspace"].get("services", {}).get("gmail", {}).get("read")
+            ),
+            "optional": True,
+            "reason": email_reason or (
+                None if bool(providers["google-workspace"].get("services", {}).get("gmail", {}).get("read"))
+                else "Connect Gmail to read or send email"
+            ),
         },
         "media": {
             "available": video_ok and media_provider_available,
@@ -271,10 +424,6 @@ def tool_family_status() -> dict[str, dict[str, Any]]:
             "available": shell_ok,
             "reason": shell_reason,
         },
-        "projects": {
-            "available": True,
-            "reason": None,
-        },
         "memory": {
             "available": True,
             "reason": None,
@@ -289,6 +438,7 @@ def startup_checks() -> list[dict[str, Any]]:
         ("trace_dir", TRACE_DIR),
         ("wiki_dir", WIKI_DIR),
         ("artifacts_dir", ARTIFACTS_DIR),
+        ("attachments_dir", ATTACHMENTS_DIR),
         ("config_dir", CONFIG_DIR),
     ):
         ok, reason = _check_writable(path)
@@ -302,7 +452,6 @@ def startup_checks() -> list[dict[str, Any]]:
         ("google_adk", "google.adk", True),
         ("fastapi", "fastapi", True),
         ("sse_starlette", "sse_starlette", True),
-        ("lancedb", "lancedb", True),
         ("turbovec", "turbovec", False),
     ):
         ok, reason = _module_available(module_name)
@@ -317,6 +466,8 @@ def startup_checks() -> list[dict[str, Any]]:
 
 
 def agent_runtime_status() -> list[dict[str, Any]]:
+    if refresh_avatar_models is not None:
+        refresh_avatar_models()
     tool_status = tool_family_status()
     result: list[dict[str, Any]] = []
     for contract in agent_contracts():
@@ -344,27 +495,74 @@ def collect_runtime_contract() -> dict[str, Any]:
     checks = startup_checks()
     issues: list[RuntimeIssue] = []
 
-    if not providers["deepseek"]["available"]:
-        issues.append(RuntimeIssue("warning", "deepseek_unconfigured", providers["deepseek"]["reason"]))
+    model_endpoint_ready = any(
+        bool(providers[name].get("available"))
+        for name in ("deepseek", "google", "openai", "mimo", "xai")
+    ) or bool(providers["local-model-runtime"].get("ready"))
+    if not model_endpoint_ready:
+        issues.append(RuntimeIssue(
+            "warning",
+            "model_endpoint_unavailable",
+            "Connect a model endpoint or install the offline Gemma 4 model",
+        ))
 
     for check in checks:
         if not check["ok"] and check.get("required", True):
             issues.append(RuntimeIssue("error", check["name"], check["reason"] or "check failed"))
 
     for name, tool in tools.items():
-        if not tool["available"] and name in {"search", "calendar", "email", "media", "sql", "shell"}:
+        if not tool["available"] and name in {
+            "search", "browser", "computer", "media", "sql", "shell",
+        }:
             issues.append(RuntimeIssue("warning", f"{name}_degraded", tool["reason"] or f"{name} unavailable"))
 
     status = "healthy" if not any(issue.level == "error" for issue in issues) and not issues else "degraded"
     agent_status = agent_runtime_status()
     degraded_count = sum(len(agent["degraded_tool_families"]) for agent in agent_status)
+    try:
+        from capability_validation import validate_capabilities
+
+        skill_tool_validation = validate_capabilities(tools)
+    except Exception as exc:
+        skill_tool_validation = {
+            "status": "invalid",
+            "inventory_error": f"capability validation failed: {type(exc).__name__}: {exc}",
+            "summary": {},
+            "avatars": {},
+            "workflows": {},
+            "integrations": [],
+        }
+    try:
+        from model_config import get_vision_endpoint
+
+        vision_endpoint = get_vision_endpoint("matsya")
+        multimodal = {
+            "available": vision_endpoint is not None,
+            "model": vision_endpoint.model if vision_endpoint else None,
+            "provider": vision_endpoint.provider if vision_endpoint else None,
+            "source": vision_endpoint.source if vision_endpoint else None,
+        }
+    except Exception as exc:
+        multimodal = {
+            "available": False,
+            "model": None,
+            "provider": None,
+            "source": None,
+            "reason": f"multimodal endpoint probe failed: {type(exc).__name__}",
+        }
 
     return {
         "status": status,
         "build": {
             "phase": _BUILD_PHASE,
             "label": _BUILD_LABEL,
-            "runtime_mode": _RUNTIME_MODE,
+            "runtime_mode": (
+                "local"
+                if all(_detect_provider(model) == "local" for model in AVATAR_MODELS.values())
+                else "hybrid"
+                if providers["local-model-runtime"].get("ready")
+                else _RUNTIME_MODE
+            ),
         },
         "architecture": {
             **load_contract()["architecture"],
@@ -372,11 +570,21 @@ def collect_runtime_contract() -> dict[str, Any]:
             "stale_agents_removed": ["Varaha", "Narasimha", "Buddha", "Vamana"],
         },
         "agents": agent_status,
+        "model_roles": {
+            "orchestrator": AVATAR_MODELS.get("narad", "unknown"),
+            "workers": {
+                name: AVATAR_MODELS.get(name, "unknown")
+                for name in ("matsya", "rama", "krishna", "parashurama")
+            },
+            "worker_service_tier": os.environ.get("GROK_SERVICE_TIER", "priority"),
+            "multimodal": multimodal,
+        },
         "providers": providers,
         "tool_families": tools,
+        "skill_tool_validation": skill_tool_validation,
         "local_ready": {
             "frontend_transport_agnostic": True,
-            "local_model_runtime": providers["local-model-runtime"]["available"],
+            "local_model_runtime": bool(providers["local-model-runtime"].get("ready")),
             "desktop_packaging": False,
         },
         "startup_checks": checks,

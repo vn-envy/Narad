@@ -25,6 +25,18 @@ function ArtifactPreview({ artifact }: { artifact: ToolArtifact | null }) {
       </div>
     )
   }
+  if (lower.match(/\.(png|jpe?g|webp|gif)(?:\?.*)?$/)) {
+    return (
+      <div className="flex items-center justify-center h-full p-3" style={{ background: 'rgba(45,42,38,0.035)' }}>
+        <img
+          src={artifact.url}
+          alt={artifact.label}
+          className="max-w-full max-h-full object-contain rounded-lg"
+          style={{ boxShadow: '0 12px 36px rgba(45,42,38,0.12)' }}
+        />
+      </div>
+    )
+  }
   if (lower.endsWith('.html')) {
     return <iframe src={artifact.url} title={artifact.label} className="w-full h-full rounded border-0" style={{ background: 'white' }} />
   }
@@ -50,7 +62,7 @@ export function ToolWorkspacePanel({ toolUi, onClose }: Props) {
     (toolUi.ui?.primary_artifact_label
       ? toolUi.artifacts.find(item => item.label === toolUi.ui?.primary_artifact_label)
       : undefined)
-    ?? toolUi.artifacts.find(item => item.url?.match(/\.(html|mp4|wav|mp3)$/i))
+    ?? toolUi.artifacts.find(item => item.url?.match(/\.(png|jpe?g|webp|gif|html|mp4|wav|mp3)(?:\?.*)?$/i))
     ?? toolUi.artifacts[0]
     ?? null
 

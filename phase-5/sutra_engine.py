@@ -25,6 +25,7 @@ from typing import Literal
 from narad_config import SUTRA_DEMOTIONS_PATH as _DEMOTIONS_PATH
 from narad_config import SUTRA_OVERRIDES_PATH as _OVERRIDES_PATH
 from narad_config import SUTRAS_PATH as _SUTRAS_PATH
+from profile_context import profile_data_path
 
 COOLDOWN_HOURS = int(__import__("os").environ.get("SUTRA_COOLDOWN_HOURS", "24"))
 MAX_ACTIVE_PER_AVATAR = int(__import__("os").environ.get("SUTRA_MAX_ACTIVE", "5"))
@@ -43,14 +44,27 @@ def sutras_enabled() -> bool:
 SutraStatus = Literal["pending", "active", "demoted", "reverted"]
 
 
+def _sutras_path():
+    return profile_data_path("sutras.jsonl", legacy_default=_SUTRAS_PATH)
+
+
+def _overrides_path():
+    return profile_data_path("sutra_overrides.jsonl", legacy_default=_OVERRIDES_PATH)
+
+
+def _demotions_path():
+    return profile_data_path("sutra_demotions.jsonl", legacy_default=_DEMOTIONS_PATH)
+
+
 # ── Override store (accept / revert) ─────────────────────────────────────────
 
 def _load_overrides() -> dict[str, str]:
     """Returns {sutra_id: "accepted"|"reverted"} from the override log."""
-    if not _OVERRIDES_PATH.exists():
+    path = _overrides_path()
+    if not path.exists():
         return {}
     out: dict[str, str] = {}
-    for line in _OVERRIDES_PATH.read_text().splitlines():
+    for line in path.read_text().splitlines():
         if not line.strip():
             continue
         try:
@@ -64,10 +78,11 @@ def _load_overrides() -> dict[str, str]:
 def _load_last_accept_ts() -> dict[str, str]:
     """{sutra_id: ISO ts of the most recent 'accepted' override}. M4.4: strikes
     older than the last accept don't count — re-accepting clears the slate."""
-    if not _OVERRIDES_PATH.exists():
+    path = _overrides_path()
+    if not path.exists():
         return {}
     out: dict[str, str] = {}
-    for line in _OVERRIDES_PATH.read_text().splitlines():
+    for line in path.read_text().splitlines():
         if not line.strip():
             continue
         try:
@@ -83,10 +98,11 @@ def _load_last_accept_ts() -> dict[str, str]:
 
 def _load_strikes() -> dict[str, list[str]]:
     """{sutra_id: [strike ISO timestamps]} from Tapas' demotion log."""
-    if not _DEMOTIONS_PATH.exists():
+    path = _demotions_path()
+    if not path.exists():
         return {}
     out: dict[str, list[str]] = {}
-    for line in _DEMOTIONS_PATH.read_text().splitlines():
+    for line in path.read_text().splitlines():
         if not line.strip():
             continue
         try:
@@ -112,13 +128,14 @@ def _strikes_since_accept(sutra_id: str, strikes: dict[str, list[str]],
 
 
 def _write_override(sutra_id: str, action: Literal["accepted", "reverted"]) -> None:
-    _OVERRIDES_PATH.parent.mkdir(parents=True, exist_ok=True)
+    path = _overrides_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
     record = {
         "sutra_id": sutra_id,
         "action":   action,
         "ts":       datetime.now(timezone.utc).isoformat(),
     }
-    with _OVERRIDES_PATH.open("a") as f:
+    with path.open("a") as f:
         f.write(json.dumps(record) + "\n")
 
 
@@ -166,14 +183,15 @@ def _cooldown_remaining(sutra: dict) -> str:
 
 def get_all_sutras() -> list[dict]:
     """All non-expired sutras with computed status and cooldown info."""
-    if not _SUTRAS_PATH.exists():
+    path = _sutras_path()
+    if not path.exists():
         return []
     overrides = _load_overrides()
     strikes = _load_strikes()
     accept_ts = _load_last_accept_ts()
     now = datetime.now(timezone.utc)
     result = []
-    for line in _SUTRAS_PATH.read_text().splitlines():
+    for line in path.read_text().splitlines():
         if not line.strip():
             continue
         try:

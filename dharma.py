@@ -57,6 +57,10 @@ _DEFAULT_POLICY: dict[str, Any] = {
         "executor":       {"enabled": True},
         "email_send":     {"enabled": True, "max_recipients": 10},
         "browser_submit": {"enabled": True},
+        "desktop_control": {"enabled": True},
+        "mobile_control": {"enabled": True},
+        "calendar_create": {"enabled": True},
+        "booking_commitment": {"enabled": True},
     },
 }
 
@@ -72,9 +76,28 @@ def _ensure_policy_file() -> dict[str, Any]:
 
 
 def load_policy() -> dict[str, Any]:
-    # Overlay the on-disk policy onto defaults so installs created before a
-    # policy section existed (e.g. 'actions') still get sane fallbacks.
-    return {**_DEFAULT_POLICY, **_ensure_policy_file()}
+    # Merge nested sections too, so older policy files inherit newly registered
+    # side-effect channels instead of silently replacing the full default map.
+    stored = _ensure_policy_file()
+    merged: dict[str, Any] = dict(_DEFAULT_POLICY)
+    for key, value in stored.items():
+        default = _DEFAULT_POLICY.get(key)
+        merged[key] = {**default, **value} if isinstance(default, dict) and isinstance(value, dict) else value
+    default_actions = _DEFAULT_POLICY["actions"]
+    stored_actions = stored.get("actions", {}) if isinstance(stored.get("actions"), dict) else {}
+    merged["actions"] = {
+        name: {
+            **(rules if isinstance(rules, dict) else {}),
+            **(stored_actions.get(name, {}) if isinstance(stored_actions.get(name), dict) else {}),
+        }
+        for name, rules in default_actions.items()
+    }
+    merged["actions"].update({
+        name: rules
+        for name, rules in stored_actions.items()
+        if name not in default_actions
+    })
+    return merged
 
 
 def allowed_tool_families(avatar: str) -> set[str]:

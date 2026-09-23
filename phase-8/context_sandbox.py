@@ -26,11 +26,18 @@ _WORD_THRESHOLD = 2000   # compress if result exceeds this many whitespace-split
 _SUMMARY_WORDS  = 500    # target word count for extractive summary
 
 
+def _db_path() -> Path:
+    from profile_context import profile_data_path
+
+    return profile_data_path("context_sandbox.db", legacy_default=_DB_PATH)
+
+
 # ── SQLite bootstrap ──────────────────────────────────────────────────────────
 
 def _get_conn() -> sqlite3.Connection:
-    _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(_DB_PATH))
+    path = _db_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(path))
     conn.execute(
         "CREATE TABLE IF NOT EXISTS sandbox ("
         "  id TEXT PRIMARY KEY,"

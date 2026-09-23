@@ -175,6 +175,15 @@ def build_rehydration_query(
         if working.get("thread_summary"):
             lines.append("Earlier summary:")
             lines.append(str(working["thread_summary"]))
+        attachment_refs = working.get("attachment_refs")
+        if isinstance(attachment_refs, list) and attachment_refs:
+            lines.append("Recent user-provided inputs (exact local references):")
+            for item in attachment_refs[:12]:
+                if not isinstance(item, dict):
+                    continue
+                label = item.get("relative_path") or item.get("name") or "attachment"
+                path = item.get("path") or ""
+                lines.append(f"- {label}: {path}" if path else f"- {label}")
 
     used = 0
     selected: list[str] = []

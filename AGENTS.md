@@ -2,8 +2,7 @@
 
 > **Source of truth.** This document defines every agent's identity, tools, and routing
 > rules — verified against `phase-1/avatar_agents.py` and `phase-1/narad_agent.py`.
-> Last verified: 2026-07-04 (M0 truth-reconciliation pass).
-> Roadmap and open work: see `AUDIT-AND-ROADMAP.md`.
+> Last verified: 2026-09-16 (runtime cleanup pass).
 
 ---
 
@@ -11,7 +10,7 @@
 
 ```
 User
- └── Narad (supervisor / router — DeepSeek V4 Flash)
+ └── Narad (supervisor / router — connected endpoint, offline Gemma fallback)
        ├── Matsya       — retrieval, documents, critical analysis, local filesystem   (Flash)
        ├── Rama         — planning, calendar, personal finance, health data           (Pro)
        ├── Krishna      — communication, media creation, education, wellness          (Flash)
@@ -98,15 +97,18 @@ document extraction, critical analysis (steelman + red-team), and the local file
 
 | Tool | Purpose |
 |---|---|
-| `web_search` | Tinyfish search (primary) with Tavily fallback |
+| `web_search` | Exa search |
+| `exa_search` | Exa auto/fast/deep research with highlights, schemas, grounding, and freshness controls |
+| `exa_contents` | Bounded full-text extraction for known public URLs |
 | `browse_url` | Playwright headless browser for JS SPAs and specific URLs |
 | `http_request` | Direct REST API / webhook calls |
-| `browser_screenshot` / `browser_fill` / `browser_upload_and_submit` | Form workflow: screenshot → dry-run fill → explicit user confirmation → submit |
+| `computer_use` | Persistent isolated Playwright or profile-granted signed-in BrowserSkill sessions; semantic actions, batched execution, and trace artifacts; desktop is opt-in |
+| `phone_use` | Optional profile-granted Android execution through Artemis; preview-first, verified mode for sensitive work |
+| `browser_screenshot` / `browser_fill` / `browser_upload_and_submit` | Compatible form helpers over one shared session: screenshot → preview → explicit confirmation → submit |
 | `search_arxiv` / `search_papers` / `search_hf_papers` / `search_hf_models` | Academic + model discovery |
 | `query_deepwiki` | GitHub repo architecture questions |
-| `extract_document` | PDF/DOCX/PPTX/HTML/CSV/text extraction (pymupdf + python-docx by default; Docling opt-in via `NARAD_USE_DOCLING=1`) |
+| `extract_document` | Lightweight PDF/DOCX/PPTX/HTML/CSV/text extraction |
 | `scan_directory` / `organize_by_type` / `move_to_trash` / `find_large_files` / `get_disk_info` | Filesystem hygiene — always dry-run before mutating |
-| `narad_shuddhi` | 5S filesystem health report |
 | `search_last30days` | Cross-source recency sweep (Reddit/HN/GitHub) |
 
 Soft rules: primary sources over aggregators; cite every non-obvious claim; screenshot
@@ -121,13 +123,13 @@ Structured-plan specialist and owner of the personal data lifecycle (finance + h
 
 | Tool | Purpose |
 |---|---|
-| `get_upcoming_events` / `create_event` | CalDAV calendar |
+| `get_upcoming_events` / `create_event` | Connected Google Calendar |
 | `get_spending` / `get_budget_status` / `get_financial_context` / `get_recurring_expenses` / `get_goals` / `get_net_worth` / `get_spend_patterns` | Personal finance reads |
 | `import_csv` / `sync_gmail_finance` / `set_budget` / `add_goal` / `update_goal_progress` / `add_balance_snapshot` / `categorize_transaction` | Personal finance writes |
 | `log_symptom` / `set_medication_reminder` / `get_health_log` | Health log |
 | `query_rxnorm` | Drug information (RxNorm REST, no auth) |
 
-Plans emit `PLAN_JSON:` blocks that persist and drive the Kanban board.
+Plans emit `PLAN_JSON:` blocks that workflows can persist and execute.
 
 ---
 
@@ -203,27 +205,28 @@ carry `error_type`: `tool_not_found` | `import_failed` | `timeout` | `model_erro
 ### Dharma (Policy Gates)
 Two layers. Input: `_dharma_gate(query)` in `server.py` blocks prompt injection, PII
 collection, and crisis phrases (with resources) before any avatar runs. Side effects:
-`dharma.gate_action()` gates `executor`, `email_send`, `browser_submit` — unknown
+`dharma.gate_action()` gates `executor`, `email_send`, `browser_submit`, and `desktop_control` — unknown
 actions are denied by default; every verdict lands in Karma. Policy file:
 `~/.narad/config/dharma_policy.json`.
 
-### Six Sigma Layer
+### Runtime Quality
 **AndonGate** (`andon.py`): fires on `EMPTY_RESULT` (<80 chars), `TIMEOUT` (>120s),
 `CONNECTION`, `TOOL_ERROR`; logs to `~/.narad/config/andon_log.jsonl` + SSE alert.
-**KanbanBoard** (`kanban.py`): `PlanStep` lifecycle `backlog → in_progress → review →
-done | blocked` in `~/.narad/kanban.db`, streamed as `kanban_update` SSE.
-**5S/DMAIC** (`narad_5s.py` + server): daily hygiene loop, `POST /quality/report`.
+Workflow stages provide durable progress directly; there is no parallel Kanban or Projects subsystem.
 
 ### Security Floor
 `NARAD_AUTH` modes local/strict/off; bearer token at `~/.narad/config/api_token`
 (chmod 600); localhost pass-through; CORS via `NARAD_ALLOWED_ORIGINS`; token-bucket
 rate limiting per user (10 req/min default, `NARAD_RATE_LIMIT` override, HTTP 429).
 
-### Vision & Visual-Output Routing
-Image attachments → best available vision model (MiMo > OpenAI > Anthropic, per
-`model_config.py`; `VISION_MODEL` / per-avatar overrides). Visual OUTPUT tasks
-(decks, UI, pages) stay on DeepSeek V4 Pro — no cross-provider swap mid-turn.
-Video keywords override deck keywords and stay on the Veo/moviepy path.
+### User Inputs & Visual-Output Routing
+Chat uploads are stored privately under `~/.narad/attachments/`. Images enter the
+multimodal input path; documents, data, archives, and folders enter a bounded
+artifact plane with exact local reread paths. Live URLs are retrieved by Matsya
+before page-specific claims are made. Source trees that require edits route to
+Parashurama, and personal bank CSV ingestion routes to Rama. Visual output tasks
+(decks, UI, pages) stay on the active Krishna worker model; video requests stay
+on the Veo/moviepy path.
 
 ### Session Persistence
 Avatar sessions cached per `{user_id}:{narad_session_id}:{agent_name}:{model_id}` so
@@ -262,11 +265,9 @@ HEALTH DOCUMENTS: file path → Matsya [extract_document] — objective extracti
 ## Status
 
 Shipped: 4-avatar runtime, SSE server with auth/rate-limit/CORS floor, Smriti/Sutra/
-Tapas/Karma/Sankalpa/Yantra loops, Andon + Kanban + 5S, Dharma action gates, tool
+Tapas/Karma/Sankalpa/Yantra loops, Andon alerts, Dharma action gates, tool
 result envelopes, context governor, session harness contract.
 
 Removed in the M0 cut (2026-07-04): Notion sync, webwright, ml-intern, hyperframes,
 audio, remotion skills, beautiful-html-templates submodule, phase-0a/0b spikes
 (archived on branch `archive/spikes`).
-
-Current roadmap, known gaps, and milestone sequencing: `AUDIT-AND-ROADMAP.md`.

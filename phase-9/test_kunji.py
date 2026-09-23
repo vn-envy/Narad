@@ -224,7 +224,7 @@ class SubscriptionAdapterTests(unittest.TestCase):
 
     def test_subscription_active_is_provider_specific(self):
         adapter = subs.get_adapter("xai-oauth")
-        with patch.object(adapter, "signed_in", return_value=True):
+        with patch.object(adapter, "available", return_value=True):
             self.assertTrue(subs.subscription_active("xai-oauth"))
             # a Grok sign-in must NOT enable the Claude adapter's routing
             claude = subs.get_adapter("claude-agent-sdk")

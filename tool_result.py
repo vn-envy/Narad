@@ -17,7 +17,7 @@ from typing import Any
 
 from narad_config import ARTIFACTS_DIR
 
-SERVER_MEDIA_BASE = os.environ.get("MEDIA_URL_BASE", "http://localhost:8000/media").rstrip("/")
+SERVER_MEDIA_BASE = os.environ.get("MEDIA_URL_BASE", "http://127.0.0.1:8000/media").rstrip("/")
 
 
 def ensure_artifact_dir(prefix: str) -> Path:

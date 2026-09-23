@@ -158,7 +158,7 @@ def _extract_via_llm(user_id: str, avatar: str) -> list[dict]:
         )
 
         response = litellm.completion(
-            model=os.environ.get("DS_CHAT_MODEL", "deepseek/deepseek-chat"),
+            model=os.environ.get("DS_CHAT_MODEL", "deepseek/deepseek-flash"),
             messages=[{"role": "user", "content": prompt}],
             temperature=0.15,
             max_tokens=400,

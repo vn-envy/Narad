@@ -44,27 +44,31 @@ class ModelLadderTests(unittest.TestCase):
         self.assertEqual(r["tier"], "T0")
         self.assertEqual(r["tier_name"], "Kinara")
 
-    def test_12gb_gets_e4b_with_12b_optin(self):
+    def test_12gb_gets_e2b_in_adaptive_mode(self):
         r = _rec(_hw(ram=12))
-        self.assertEqual(r["model_key"], "e4b")
+        self.assertEqual(r["model_key"], "e2b")
         self.assertEqual(r["tier"], "T1")
-        alt_keys = [a["model_key"] for a in r["alternatives"]]
-        self.assertIn("12b-q4", alt_keys)
+        self.assertTrue(any("first used" in reason for reason in r["reasons"]))
 
-    def test_16gb_gets_flagship_12b_q4(self):
+    def test_16gb_auto_upgrades_to_e4b(self):
         r = _rec(_hw(ram=16))
-        self.assertEqual(r["model_key"], "12b-q4")
-        self.assertEqual(r["model"], "narad-local/gemma4-12b-it-qat")
+        self.assertEqual(r["model_key"], "e4b")
+        self.assertEqual(r["model"], "ollama/gemma4:e4b-it-q4_K_M")
         self.assertEqual(r["tier"], "T1")
 
-    def test_32gb_gets_12b_q8(self):
+    def test_32gb_stays_on_e4b_without_extra_tiers(self):
         r = _rec(_hw(ram=32))
-        self.assertEqual(r["model_key"], "12b-q8")
+        self.assertEqual(r["model_key"], "e4b")
+        self.assertEqual(r["alternatives"], [])
 
-    def test_24gb_vram_offers_26b_alternative(self):
+    def test_apple_silicon_uses_same_portable_tag(self):
+        r = _rec(_hw(ram=16, apple=True, gpu="apple-silicon"))
+        self.assertEqual(r["model"], "ollama/gemma4:e4b-it-q4_K_M")
+
+    def test_large_vram_does_not_add_another_model_tier(self):
         r = _rec(_hw(ram=32, vram=24, gpu="nvidia"))
-        alt_keys = [a["model_key"] for a in r["alternatives"]]
-        self.assertEqual(alt_keys[0], "26b-a4b")
+        self.assertEqual(r["model_key"], "e4b")
+        self.assertEqual(r["alternatives"], [])
 
     def test_payload_shape(self):
         r = _rec(_hw(ram=16))
@@ -77,9 +81,9 @@ class ModelLadderTests(unittest.TestCase):
 
 class DiskStepDownTests(unittest.TestCase):
     def test_tight_disk_steps_down_ladder(self):
-        # 32 GB RAM wants 12b-q8 (needs 16 GB); only 8 GB free → fits 12b-q4? needs 9 → no → e4b needs 7 → yes
-        r = _rec(_hw(ram=32, disk=8))
-        self.assertEqual(r["model_key"], "e4b")
+        # E4B needs 11.6 GB with headroom, so 10 GB steps down to E2B.
+        r = _rec(_hw(ram=32, disk=10))
+        self.assertEqual(r["model_key"], "e2b")
         self.assertTrue(any("stepped down" in reason for reason in r["reasons"]))
 
     def test_hopeless_disk_lands_on_e2b_with_warning(self):
@@ -89,7 +93,7 @@ class DiskStepDownTests(unittest.TestCase):
 
     def test_unknown_disk_skips_stepdown(self):
         r = _rec(_hw(ram=32, disk=0))
-        self.assertEqual(r["model_key"], "12b-q8")
+        self.assertEqual(r["model_key"], "e4b")
 
 
 class TierSelectionTests(unittest.TestCase):
@@ -122,11 +126,11 @@ class ChoicePersistenceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "onboarding.json"
             with patch.object(tier_engine, "ONBOARDING_PATH", path):
-                saved = tier_engine.save_tier_choice("T1", "narad-local/gemma4-12b-it-qat")
+                saved = tier_engine.save_tier_choice("T1", "ollama/gemma4:e4b-it-q4_K_M")
                 self.assertEqual(saved["tier"], "T1")
                 self.assertEqual(saved["tier_name"], "Sthanik")
                 loaded = tier_engine.load_tier_choice()
-                self.assertEqual(loaded["model"], "narad-local/gemma4-12b-it-qat")
+                self.assertEqual(loaded["model"], "ollama/gemma4:e4b-it-q4_K_M")
                 self.assertEqual(loaded["source"], "user")
                 # sibling keys survive
                 data = json.loads(path.read_text())
@@ -187,7 +191,7 @@ class CatalogSanityTests(unittest.TestCase):
         for key, m in MODELS.items():
             for field in ("id", "label", "quant", "download_gb", "min_ram_gb", "context_hint"):
                 self.assertIn(field, m, f"{key} missing {field}")
-            self.assertTrue(m["id"].startswith("narad-local/"), key)
+            self.assertTrue(m["id"].startswith("ollama/gemma4:"), key)
 
     def test_five_tiers(self):
         self.assertEqual(sorted(TIERS), ["T0", "T1", "T2", "T3", "T4"])

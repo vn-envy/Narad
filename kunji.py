@@ -57,7 +57,7 @@ PROVIDERS: dict[str, dict[str, Any]] = {
         "env": "DEEPSEEK_API_KEY",
         "prefixes": ("dsk-",),
         "key_page": "https://platform.deepseek.com/api_keys",
-        "test_model": "deepseek/deepseek-v4-flash",
+        "test_model": "deepseek/deepseek-flash",
     },
     "openai": {
         "label": "OpenAI",
@@ -73,6 +73,20 @@ PROVIDERS: dict[str, dict[str, Any]] = {
         "key_page": "https://waves.smallest.ai/apikeys",
         "test_model": "",  # not an LLM — test_key() has a dedicated TTS ping
     },
+    "exa": {
+        "label": "Exa web research",
+        "env": "EXA_API_KEY",
+        "prefixes": (),  # Exa keys do not have a stable public prefix; select explicitly.
+        "key_page": "https://dashboard.exa.ai/api-keys",
+        "test_model": "",
+    },
+    "typesafe": {
+        "label": "TypeSafe AI (Jev System One)",
+        "env": "TYPESAFE_API_KEY",
+        "prefixes": ("apikey_",),
+        "key_page": "https://typesafe.ai/",
+        "test_model": "",  # not an LLM — verified with a live decision call in test_key()
+    },
     "search": {
         "label": "Web search (Brave/Tavily/Serper)",
         "env": "BRAVE_API_KEY",
@@ -83,7 +97,7 @@ PROVIDERS: dict[str, dict[str, Any]] = {
 }
 
 # longest/most-specific first; "smallest" last so sk-*/dsk-/AIza never mis-hit
-_PREFIX_ORDER = ("anthropic", "google", "deepseek", "openai", "smallest")
+_PREFIX_ORDER = ("anthropic", "google", "deepseek", "openai", "smallest", "typesafe")
 
 
 def detect_provider_from_key(key: str) -> str | None:
@@ -272,6 +286,10 @@ def test_key(provider: str, key: str | None = None) -> tuple[bool, str]:
     meta = PROVIDERS[provider]
     if provider == "smallest":
         return _test_smallest_key((key or "").strip() or get_key(provider) or "")
+    if provider == "exa":
+        return _test_exa_key((key or "").strip() or get_key(provider) or "")
+    if provider == "typesafe":
+        return _test_typesafe_key((key or "").strip() or get_key(provider) or "")
     if not meta["test_model"]:
         return False, "no test call defined for this provider — key stored unverified"
     key = (key or "").strip() or get_key(provider) or ""
@@ -307,6 +325,50 @@ def _test_smallest_key(key: str) -> tuple[bool, str]:
             return True, "key verified against the Smallest.ai voice catalog"
         return False, f"Smallest.ai returned HTTP {resp.status_code}"
     except Exception as exc:  # network, DNS — land here honestly
+        return False, f"test call failed: {type(exc).__name__}: {exc}"[:300]
+
+
+def _test_exa_key(key: str) -> tuple[bool, str]:
+    """Verify Exa with a minimal one-result search."""
+    if not key:
+        return False, "no key to test"
+    try:
+        import httpx
+
+        response = httpx.post(
+            "https://api.exa.ai/search",
+            headers={"Authorization": f"Bearer {key}"},
+            json={"query": "Narad connectivity check", "type": "instant", "numResults": 1},
+            timeout=15,
+        )
+        if response.status_code == 200:
+            return True, "key verified with a live Exa search"
+        return False, f"Exa returned HTTP {response.status_code}"
+    except Exception as exc:
+        return False, f"test call failed: {type(exc).__name__}: {exc}"[:300]
+
+
+def _test_typesafe_key(key: str) -> tuple[bool, str]:
+    """Verify a TypeSafe Jev key with a minimal, read-only System One decision."""
+    if not key:
+        return False, "no key to test"
+    try:
+        import httpx
+
+        resp = httpx.post(
+            "https://api.typesafe.ai/v1/systemone",
+            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+            json={
+                "model": "jev-latest",
+                "state": {"check": "connectivity"},
+                "questions": {"ok": {"type": "noul", "instructions": "Is this a connectivity check?"}},
+            },
+            timeout=15,
+        )
+        if resp.status_code == 200:
+            return True, "key verified with a live System One decision call"
+        return False, f"TypeSafe returned HTTP {resp.status_code}"
+    except Exception as exc:
         return False, f"test call failed: {type(exc).__name__}: {exc}"[:300]
 
 

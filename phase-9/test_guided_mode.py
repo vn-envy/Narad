@@ -54,13 +54,15 @@ class GuidedModeLoopTests(unittest.TestCase):
         return (
             patch.object(learning_workspace, "LEARNING_DIR", temp_root),
             patch.object(guru_engine, "LEARNING_DIR", temp_root),
+            patch.object(guided_mode, "llm_json", side_effect=RuntimeError("offline test")),
+            patch.object(guru_engine, "llm_json", side_effect=RuntimeError("offline test")),
         )
 
     def test_full_loop_answer_skip_exit_resume(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             temp_root = Path(tmpdir)
-            p1, p2 = self._patched(temp_root)
-            with p1, p2:
+            p1, p2, p3, p4 = self._patched(temp_root)
+            with p1, p2, p3, p4:
                 ws = _seed(temp_root, "u", "loop topic")
 
                 started = guided_mode.start_session(user_id="u", mode="teach", topic="loop topic")
@@ -111,8 +113,8 @@ class GuidedModeLoopTests(unittest.TestCase):
     def test_mcq_grading_is_local_and_records_mastery(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             temp_root = Path(tmpdir)
-            p1, p2 = self._patched(temp_root)
-            with p1, p2:
+            p1, p2, p3, p4 = self._patched(temp_root)
+            with p1, p2, p3, p4:
                 ws = _seed(temp_root, "u", "mcq topic")
                 guided_mode.start_session(user_id="u", mode="teach", topic="mcq topic")
 
@@ -149,8 +151,8 @@ class GuidedModeLoopTests(unittest.TestCase):
     def test_guardrails(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             temp_root = Path(tmpdir)
-            p1, p2 = self._patched(temp_root)
-            with p1, p2:
+            p1, p2, p3, p4 = self._patched(temp_root)
+            with p1, p2, p3, p4:
                 with self.assertRaises(ValueError):
                     guided_mode.start_session(user_id="u", mode="no-such-mode", topic="x")
                 with self.assertRaises(ValueError):
@@ -164,8 +166,8 @@ class GuidedModeLoopTests(unittest.TestCase):
     def test_presentation_is_cached_per_atom(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             temp_root = Path(tmpdir)
-            p1, p2 = self._patched(temp_root)
-            with p1, p2:
+            p1, p2, p3, p4 = self._patched(temp_root)
+            with p1, p2, p3, p4:
                 _seed(temp_root, "u", "cache topic")
                 first = guided_mode.start_session(user_id="u", mode="teach", topic="cache topic")
                 with patch.object(guided_mode, "_present_atom") as present:

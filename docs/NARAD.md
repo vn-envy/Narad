@@ -131,7 +131,7 @@ Memory is per-user, per-string. Narad does not mix the strings.
 
 ## Architecture Reference
 
-**Model:** `deepseek/deepseek-v4-flash` (fast routing dispatch; override via
+**Model:** `deepseek/deepseek-flash` (DeepSeek V4.1 Flash routing and synthesis; override via
 `NARAD_MODEL` env)  
 **Context window:** 128K tokens — Narad sees the full conversation history  
 **Role:** supervisor only — never executes domain tasks directly

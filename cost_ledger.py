@@ -29,8 +29,12 @@ from narad_config import COST_LEDGER_PATH
 # ── Price table (USD per 1M tokens: input, output) ────────────────────────────
 
 _DEFAULT_PRICES: dict[str, tuple[float, float]] = {
+    # Conservative peak, cache-miss pricing for DeepSeek V4.1 Flash.
+    "deepseek-flash":           (0.30, 1.20),
     "deepseek-v4-pro":        (0.60, 2.40),
     "deepseek-v4-flash":      (0.10, 0.40),
+    "grok-4.6":                (2.00, 6.00),
+    "jev-latest":             (0.042, 0.0),
     "text-embedding-3-small": (0.02, 0.0),
     "ollama/":                (0.0, 0.0),  # local — free
     "narad-local/":           (0.0, 0.0),  # bundled local brain (S1) — free
@@ -42,6 +46,9 @@ _write_lock = threading.Lock()
 
 def _price_table() -> dict[str, tuple[float, float]]:
     table = dict(_DEFAULT_PRICES)
+    if os.environ.get("GROK_SERVICE_TIER", "priority").strip().lower() == "priority":
+        # xAI priority processing is billed at 2x standard token rates.
+        table["grok-4.6"] = (4.00, 12.00)
     raw = os.environ.get("NARAD_MODEL_PRICES", "")
     if raw:
         try:

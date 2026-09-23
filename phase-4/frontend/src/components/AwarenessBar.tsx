@@ -7,11 +7,13 @@ import { useState } from 'react'
 import type { AvatarName, AvatarStatus } from '../hooks/useAvatara'
 
 import { AVATAR_NAMES, AVATAR_COLOURS, AVATAR_RGB, DEVA } from '@/lib/avatara-constants'
+import { SURFACE_ITEMS, type AppSurface } from '@/lib/surfaces'
 
 interface Props {
   avatars: Record<AvatarName, AvatarStatus>
   activeSteps: number
-  onOpenDarshan: () => void
+  activeSurface: AppSurface
+  onNavigate: (surface: AppSurface) => void
   /** Phone layout: render as a bottom bar instead of the right-edge rail. */
   horizontal?: boolean
 }
@@ -19,7 +21,8 @@ interface Props {
 export function AwarenessBar({
   avatars,
   activeSteps,
-  onOpenDarshan,
+  activeSurface,
+  onNavigate,
   horizontal = false,
 }: Props) {
   const [hoveredAvatar, setHoveredAvatar] = useState<AvatarName | null>(null)
@@ -28,19 +31,20 @@ export function AwarenessBar({
     <div
       className={
         horizontal
-          ? 'flex flex-row items-center px-4 gap-4 w-full overflow-hidden'
-          : 'flex flex-col items-center py-3 gap-3 h-full overflow-hidden'
+          ? 'flex flex-row items-center w-full overflow-hidden'
+          : 'flex flex-col items-center h-full overflow-hidden'
       }
       style={
         horizontal
           ? {
-              height: 'calc(60px + env(safe-area-inset-bottom))',
+              height: 'calc(62px + env(safe-area-inset-bottom))',
               paddingBottom: 'env(safe-area-inset-bottom)',
               background: 'var(--kajal)',
               borderTop: '1px solid rgba(252,250,242,0.06)',
             }
           : {
               width: 72,
+              padding: '10px 8px',
               background: 'var(--kajal)',
               borderLeft: '1px solid rgba(252,250,242,0.06)',
             }
@@ -50,7 +54,7 @@ export function AwarenessBar({
       <div
         className={
           horizontal
-            ? 'flex flex-row items-center justify-center gap-5 flex-1'
+            ? 'hidden'
             : 'flex flex-col items-center gap-2.5 flex-1'
         }
       >
@@ -158,7 +162,7 @@ export function AwarenessBar({
       </div>
 
       {/* Step count */}
-      {activeSteps > 0 && (
+      {!horizontal && activeSteps > 0 && (
         <div
           className="text-center font-mono"
           style={{ color: 'var(--haldi)', fontSize: 9, lineHeight: '1.2' }}
@@ -168,32 +172,81 @@ export function AwarenessBar({
         </div>
       )}
 
-      {/* Dashboard open button */}
-      <button
-        onClick={onOpenDarshan}
-        title="Open Narad Dashboard (Traces, Memory, Tasks, Karma)"
-        className="flex flex-col items-center gap-0.5 group transition-opacity opacity-60 hover:opacity-100"
+      <nav
+        aria-label="Narad surfaces"
+        style={{
+          width: horizontal ? '100%' : 'auto',
+          display: 'grid',
+          gridTemplateColumns: horizontal ? 'repeat(4, minmax(0, 1fr))' : '1fr',
+          gap: horizontal ? 0 : 5,
+          borderTop: horizontal ? 'none' : '1px solid rgba(252,250,242,0.08)',
+          paddingTop: horizontal ? 0 : 9,
+        }}
       >
-        <span
-          className="flex items-center justify-center rounded"
-          style={{
-            width: 28,
-            height: 22,
-            border: '1px solid rgba(252,250,242,0.20)',
-            fontSize: 12,
-            color: 'rgba(252,250,242,0.7)',
-            background: 'rgba(252,250,242,0.06)',
-          }}
-        >
-          ⊞
-        </span>
-        <span
-          className="font-mono uppercase tracking-widest"
-          style={{ fontSize: 7, color: 'rgba(252,250,242,0.4)', letterSpacing: '0.12em' }}
-        >
-          Darshan
-        </span>
-      </button>
+        {SURFACE_ITEMS.map(item => {
+          const active = item.id === activeSurface
+          return (
+            <button
+              key={item.id}
+              type="button"
+              aria-current={active ? 'page' : undefined}
+              aria-label={`Open ${item.label}`}
+              title={item.label}
+              onClick={() => onNavigate(item.id)}
+              style={{
+                position: 'relative',
+                minWidth: horizontal ? 0 : 54,
+                minHeight: horizontal ? 54 : 42,
+                padding: horizontal ? '6px 2px' : '5px 4px',
+                border: 0,
+                borderRadius: horizontal ? 0 : 9,
+                background: active ? 'rgba(252,250,242,0.12)' : 'transparent',
+                color: active ? '#fcfaf2' : 'rgba(252,250,242,0.44)',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 2,
+                cursor: 'pointer',
+                transition: 'background 150ms ease, color 150ms ease',
+              }}
+            >
+              <span style={{ fontSize: 14, lineHeight: 1 }}>{item.icon}</span>
+              <span
+                style={{
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: horizontal ? 8 : 7,
+                  letterSpacing: '0.07em',
+                  textTransform: 'uppercase',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {item.label}
+              </span>
+              {horizontal && item.id === 'chat' && activeSteps > 0 && (
+                <span
+                  style={{
+                    position: 'absolute',
+                    top: 5,
+                    right: '25%',
+                    minWidth: 15,
+                    height: 15,
+                    borderRadius: 999,
+                    background: 'var(--sindoor)',
+                    color: '#fcfaf2',
+                    fontSize: 8,
+                    fontWeight: 700,
+                    display: 'grid',
+                    placeItems: 'center',
+                  }}
+                >
+                  {activeSteps}
+                </span>
+              )}
+            </button>
+          )
+        })}
+      </nav>
     </div>
   )
 }

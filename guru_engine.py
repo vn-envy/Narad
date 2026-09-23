@@ -1,5 +1,5 @@
 """
-Guru Engine — G1/G3 of the Gurukul track (see GURU-AND-ONBOARDING-PLAN.md).
+Teaching engine for Narad's persistent Teach workflow.
 
 Turns a learning topic into a syllabus: a small DAG of concept atoms, each
 carrying a four-rung ELI5 ladder (analogy → plain → precise → formal), one
@@ -60,7 +60,7 @@ def _tier_default(kind: str) -> str:
         from model_config import TIER_FLASH, TIER_PRO
         return TIER_PRO if kind == "pro" else TIER_FLASH
     except Exception:
-        return "deepseek/deepseek-v4-pro" if kind == "pro" else "deepseek/deepseek-v4-flash"
+        return "deepseek/deepseek-flash"
 
 
 GURU_MODEL = os.environ.get("GURU_MODEL", "") or _tier_default("pro")
@@ -138,7 +138,7 @@ def _record_cost(response: Any, source: str, model: str) -> None:
 # one wedged provider request into a 10-minute stall.
 _LLM_TIMEOUT_S = float(os.environ.get("NARAD_LLM_TIMEOUT_S", "120"))
 
-# Reasoning models (deepseek-v4-pro) count thinking tokens against max_tokens.
+# Reasoning models count thinking tokens against max_tokens.
 # A budget that fits the JSON alone starves: content comes back EMPTY or
 # truncated mid-object. On such failures we retry with a doubled budget.
 _LLM_MAX_TOKENS_CEILING = 8192
@@ -155,18 +155,24 @@ def llm_json(
 ) -> dict:
     """One JSON-returning LLM call with backoff. Raises on total failure."""
     import litellm
+    from narad_litellm import completion_options, ensure_model_credentials
 
     delay = 1.0
     budget = max_tokens
     last_error: Exception | None = None
     for attempt in range(max_retries + 1):
         try:
+            ensure_model_credentials(model)
+            completion_kwargs = {
+                "model": model,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": temperature,
+                "max_tokens": budget,
+                "timeout": _LLM_TIMEOUT_S,
+                **completion_options(model),
+            }
             response = litellm.completion(
-                model=model,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=temperature,
-                max_tokens=budget,
-                timeout=_LLM_TIMEOUT_S,
+                **completion_kwargs,
             )
             _record_cost(response, source, model)
             content = (response.choices[0].message.content or "").strip()

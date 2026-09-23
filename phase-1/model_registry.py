@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import math
 import os
-import shutil
 from dataclasses import asdict, dataclass
 from functools import lru_cache
 from typing import Any
@@ -29,9 +28,9 @@ class ModelProfile:
 _PROVIDER_DEFAULTS: dict[str, int] = {
     "anthropic": 200_000,
     "openai": 128_000,
-    "deepseek": 128_000,
+    "deepseek": 1_048_565,
     "google": 1_000_000,
-    "xai": 256_000,  # grok-4.x family
+    "xai": 500_000,  # Grok 4.6
     "local": 32_000,
     "narad-local": 32_000,  # bundled llama-server (S1); O2 adds per-quant overrides
     "narad-claude-sdk": 200_000,  # Claude plan credits via Agent SDK (S3)
@@ -41,16 +40,20 @@ _PROVIDER_DEFAULTS: dict[str, int] = {
 # LiteLLM's context map can lag provider reality. Narad keeps explicit overrides
 # for models we have seen mismatch in live traffic.
 _MODEL_OVERRIDES: dict[str, int] = {
+    "deepseek/deepseek-flash": 1_048_565,
+    "deepseek-flash": 1_048_565,
     "deepseek/deepseek-v4-flash": 1_048_565,
     "deepseek/deepseek-v4-pro": 1_048_565,
     "deepseek-v4-flash": 1_048_565,
     "deepseek-v4-pro": 1_048_565,
+    "xai/grok-4.6": 500_000,
+    "grok-4.6": 500_000,
     "gemini/gemini-2.5-pro": 1_048_576,
     "gemini/gemini-2.5-flash": 1_048_576,
     "gemini/gemini-3-flash-preview": 1_048_576,
 }
 
-_PROMPT_CACHE_PROVIDERS = {"anthropic", "openai", "google"}
+_PROMPT_CACHE_PROVIDERS = {"anthropic", "openai", "google", "deepseek", "xai"}
 _NATIVE_COMPACTION_PROVIDERS = {"openai"}
 _PROVIDER_TOKEN_COUNT_PROVIDERS = {"google"}
 
@@ -102,15 +105,18 @@ def provider_available_for_model(model: str) -> bool:
     if provider == "anthropic":
         return bool(os.environ.get("ANTHROPIC_API_KEY", "").strip())
     if provider == "xai":
-        if os.environ.get("XAI_API_KEY", "").strip():
-            return True  # .env escape hatch or an already-exported OAuth token
         try:
-            from xai_oauth import get_access_token
-            return bool(get_access_token())  # auto-refreshes + exports XAI_API_KEY
+            from xai_oauth import ensure_runtime_token
+            return ensure_runtime_token()
+        except Exception:
+            return bool(os.environ.get("XAI_API_KEY", "").strip())
+    if provider == "local":
+        try:
+            from local_model_runtime import local_model_available
+
+            return local_model_available(model)
         except Exception:
             return False
-    if provider == "local":
-        return bool(os.environ.get("OLLAMA_HOST", "").strip() or shutil.which("ollama"))
     if provider == "narad-local":
         # Bundled llama-server (O2 launches it and sets the URL). Until then the
         # tier engine can still *recommend* narad-local models; they only become
@@ -166,12 +172,12 @@ def _fallback_candidates(model: str) -> list[str]:
     ]
     local_defaults = [
         os.environ.get("GOOGLE_CONTEXT_FALLBACK_MODEL", "gemini/gemini-2.5-pro"),
-        os.environ.get("DEEPSEEK_CONTEXT_FALLBACK_MODEL", "deepseek/deepseek-v4-pro"),
+        os.environ.get("DEEPSEEK_CONTEXT_FALLBACK_MODEL", "deepseek/deepseek-flash"),
     ]
 
     xai_defaults = [
+        os.environ.get("DEEPSEEK_CONTEXT_FALLBACK_MODEL", "deepseek/deepseek-flash"),
         os.environ.get("GOOGLE_CONTEXT_FALLBACK_MODEL", "gemini/gemini-2.5-pro"),
-        os.environ.get("DEEPSEEK_CONTEXT_FALLBACK_MODEL", "deepseek/deepseek-v4-pro"),
     ]
 
     options = {
@@ -192,6 +198,13 @@ def _fallback_candidates(model: str) -> list[str]:
 def get_model_profile(model: str, *, long_running: bool = False) -> ModelProfile:
     provider = detect_provider(model)
     override = _MODEL_OVERRIDES.get((model or "").lower())
+    if provider == "local" and "gemma4" in (model or "").lower():
+        try:
+            from local_model_runtime import configured_context_tokens
+
+            override = configured_context_tokens()
+        except Exception:
+            override = override or 32_768
     max_context_tokens = override or _litellm_max_tokens(model) or _PROVIDER_DEFAULTS[provider]
     reserved_output_tokens = max(4096, math.ceil(max_context_tokens * 0.10))
     hard_input_budget_tokens = max(1024, max_context_tokens - reserved_output_tokens)

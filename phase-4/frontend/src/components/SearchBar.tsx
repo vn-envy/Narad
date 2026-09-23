@@ -15,6 +15,7 @@ export interface SearchResult {
 interface Props {
   userId: string
   onNavigate?: (nav: string) => void
+  tone?: 'light' | 'dark'
 }
 
 const TYPE_LABELS: Record<string, string> = {
@@ -49,7 +50,7 @@ function TypeBadge({ type }: { type: string }) {
   )
 }
 
-export function SearchBar({ userId, onNavigate }: Props) {
+export function SearchBar({ userId, onNavigate, tone = 'light' }: Props) {
   const [query, setQuery]       = useState('')
   const [results, setResults]   = useState<SearchResult[]>([])
   const [loading, setLoading]   = useState(false)
@@ -133,22 +134,23 @@ export function SearchBar({ userId, onNavigate }: Props) {
       <div style={{ position: 'relative' }}>
         <span style={{
           position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)',
-          color: open ? 'var(--marigold)' : 'rgba(26,24,21,0.35)', fontSize: 14, pointerEvents: 'none',
+          color: open ? 'var(--sindoor)' : tone === 'dark' ? 'rgba(252,250,242,0.48)' : 'rgba(26,24,21,0.35)', fontSize: 14, pointerEvents: 'none',
         }}>⌕</span>
         <input
+          className={tone === 'dark' ? 'dashboard-search-dark' : undefined}
           ref={inputRef}
           value={query}
           onChange={e => handleChange(e.target.value)}
           onKeyDown={handleKeyDown}
           onFocus={() => { if (query.length >= 2) setOpen(true) }}
-          placeholder="Search Smriti, sessions, Karya, Karma…"
+          placeholder="Search memory, sessions, and tasks…"
           style={{
             width: '100%',
-            background: 'rgba(26,24,21,0.06)',
-            border: `1px solid ${open ? 'var(--marigold)' : 'rgba(26,24,21,0.15)'}`,
+            background: tone === 'dark' ? 'rgba(252,250,242,0.075)' : 'rgba(26,24,21,0.06)',
+            border: `1px solid ${open ? 'var(--sindoor)' : tone === 'dark' ? 'rgba(252,250,242,0.14)' : 'rgba(26,24,21,0.15)'}`,
             borderRadius: 8,
             padding: '6px 48px 6px 32px',
-            color: 'var(--kajal)',
+            color: tone === 'dark' ? '#fcfaf2' : 'var(--kajal)',
             fontFamily: 'var(--font-body)',
             fontSize: 12.5, outline: 'none',
             boxShadow: open ? '0 0 0 3px rgba(242,142,28,0.18)' : 'none',
@@ -160,8 +162,8 @@ export function SearchBar({ userId, onNavigate }: Props) {
             onClick={() => { setQuery(''); setOpen(false) }}
             style={{
               position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
-              fontSize: 10, color: 'rgba(26,24,21,0.45)', background: 'rgba(26,24,21,0.08)',
-              border: '1px solid rgba(26,24,21,0.12)', borderRadius: 3, padding: '1px 5px',
+              fontSize: 10, color: tone === 'dark' ? 'rgba(252,250,242,0.6)' : 'rgba(26,24,21,0.45)', background: tone === 'dark' ? 'rgba(252,250,242,0.08)' : 'rgba(26,24,21,0.08)',
+              border: `1px solid ${tone === 'dark' ? 'rgba(252,250,242,0.12)' : 'rgba(26,24,21,0.12)'}`, borderRadius: 3, padding: '1px 5px',
               cursor: 'pointer',
             }}
           >✕</button>
@@ -169,8 +171,8 @@ export function SearchBar({ userId, onNavigate }: Props) {
           <span style={{
             position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
             fontFamily: 'var(--font-mono)', fontSize: 10,
-            color: 'rgba(26,24,21,0.35)', background: 'rgba(26,24,21,0.06)',
-            border: '1px solid rgba(26,24,21,0.12)', borderRadius: 3, padding: '1px 5px',
+            color: tone === 'dark' ? 'rgba(252,250,242,0.42)' : 'rgba(26,24,21,0.35)', background: tone === 'dark' ? 'rgba(252,250,242,0.06)' : 'rgba(26,24,21,0.06)',
+            border: `1px solid ${tone === 'dark' ? 'rgba(252,250,242,0.11)' : 'rgba(26,24,21,0.12)'}`, borderRadius: 3, padding: '1px 5px',
           }}>⌘K</span>
         )}
       </div>

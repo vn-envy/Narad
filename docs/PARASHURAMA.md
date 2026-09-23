@@ -108,7 +108,7 @@ Slices are **vertical** (schema + logic + test together, independently shippable
 never horizontal (schema for everything, then logic for everything, then tests at
 the end). Each slice emerges complete.
 
-Output format — `SPRINT_JSON` (feeds the Kanban board):
+Output format — `SPRINT_JSON` (portable structured task manifest):
 
 ```json
 {
@@ -203,7 +203,7 @@ omens. He referred his students to the appropriate teachers for those.
 
 ## Architecture Reference
 
-**Model:** `deepseek/deepseek-v4-pro` (default; override via `PARASHURAMA_MODEL` env)  
+**Model:** `xai/grok-4.6` priority (default when Grok is connected; override via `PARASHURAMA_MODEL` env)
 **Context window:** 128K tokens  
 **Prompt layers (injection order, innermost → outermost):**
 

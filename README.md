@@ -1,259 +1,284 @@
 # Narad
 
-> *"We didn't invent multi-agent AI. We remembered it."*
+<p align="center">
+  <strong>A local-first personal AI harness for work, learning, and everyday life.</strong><br>
+  One supervisor, four specialists, six durable workflows, and memory that stays yours.
+</p>
 
-Four canonical agents. One sage who plays them. Cloud now, local later, yours forever.
+<p align="center">
+  <a href="https://github.com/vn-envy/Narad/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/vn-envy/Narad/actions/workflows/ci.yml/badge.svg"></a>
+  <img alt="Python 3.11+" src="https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white">
+  <img alt="React 18" src="https://img.shields.io/badge/React-18-149ECA?logo=react&logoColor=white">
+  <img alt="Local first" src="https://img.shields.io/badge/runtime-local--first-2F6B4F">
+  <a href="./LICENSE"><img alt="Apache 2.0" src="https://img.shields.io/badge/license-Apache--2.0-D65A31"></a>
+</p>
 
-![License](https://img.shields.io/badge/license-Apache--2.0-blue)
-![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)
-![Node](https://img.shields.io/badge/node-20%2B-339933?logo=node.js&logoColor=white)
-![Voice](https://img.shields.io/badge/voice-100%25%20local-e8590c)
-![Server](https://img.shields.io/badge/binds-127.0.0.1%20only-2b8a3e)
+<p align="center">
+  <img alt="Narad chat" src="docs/assets/chat.png" width="920">
+</p>
 
-![Narad — नमस्ते](docs/assets/chat.png)
+> **Pilot status:** Narad is usable today on desktop and mobile, including isolated family profiles. External actions remain preview-first and require explicit consent.
 
----
+## Why Narad
 
-## What this is
+Most assistants give you a chat box. Narad provides a small personal operating system:
 
-**Narad** is the product — the orchestrator. An AI system modelled on the kalakar Narad Muni, who holds the Mahati veena and decides which string to pluck for every task.
+- **Useful without a subscription.** A managed local Gemma fallback starts with no API key and upgrades its size based on available RAM.
+- **One interface, four specialists.** Research, planning, teaching, communication, code, and automation route through a single supervisor.
+- **Work that survives the chat.** Guided workflows, learning records, artifacts, attachments, schedules, and memory persist locally.
+- **Real tools, bounded authority.** Web research, Google Workspace, browser use, desktop control, and Android control are scoped, previewed, and audited.
+- **Built for people, not seats.** Family profiles isolate conversations, memory, files, OAuth tokens, workflows, and device grants on one shared installation.
 
-**Avatāra** (अवतार) is the concept — what Silicon Valley now calls "agents." A form that descends with purpose, completes its mission, and releases. The Bhagavad Gita described this API specification three thousand years ago.
+## Four Surfaces
 
-The Mahati now has four canonical strings in the shipped build. Narad summons the right one for the work at hand.
-
----
-
-## The four canonical agents
-
-| Avatāra | Sanskrit | Domain |
-|---|---|---|
-| Matsya | मत्स्य | Web search, document understanding, research synthesis, local information access |
-| Rama | राम | Structured planning, calendar management, finance workflows, health logging |
-| Krishna | कृष्ण | Communication drafting, email, education, media generation, wellness guidance |
-| Parashurama | परशुराम | Code, shell execution, SQL, automation, document output |
-
-**Narad** routes. **Smriti** remembers. **Tapas** learns. **Sankalpa** adapts. **Yantra** observes. **Karma** records. **Sutras** compound.
-
----
-
-## A look around
-
-| | |
+| Surface | What it is for |
 |---|---|
-| ![Darshan dashboard](docs/assets/dashboard.png) | ![Gurukul teaching chamber](docs/assets/gurukul.png) |
-| **Darshan** — the live weave: which avatāras are awake, what was routed, token footprint | **Gurukul** — the teaching chamber: topics decomposed into atoms, climbed rung by rung |
-| ![Kunji key management](docs/assets/kunji.png) | ![Voice mode](docs/assets/voice.png) |
-| **Kunji** — paste a key once; auto-detected, live-tested, held in your OS keychain | **Voice mode** — hands-free, fully local: speak, Narad answers in the avatāra's voice |
+| **Chat** | The universal path for questions, files, folders, URLs, voice, tool calls, and native artifacts. |
+| **Workflows** | Durable paths for Career, Health, Travel, Teach Anything, Personal Finance, and Documents. |
+| **Memory** | Personal recall, commitments, and durable preferences without exposing an internal project-management system. |
+| **System** | Runtime health, models, traces, connections, permissions, and profile-scoped device access. |
 
----
+There is no separate Projects or Kanban surface. Workflow stages are the progress model; normal chat stays open-ended.
 
-## Architecture in one breath
+## The Four Avatars
 
-```
-User → Narad (supervisor) → 1–3 avatāras (specialists)
-             ↑                        ↓
-        Smriti (recall)        Tapas (score → sutra)
-        Sutras (inject)        Yantra (trace)
-        Sankalpa (style)       Karma (audit)
-```
+| Avatar | Owns |
+|---|---|
+| **Matsya** | Web research, source synthesis, document understanding, browser/computer use, and local information access. |
+| **Rama** | Planning, calendars, finance, health tracking, recurring reviews, and structured decisions. |
+| **Krishna** | Teaching, writing, email, presentations, native learning artifacts, media, and wellness guidance. |
+| **Parashurama** | Code, shell, SQL, automation, engineering analysis, and operational documents. |
 
-Full technical architecture: [ARCHITECTURE.md](./ARCHITECTURE.md) · Manual test plan: [docs/MANUAL_TESTPLAN_2026-07-09.md](./docs/MANUAL_TESTPLAN_2026-07-09.md)
+Narad routes. Smriti remembers. Tapas evaluates. Dharma gates actions. Yantra traces. Kala schedules. Karma records.
 
----
+## Built-In Workflows
 
-## Repository layout
+| Path | Closed loop |
+|---|---|
+| **Career** | Research roles -> rank fit -> tailor application -> review submission -> prepare -> learn from outcomes. |
+| **Health** | Establish baseline -> set safety boundary -> plan food and movement -> track -> adapt weekly. |
+| **Travel** | Capture constraints -> research live options -> compare -> build itinerary -> review bookings -> re-plan changes. |
+| **Teach Anything** | Set a learning mission -> diagnose -> teach one concept -> check understanding -> reinforce -> schedule review. |
+| **Personal Finance** | Import local data -> analyze cash flow -> ground assumptions -> compare scenarios -> review monthly. |
+| **Documents** | Ingest evidence -> analyze -> shape narrative -> create report, presentation, or story -> revise. |
 
-```
-(root)          The harness layer — shared by every phase
-  narad_paths.py          Single-source sys.path bootstrap (replaces scattered inserts)
-  narad_config.py         Canonical path constants (NARAD_HOME, TRACE_DIR, CONFIG_DIR, …)
-  narad_server_entry.py   `narad-server` console entry point (127.0.0.1:8000 by default)
-  dharma.py               Policy gates — fail-closed action permissions (executor, email, …)
-  smriti_core.py + smriti_*.py  Memory: episodes, commitments, vector tiers, recall ranking
-  guru_engine.py          Teaching: syllabus atoms, four rungs, mastery grading, reviews
-  tier_engine.py          Sopan: hardware detection → Gemma 4 ladder recommendation
-  kunji.py                Key management: prefix detect, live test, OS keychain storage
-  subscription_providers.py  Claude Agent SDK plan-credit adapter registry
-  cost_ledger.py          Per-model spend tracking (narad-local/ and subscription pinned $0)
-  kala_scheduler.py       Time-based loop — reminders, Swapna hour, due reviews
-  vahana.py               Notification channel (inbox + optional ntfy push to phone)
+Every run keeps intake, stage state, outputs, citations, confirmations, schedules, and feedback. See [Workflow Paths](./docs/WORKFLOW_PATHS.md) for the runtime contract.
 
-phase-1/        FastAPI SSE server · Narad router · canonical 4-agent build
-  server.py               POST /chat SSE stream + all endpoints (learning, connections, tiers, karma)
-  narad_agent.py          Narad supervisor (DeepSeek V4)
-  avatar_agents.py        4 LlmAgent specialists + _make_avatar_tool (Smriti/Sutra/Sankalpa gates)
-  model_config.py         Per-avatar model assignments (LiteLLM strings, env-overridable)
-  model_registry.py       Provider detection, context windows, fallback candidates
-  runtime_contract.py     Startup checks → capabilities the UI renders honestly
-  context_governor.py     Token budgeting per model
-  kanban.py / andon.py / narad_5s.py   Six Sigma quality layer
+## Quick Start
 
-phase-2/        Memory · Search · Observability
-  smriti.py               LanceDB vector memory + FTS5
-  matsya_search.py        Tavily web search
-  yantra.py               JSONL session tracer
+Narad requires Python 3.11+, Node 20+, and Git. macOS on Apple Silicon is the primary pilot environment; the core server also supports Linux.
 
-phase-3/        Self-evolution
-  tapas.py                Quality scoring + sutra promotion
+### macOS: no-terminal setup
 
-phase-4/        Frontend (React 18 · Vite 6 · Tailwind 4 · PWA)
-  frontend/src/
-    hooks/useAvatara.ts             SSE state machine
-    lib/agent-contracts.ts          Avatar identity from contracts/agent-contracts.json
-    components/ChatPanel.tsx        Conversation surface + suggestion chips
-    components/AwarenessBar.tsx     Right-edge presence rail (Devanagari initials, Mahati strings)
-    components/MahatiLogo.tsx       The veena — four strings, plucked by the active avatāra
-    components/NaradDashboard.tsx   Tabbed drawer: Darshan · Karma · Smriti · DivyaDrishti · Tapasya · Gurukul · Kunji
-    components/GurukulTab.tsx       Teaching chamber — syllabus tree, lesson canvas, artifacts
-    components/KunjiTab.tsx         Connections — paste-a-key, provider cards, subscriptions
+Clone or download the repository, then double-click:
 
-phase-5/        Sutra engine · Karma log
-  sutra_engine.py         Sutra lifecycle (pending → active → reverted)
-  karma_log.py            Append-only mutation audit trail
-
-phase-6/        Sankalpa engine
-  sankalpa.py             Per-user style and intent modeling
-
-phase-7/        Code executor · Media generation
-  executor.py             AST-analyzed, env-scrubbed, time/output-capped Python runner
-  skills/video_skill.py   create_video() — moviepy + Pillow
-
-phase-8/        Tier 1 skills (all core domains fully tooled)
-  local_skill.py        scan_directory, move_to_trash, organize_by_type (Matsya/Parashurama support)
-  shell_skill.py        run_shell — sandboxed shell commands (Parashurama)
-  sql_skill.py          query_database — read-only SQL (Parashurama)
-  email_skill.py        compose_email, send_email via SMTP (Krishna)
-  calendar_skill.py     get/create CalDAV events (Rama)
-  docling_skill.py      extract_document — pymupdf/python-docx default; NARAD_USE_DOCLING=1 for docling (Matsya)
-  browser_skill.py      browse_url — JS-rendered pages (Matsya)
-  document_skill.py     create_document() — DOCX via python-docx (Parashurama)
-  browser_act_skill.py  browser_screenshot, browser_fill, browser_upload_and_submit (Matsya)
-  finance_skill.py      import_csv, sync_gmail, budgets, goals, get_spend_patterns (Rama discipline)
-  health_skill.py       log_symptom, set_medication_reminder, get_health_log (Rama/Krishna discipline)
-
-phase-9/        Project system · Smriti v2 · skills · tests
-  scribe.py               Post-session wiki compiler
-  smriti_v2.py            Project-scoped Markdown wiki + get_project_context()
-
-contracts/agent-contracts.json   Single source of truth: 4 canonical agents, UI colors, tools
-benchmarks/                      Golden-task baselines + security re-test snapshots
-evals/golden_tasks.json          48+ structural CI checks (incl. guru group)
+```text
+Start Narad.command
 ```
 
-Historical spikes (phase-0a routing eval, phase-0b ADK+SSE PoC) live on the `archive/spikes` branch.
+The launcher creates the virtual environment, installs dependencies, builds the frontend, starts Narad on loopback, and opens the app.
 
----
-
-## Setup
-
-Requires **Python ≥ 3.11**, **Node ≥ 20**, and git. Tested on macOS (Apple Silicon) and Linux.
-
-**No-terminal path (macOS):** double-click **`Start Narad.command`** in the repo folder. First run installs everything (venv + frontend build, a few minutes); after that it starts in seconds and opens your browser at http://127.0.0.1:8000 automatically. Close the window to stop. Or do it by hand:
-
-**1. Clone and install the backend**
+### Terminal setup
 
 ```bash
-git clone https://github.com/vn-envy/Narad.git && cd Narad
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e .
-```
+git clone https://github.com/vn-envy/Narad.git
+cd Narad
 
-**2. Build the frontend** (once — the server serves it itself, one origin, no CORS)
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
 
-```bash
-cd phase-4/frontend && npm ci && npm run build && cd ../..
-```
+cd phase-4/frontend
+npm ci
+npm run build
+cd ../..
 
-**3. Run**
-
-```bash
 narad-server
 ```
 
-Open http://127.0.0.1:8000.
+Open [http://127.0.0.1:8000](http://127.0.0.1:8000).
 
-**4. Add keys** — paste them in the UI (Dashboard → **Kunji** tab; stored in your OS keychain, live-tested), or export the old way:
-
-```bash
-export DEEPSEEK_API_KEY=dsk-...    # router + avatāras + Tapas judge
-export GEMINI_API_KEY=AIza...      # Smriti embeddings + media
-export TAVILY_API_KEY=tvly-...     # optional: Matsya web search
-```
-
-The server starts with zero keys and degrades honestly — the UI shows exactly which capabilities are live.
-
-For development, `npm run dev` in `phase-4/frontend` gives live reload on :5173.
-
-### Voice (optional, fully local)
-
-Narad talks and listens without any cloud key:
+For live frontend development:
 
 ```bash
-pip install -e ".[voice]"          # Kokoro-82M TTS (CPU-fast) + faster-whisper STT
-brew install espeak-ng ffmpeg      # macOS; on Linux: apt install espeak-ng ffmpeg
+./dev.sh
 ```
 
-`[voice-pro]` instead adds VoxCPM (GPU/Apple Silicon — higher quality, Hindi, zero-shot voice cloning). Models download on first use (~800MB one time).
+## Four-Step Onboarding
 
-Click **voice** in the chat header for hands-free mode: speak, Narad answers aloud in the avatar's voice; talk over it to interrupt; toggle हिन्दी for Hindi output. Engine resolution is automatic (Smallest.ai when connected → VoxCPM → Kokoro — zero API credits by default); check `GET /voice/status`. With nothing installed, voice input falls back to browser speech recognition.
+1. **Create your profile.** Choose a display name and, in family mode, a private PIN.
+2. **Choose the brain.** Use the local model or connect a supported hosted endpoint.
+3. **Connect your world.** Grant Google and optional computer/phone access only to the active profile.
+4. **Start with a path.** Open normal chat or launch one of the six guided workflows.
 
-**Premium voices (optional):** paste a [Smallest.ai](https://waves.smallest.ai) key in Settings → Connections and every avatāra gets its own distinct Waves voice (English + Hindi), with the local engines as automatic fallback. Override any voice with `NARAD_SMALLEST_VOICE_<AVATAR>`.
+The default local ladder is deliberately simple:
 
-Tuning env vars: `NARAD_WHISPER_MODEL` (tiny/base/small/medium), `NARAD_TTS_ENGINE` (auto/smallest/kokoro/voxcpm), `NARAD_VOXCPM_MODEL`, `NARAD_VOICE_REF_DIR` (per-avatar `<avatar>.wav` + `.txt` reference for cloning).
+- Under 16 GB RAM: Gemma 4 E2B Q4
+- 16 GB RAM and above: Gemma 4 E4B Q4
 
-### Grok as an alternative brain (optional)
+Narad downloads the selected Ollama model only when requested, lazy-loads it on first use, and releases it quickly on constrained machines. A healthy connected endpoint can become the text and multimodal default; model routing is not tied to one vision vendor.
 
-Have SuperGrok or X Premium+? **Sign in with Grok** in Settings → Connections (OAuth — no API key to paste) — that's it. When no working DeepSeek key is configured (missing, or the API rejects it with 401), the whole avatāra fleet automatically runs on `xai/grok-4.3` at the next start. Set `NARAD_BRAIN=grok` to force Grok even alongside a working DeepSeek key. Per-avatar overrides (`KRISHNA_MODEL=xai/grok-4.3` etc.) let you mix providers freely; a real `XAI_API_KEY` in `.env` always wins over the stored OAuth token.
+## Attach Anything Relevant
 
-### Security defaults
+The chat composer accepts images, documents, data files, source code, archives, and folders. Paste an HTTP(S) URL directly for Matsya to retrieve the live page.
 
-- Binds `127.0.0.1` — nothing is exposed to the network unless you rebind.
-- Bearer token auto-generated at `~/.narad/config/api_token` (chmod 600). `NARAD_AUTH=local` (default) trusts loopback; `strict` requires the token on every request; `off` is for tests.
-- Dharma gates: executor runs, email send, and browser form-fill are policy-gated and fail closed; every decision lands in the Karma log.
-- Executor sandbox: AST import/call analysis, env scrubbed to an allowlist (no API keys cross), wall-clock and output caps.
+Uploads are stored under `~/.narad/attachments/`. Models receive bounded extracts plus exact reread references instead of an ever-growing raw prompt. Default limits are 50 MB per file, 200 MB per selection, and 256 files.
 
-## From your phone
+## Connections and Local Control
 
-The frontend is a PWA (installable, portrait, standalone) and the server is transport-agnostic. The supported phone path keeps the loopback bind:
+Optional integrations expand Narad without becoming startup requirements.
 
-```bash
-# On the machine running narad-server (Mac/Linux), with Tailscale installed:
-tailscale serve --bg 8000
-```
-
-Then on your phone (same tailnet): open `https://<machine>.<tailnet>.ts.net` → everything works because `tailscale serve` proxies via loopback (passes `NARAD_AUTH=local`) and gives you real HTTPS. Add to Home Screen → Narad runs as a standalone app: chat with Narad, watch the avatāras pluck, open Gurukul lessons, manage keys in Kunji.
-
-Push notifications (reminders, due reviews, budget warnings) ride ntfy: install the ntfy app, subscribe to your topic, and set `NTFY_URL` + `NTFY_TOPIC` on the server. Vahana delivers to both the in-app inbox and your phone.
-
-Avoid `--host 0.0.0.0` on untrusted networks; if you must rebind, run `NARAD_AUTH=strict` so every request needs the bearer token.
-
----
-
-## Build phases
-
-| Phase | Name | Status |
+| Integration | Purpose | Boundary |
 |---|---|---|
-| 0a | Model evaluation spike — routing accuracy on local 4B model | ✅ Done |
-| 0b | ADK + SSE PoC — architecture validated | ✅ Done |
-| 1 | Live LLM agents — Narad + canonical 4-agent build on DeepSeek, ADK runner | ✅ Done |
-| 2 | Memory + Search + Observability — Smriti, Matsya search, Yantra | ✅ Done |
-| 3 | Tapas — quality scoring, sutra promotion, avatar rubrics | ✅ Done |
-| 4 | Frontend — React SSE UI, DarshanPanel call graph | ✅ Done |
-| 5 | Sutra engine + Karma log — learned pattern lifecycle | ✅ Done |
-| 6 | Sankalpa engine — per-user style modeling | ✅ Done |
-| 7 | Code executor + media generation — video, audio via Parashurama | ✅ Done |
-| 8 | Tier 1 skills — all 4 canonical agents fully tooled | ✅ Done |
-| 9 | Resume tailoring + job application — DOCX output + interactive browser | ✅ Done |
-| 10 | Observability v2 + memory refinements + Dharma guardrails | ✅ Done |
-| 11 | Project detection, Scribe wiki compiler, left-panel UX | ✅ Done |
-| 12 | AssetOpsBench integration, typed traces, Markov spend patterns, health anomaly detection | ✅ Done |
-| 13 | Six Sigma quality layer — Kanban, Andon, 5S, DMAIC + Darshan Dashboard overhaul | ✅ Done |
-| 14 | Notion sync bridge | ❌ Cut (M0, 2026-07-04 — one-way stub, silent failures) |
-| 15 | Desktop packaging (Tauri) — local Gemma 4 brain, offline-first, signed installer | 🔨 Next (O1/O2 in GURU-AND-ONBOARDING-PLAN.md) |
+| **Google Workspace** | Gmail, Calendar, Drive, and Photos | One OAuth client for the installation; separate tokens and consent per profile. |
+| **Exa** | Current search, extraction, highlights, and cited research | Research only; it does not control authenticated pages. |
+| **BrowserSkill / Playwright** | Isolated browsing or a profile-granted signed-in Chromium session | Stateful submissions remain confirmation-gated. |
+| **CUA Driver** | Typed desktop control on the host Mac | Requires macOS Accessibility and Screen Recording permission plus a profile grant. |
+| **Artemis** | Android observation and action through local ADB | Devices are paired locally and granted to one profile at a time. |
+| **Jev** | Deterministic admission and post-action verification | Scores desktop and phone runs; it does not replace model reasoning. |
 
----
+Narad works when these services are absent. Capability reporting tells the UI what is ready, preview-only, or unavailable instead of failing behind a generic tool error.
+
+## Family Pilot
+
+One host can serve multiple family members while keeping their personal state separate. Each profile gets its own:
+
+- chat sessions and working context
+- Smriti memory and learned preferences
+- attachments, artifacts, and teaching records
+- workflows, health records, and finance records
+- Google OAuth token and consent state
+- browser, desktop, and Android device grants
+
+Model weights and installation-wide provider configuration are shared so the machine does not duplicate large downloads.
+
+The included maintainer launcher publishes the loopback server through an outbound Cloudflare Tunnel:
+
+```text
+Start Family Pilot.command
+```
+
+It expects a configured Cloudflare tunnel token at `~/.cloudflared/narad-token`. Override `NARAD_PUBLIC_URL` and `NARAD_CLOUDFLARE_TOKEN_FILE` for another deployment. The launcher enables strict profile authentication, keeps Narad bound to `127.0.0.1`, starts optional CUA and Artemis runtimes when installed, and keeps the host awake while the pilot is running.
+
+Phones need only a modern browser and the HTTPS URL. Android ADB pairing is required only when Narad should operate the phone itself.
+
+### Google owner setup
+
+Create one Google OAuth web client and add the public callback URL:
+
+```text
+https://YOUR_NARAD_DOMAIN/google/callback
+```
+
+The family owner enters that client ID and secret once during onboarding. Every person then connects their own Google account while their profile is active, beginning with read-only consent.
+
+## Architecture
+
+```text
+Browser / PWA
+     |
+     v
+FastAPI + SSE  ---- profile boundary ---- local stores under ~/.narad
+     |
+     v
+Narad supervisor
+     |---- Matsya
+     |---- Rama
+     |---- Krishna
+     `---- Parashurama
+              |
+              v
+     Context governor -> selected model -> typed tools
+              |
+              v
+     Dharma gate -> Jev check -> external action -> verification
+```
+
+The external `session_id` remains stable while long conversations roll into compact runtime epochs. Recent turns stay exact; older conversational scaffolding is summarized; files, code, documents, and tool outputs remain lossless references that Narad can reread on demand.
+
+Read [Architecture](./ARCHITECTURE.md) for the runtime design and [Agent Contracts](./AGENTS.md) for detailed ownership.
+
+## Local Data
+
+Live user data belongs under `~/.narad/`, not inside the Git repository.
+
+| Path | Content |
+|---|---|
+| `threads/` | Conversation turns and compact working state |
+| `memory/` | Tiered Smriti memory and local indexes |
+| `learning/` | Teaching workspaces and native learning artifacts |
+| `artifacts/` | Generated documents, media, scripts, and reports |
+| `attachments/` | Uploaded files and folder manifests |
+| `sessions/` | Yantra traces and runtime provenance |
+| `config/` | Onboarding state, profile metadata, and runtime policy |
+| `workflows.db` | Workflow runs, stages, schedules, and events |
+| `health.db` / `finance.db` | Profile-scoped health and finance records |
+
+Smriti uses dependency-light local indexing with optional TurboVec acceleration. Exact artifacts are referenced and reread instead of copied into every model request.
+
+## Security Defaults
+
+- Narad binds to `127.0.0.1`; remote access requires an intentional authenticated tunnel or proxy.
+- Family mode uses strict auth and profile-scoped server checks, not only frontend hiding.
+- Provider credentials are excluded from Git and stored through the OS keychain where supported.
+- Email sends, calendar writes, browser submissions, desktop actions, phone actions, and other consequential mutations are preview-first.
+- Dharma fails closed when required consent is missing; Karma records mutations and Yantra records provenance.
+- Code execution is time-capped, output-capped, import-analyzed, and receives a scrubbed environment.
+- Computer and Android runtimes remain local; ADB and driver ports should never be exposed publicly.
+
+## Voice
+
+Voice is optional and can remain fully local:
+
+```bash
+source .venv/bin/activate
+pip install -e ".[voice]"
+
+# macOS
+brew install espeak-ng ffmpeg
+```
+
+Narad resolves an available engine and falls back gracefully. Voice input can use browser speech recognition when no local transcription engine is installed.
+
+## Development
+
+Run the backend suite and production frontend build before opening a pull request:
+
+```bash
+.venv/bin/pytest -q
+
+cd phase-4/frontend
+npm run build
+```
+
+Useful source-of-truth files:
+
+| Concern | File |
+|---|---|
+| Agent identity and tool families | `contracts/agent-contracts.json` |
+| Runtime capability report | `phase-1/runtime_contract.py` |
+| Model selection and context limits | `phase-1/model_registry.py` |
+| Workflow definitions | `workflow_packs/definitions.py` |
+| Profile isolation | `family_profiles.py`, `profile_context.py` |
+| Safety policy | `dharma.py` |
+| Public API and SSE boundary | `phase-1/server.py` |
+
+## Repository Map
+
+```text
+phase-1/   FastAPI server, routing, model/runtime contracts
+phase-2/   Search, memory compatibility, observability
+phase-3/   Tapas evaluation and learning loop
+phase-4/   React/Vite/PWA frontend
+phase-5/   Sutra lifecycle and Karma audit
+phase-6/   Sankalpa user-style adaptation
+phase-7/   Sandboxed execution and media skills
+phase-8/   Browser, computer, Android, Google, finance, health, and document tools
+phase-9/   Learning workspaces, workflow APIs, skill definitions, and tests
+contracts/ Canonical agent contracts
+workflow_packs/ Declarative workflow manifests
+```
 
 ## License
 
-Apache 2.0. The OSS edition is fully featured — the moat is the compounding Tapas relationship, not artificial feature gates.
+[Apache 2.0](./LICENSE). Narad's open-source edition is the product: the moat is private, compounding context and reliable execution, not artificial feature gates.

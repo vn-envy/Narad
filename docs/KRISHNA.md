@@ -224,7 +224,7 @@ or balance the treasury of Dwarka. He referred those to the appropriate avatāra
 
 ## Architecture Reference
 
-**Model:** `deepseek/deepseek-v4-flash` (default; override via `KRISHNA_MODEL` env)  
+**Model:** `xai/grok-4.6` priority (default when Grok is connected; override via `KRISHNA_MODEL` env)
 **Context window:** 128K tokens  
 **Skills file:** `phase-9/skills/krishna_skill.md`  
 

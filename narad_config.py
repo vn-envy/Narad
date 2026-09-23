@@ -42,9 +42,14 @@ THREAD_DIR: Path = NARAD_HOME / "threads"
 WORKING_MEMORY_DIR: Path = NARAD_HOME / "working-memory"
 SESSION_CATALOG_DIR: Path = NARAD_HOME / "session-catalog"
 LEARNING_DIR: Path = NARAD_HOME / "learning"
+PROFILES_DIR: Path = NARAD_HOME / "profiles"
 
 # Generated artifacts (executor output — ARTIFACTS_DIR/run_id/file)
 ARTIFACTS_DIR: Path = NARAD_HOME / "artifacts"
+
+# User-provided chat inputs. Unlike generated media, these are never mounted as
+# a public static directory; access goes through the attachment API.
+ATTACHMENTS_DIR: Path = NARAD_HOME / "attachments"
 
 # Config files (sutras, karma, sankalpa)
 CONFIG_DIR: Path = NARAD_HOME / "config"
@@ -67,6 +72,8 @@ INBOX_DIR:                 Path = NARAD_HOME / "inbox"          # Vahana deliver
 COST_LEDGER_PATH:          Path = CONFIG_DIR / "cost_ledger.jsonl"  # usage → USD (M4.1)
 SCHEDULER_STATE_PATH:      Path = NARAD_HOME / "scheduler_state.json"
 ONBOARDING_PATH:           Path = CONFIG_DIR / "onboarding.json"     # tier choice etc. (S1)
+FAMILY_PROFILES_PATH:      Path = CONFIG_DIR / "family_profiles.json"
+PROFILE_SESSION_SECRET_PATH: Path = CONFIG_DIR / "profile_session_secret"
 BENCHMARK_DIR:             Path = NARAD_HOME / "benchmarks"
 BASELINE_DIR:              Path = BENCHMARK_DIR / "baseline"
 
@@ -75,6 +82,9 @@ FINANCE_DB: Path = NARAD_HOME / "finance.db"
 
 # Health database (phase-1/health_skill.py — symptom log + medication reminders)
 HEALTH_DB: Path = NARAD_HOME / "health.db"
+
+# Durable predefined workflow runs, events, and schedules.
+WORKFLOW_DB: Path = NARAD_HOME / "workflows.db"
 
 # ── Create all directories on import ──────────────────────────────────────────
 
@@ -91,7 +101,9 @@ for _d in [
     WORKING_MEMORY_DIR,
     SESSION_CATALOG_DIR,
     LEARNING_DIR,
+    PROFILES_DIR,
     ARTIFACTS_DIR,
+    ATTACHMENTS_DIR,
     CONFIG_DIR,
     SWAPNA_INBOX_DIR,
     INBOX_DIR,

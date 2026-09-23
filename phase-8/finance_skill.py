@@ -3,23 +3,16 @@ Personal finance data layer — Rama-owned, with Matsya for source extraction an
 
 Data sources:
   CSV import  — HDFC / ICICI / Axis / SBI bank statement exports (credit + debit)
-  Gmail IMAP  — bank transaction alert emails + CRED / INDMoney / Groww digests
+  Gmail OAuth — bank transaction alert emails + CRED / INDMoney / Groww digests
 
-Storage: SQLite at ~/.narad/finance.db (auto-created, auto-migrated)
+Storage: profile-isolated SQLite (the legacy default remains ~/.narad/finance.db)
 
-Env vars (reuses existing email credentials — zero new setup required):
-  EMAIL_ADDRESS        — Gmail address for IMAP login
-  EMAIL_APP_PASSWORD   — Gmail app password (same as Krishna's SMTP)
-  EMAIL_IMAP_HOST      — default: imap.gmail.com
-  EMAIL_IMAP_PORT      — default: 993
+Connect Gmail read access once through Narad's Google Workspace connector.
 """
 from __future__ import annotations
 
 import csv
-import email as _email_lib
 import hashlib
-import imaplib
-import os
 import re
 import sqlite3
 from datetime import datetime, timedelta
@@ -72,8 +65,11 @@ CREATE TABLE IF NOT EXISTS sync_state (
 
 
 def _db() -> sqlite3.Connection:
-    _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(_DB_PATH))
+    from profile_context import profile_data_path
+
+    db_path = profile_data_path("finance.db", legacy_default=_DB_PATH)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
     conn.executescript(_SCHEMA)
     conn.commit()
@@ -249,32 +245,6 @@ _GMAIL_PARSERS: dict[str, tuple[str, str, list[re.Pattern]]] = {
 _AGGREGATOR_DOMAINS = {"cred.club", "indmoney.com", "groww.in"}
 
 
-def _get_imap_creds() -> tuple[str, str, str, int]:
-    addr = os.environ.get("EMAIL_ADDRESS", "")
-    pwd = os.environ.get("EMAIL_APP_PASSWORD", "")
-    host = os.environ.get("EMAIL_IMAP_HOST", "imap.gmail.com")
-    port = int(os.environ.get("EMAIL_IMAP_PORT", "993"))
-    return addr, pwd, host, port
-
-
-def _email_body(msg) -> str:
-    body = ""
-    if msg.is_multipart():
-        for part in msg.walk():
-            ct = part.get_content_type()
-            if ct in ("text/plain", "text/html"):
-                try:
-                    body += part.get_payload(decode=True).decode("utf-8", errors="replace")
-                except Exception:
-                    pass
-    else:
-        try:
-            body = msg.get_payload(decode=True).decode("utf-8", errors="replace")
-        except Exception:
-            pass
-    return body
-
-
 # ── Public: Ingestion ─────────────────────────────────────────────────────────
 
 def import_csv(file_path: str, bank: str = "auto") -> dict:
@@ -366,13 +336,11 @@ def import_csv(file_path: str, bank: str = "auto") -> dict:
 
 
 def sync_gmail(days_back: int = 30) -> dict:
-    """Pull Gmail for bank transaction alert emails and aggregator digests.
+    """Pull Gmail snippets for bank transaction alerts and aggregator digests.
 
     Searches for emails from HDFC, ICICI, Axis, SBI, CRED, INDMoney, Groww.
     Auto-detects which aggregators the user has by checking if emails exist.
     Stores last_synced_at in DB to enable incremental syncs.
-
-    Uses EMAIL_ADDRESS + EMAIL_APP_PASSWORD (same creds as email_skill.py).
 
     Args:
         days_back: How many days of email history to scan (default 30)
@@ -384,46 +352,39 @@ def sync_gmail(days_back: int = 30) -> dict:
         sources_found:   list of senders that had matching emails
         last_synced_at:  ISO timestamp of this sync
     """
-    addr, pwd, host, port = _get_imap_creds()
-    if not addr or not pwd:
-        return {
-            "status":    "unconfigured",
-            "message":   "EMAIL_ADDRESS and EMAIL_APP_PASSWORD must be set in .env",
-            "imported":  0,
-            "duplicates": 0,
-            "sources_found": [],
-        }
-
     try:
-        mail = imaplib.IMAP4_SSL(host, port)
-        mail.login(addr, pwd)
-        mail.select("INBOX")
+        from email.utils import parsedate_to_datetime
 
-        since_date = (datetime.now() - timedelta(days=days_back)).strftime("%d-%b-%Y")
+        from google_workspace_skill import search_google_mail
+
         imported = 0
         duplicates = 0
         sources_found: list[str] = []
         conn = _db()
 
         for domain, (bank, card_type, patterns) in _GMAIL_PARSERS.items():
-            search_criteria = f'(FROM "@{domain}" SINCE "{since_date}")'
-            _, data = mail.search(None, search_criteria)
-            msg_nums = data[0].split()
-            if not msg_nums:
+            response = search_google_mail(
+                f"from:{domain} newer_than:{max(1, min(int(days_back), 365))}d",
+                max_results=50,
+            )
+            if response.get("status") == "unconfigured":
+                conn.close()
+                return {
+                    "status": "unconfigured",
+                    "message": "Connect Gmail read access in System -> Connections.",
+                    "imported": 0,
+                    "duplicates": 0,
+                    "sources_found": [],
+                }
+            messages = response.get("messages", []) if response.get("status") == "ok" else []
+            if not messages:
                 continue
-
             sources_found.append(domain)
 
-            for num in msg_nums:
-                _, msg_data = mail.fetch(num, "(RFC822)")
-                raw = msg_data[0][1]
-                msg = _email_lib.message_from_bytes(raw)
-                body = _email_body(msg)
-                date_str = msg.get("Date", "")
-                parsed_date = None
+            for message in messages:
+                body = f"{message.get('subject', '')} {message.get('snippet', '')}"
                 try:
-                    from email.utils import parsedate_to_datetime
-                    parsed_date = parsedate_to_datetime(date_str).strftime("%Y-%m-%d")
+                    parsed_date = parsedate_to_datetime(str(message.get("date") or "")).strftime("%Y-%m-%d")
                 except Exception:
                     parsed_date = datetime.now().strftime("%Y-%m-%d")
 
@@ -440,7 +401,7 @@ def sync_gmail(days_back: int = 30) -> dict:
                             continue
                         merchant = re.sub(r"\s+", " ", merchant)[:100]
                         category = _auto_category(merchant)
-                        if domain in _AGGREGATOR_DOMAINS and not category or category == "Other":
+                        if domain in _AGGREGATOR_DOMAINS and (not category or category == "Other"):
                             category = "Investment" if domain in ("indmoney.com", "groww.in") else "Bills"
                         txn_id = _txn_id(parsed_date, amount, merchant, bank)
                         try:
@@ -466,7 +427,6 @@ def sync_gmail(days_back: int = 30) -> dict:
         conn.execute("INSERT OR REPLACE INTO sync_state VALUES (?,?)", ("last_synced_at", now))
         conn.commit()
         conn.close()
-        mail.logout()
 
         return {
             "status":          "ok",
@@ -479,9 +439,6 @@ def sync_gmail(days_back: int = 30) -> dict:
                 f"{', '.join(sources_found) or 'none found'}. {duplicates} duplicates skipped."
             ),
         }
-    except imaplib.IMAP4.error as exc:
-        return {"status": "error", "message": f"IMAP error: {exc}", "imported": 0,
-                "duplicates": 0, "sources_found": []}
     except Exception as exc:
         return {"status": "error", "message": str(exc), "imported": 0,
                 "duplicates": 0, "sources_found": []}

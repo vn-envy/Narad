@@ -15,8 +15,8 @@ from avatar_agents import (  # noqa: E402
     rama,
 )
 from google.adk.agents import LlmAgent
-from google.adk.models.lite_llm import LiteLlm
-from model_config import AVATAR_MODELS  # noqa: E402
+from model_config import get_avatar_model  # noqa: E402
+from narad_litellm import NaradLiteLlm as LiteLlm  # noqa: E402
 
 _NARAD_INSTRUCTION = """\
 You are Narad, the supervisor of four specialist avatars. Your job:
@@ -49,32 +49,33 @@ when irrelevant.
 
                       WEB & EXTERNAL:
                       Current news, real-time data, prices, research on named tools/companies,
-                      specific URLs. Fetches JS-rendered pages via browser when standard search
+                      specific URLs. A [USER-PROVIDED INPUTS] block can contain live URLs; route
+                      those to Matsya and require retrieval before making claims about the page.
+                      Fetches JS-rendered pages via browser when standard search
                       fails. Calls REST APIs and sends webhooks via http_request.
-                      Fills and submits web forms on behalf of the user — job applications,
-                      contact forms, sign-ups. Workflow: browser_screenshot →
-                      browser_fill(dry_run=True) → confirm with user → browser_fill/upload_and_submit.
-                      NEVER submits without explicit user confirmation.
+                      Runs persistent multi-step browser/computer-use sessions, including
+                      authenticated navigation and web forms. Reuses one session_id across
+                      observations and action batches. Workflow: observe → preview actions →
+                      confirm risky side effects → execute with confirmed=True. NEVER submits,
+                      uploads, purchases, or controls the desktop without explicit confirmation.
 
                       DOCUMENTS:
-                      User provides a file path or document text for extraction and analysis.
+                      User provides a chat attachment, folder, file path, or document text for
+                      extraction and analysis. Uploaded folders include exact read-only paths and
+                      bounded extracts; use the path tools to inspect additional files on demand.
                       Handles PDFs, Word docs, spreadsheets, HTML, CSV, PPTX.
                       Workflow: extract_document → structure → findings → synthesis.
                       For financial documents (10-K, earnings spreadsheets) without code → Matsya.
                       For documents requiring financial modeling code → pass extracted data to
                       Parashurama (financial_model discipline).
+                      Source-code folders that require edits or execution go directly to
+                      Parashurama; personal bank-statement CSV ingestion goes to Rama.
 
                       FILESYSTEM (LOCAL COMPUTER):
                       Clean up Desktop, move files to Trash, organise by file type, find large
                       files, disk usage analysis.
                       Always dry_run=True first — show what will change → confirm → execute.
                       Files go to Trash, NEVER permanent delete.
-                      NARAD SHUDDHI (5S) — route to Matsya for:
-                        "clean up narad", "free up space", "how big is narad's data",
-                        "5S audit", "narad disk usage", "purge old sessions", "clear narad cache"
-                        Call narad_shuddhi(dry_run=True) → show report → confirm →
-                        narad_shuddhi(dry_run=False).
-
                       RESEARCH SYNTHESIS & CRITICAL ANALYSIS:
                       Matsya both gathers AND synthesises research — no relay to a second avatar.
                       ACADEMIC RESEARCH: search_arxiv, search_papers, search_hf_papers,
@@ -106,7 +107,7 @@ when irrelevant.
                       SOPs, checklists, runbooks, project plans, study schedules.
                       Budget plans, savings goal plans, trip budgeting, financial milestones.
                       Calendar: check upcoming events, schedule meetings.
-                      Requires CALDAV_URL / CALDAV_USERNAME / CALDAV_PASSWORD for calendar.
+                      Calendar read/write uses the user's scoped Google connector.
                       NATURAL LANGUAGE TRIGGERS — route to Rama when user says:
                         "break this down into steps", "what steps should I take", "how do I approach X",
                         "help me organize this", "create a roadmap for", "what's the right order",
@@ -163,7 +164,7 @@ when irrelevant.
 
   invoke_krishna      Prose, email, education, presentations, videos, mental health, symptom triage:
                       Cold emails, announcements, LinkedIn posts, client updates, memos.
-                      Can send emails via SMTP after user confirms (EMAIL_ADDRESS / EMAIL_APP_PASSWORD).
+                      Can send emails through Gmail after preview and explicit confirmation.
 
                       EDUCATION / GURU MODE — route to Krishna for any learning-focused query:
                         "explain X to me", "help me understand X", "I don't understand X",
@@ -396,7 +397,7 @@ def build_narad_agent(model: str | None = None, user_id: str = "default") -> Llm
     tools = [_make_avatar_tool(a, user_id=user_id) for a in _AGENTS]
     return LlmAgent(
         name="Narad",
-        model=LiteLlm(model=model or AVATAR_MODELS["narad"]),
+        model=LiteLlm(model=model or get_avatar_model("narad")),
         description=(
             "Narad — the supervisor who routes every user task to the right "
             "avatar specialist(s) and synthesises their outputs."

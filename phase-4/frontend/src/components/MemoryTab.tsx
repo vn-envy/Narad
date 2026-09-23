@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { apiFetch, apiUrl } from '@/lib/api'
-import { KnowledgeGraphPanel } from './KnowledgeGraphPanel'
 
 interface MemoryEntry {
   id: string
@@ -26,16 +25,6 @@ interface CommitmentEntry {
   ts?: string
 }
 
-interface SutraEntry {
-  id: string
-  avatar: string
-  query: string
-  rule?: string
-  score: number
-  status: 'pending' | 'active' | 'demoted' | 'reverted'
-  cooldown_remaining?: string | null
-}
-
 const FILTER_TAGS = [
   { key: 'all', label: 'All' },
   { key: 'finance', label: 'Finance' },
@@ -54,7 +43,6 @@ export function MemoryTab({ userId }: Props) {
   const [localSearch, setLocalSearch] = useState('')
   const [memories, setMemories] = useState<MemoryEntry[]>([])
   const [commitments, setCommitments] = useState<CommitmentEntry[]>([])
-  const [sutras, setSutras] = useState<SutraEntry[]>([])
   const [loading, setLoading] = useState(false)
   const [selected, setSelected] = useState<string | null>(null)
 
@@ -63,10 +51,9 @@ export function MemoryTab({ userId }: Props) {
     try {
       const params = new URLSearchParams({ user_id: userId, limit: '80' })
       if (filterTag !== 'all') params.set('tag', filterTag)
-      const [memoryResponse, sankalpaResponse, sutraResponse] = await Promise.all([
+      const [memoryResponse, sankalpaResponse] = await Promise.all([
         apiFetch(`/memory?${params}`),
         apiFetch(apiUrl('/sankalpa', { user_id: userId })),
-        apiFetch('/sutras'),
       ])
 
       if (memoryResponse.ok) {
@@ -83,14 +70,9 @@ export function MemoryTab({ userId }: Props) {
         const data = await sankalpaResponse.json()
         setCommitments(Array.isArray(data.commitments) ? data.commitments : [])
       }
-      if (sutraResponse.ok) {
-        const data = await sutraResponse.json()
-        setSutras(Array.isArray(data.sutras) ? data.sutras : [])
-      }
     } catch {
       setMemories([])
       setCommitments([])
-      setSutras([])
     } finally {
       setLoading(false)
     }
@@ -113,11 +95,6 @@ export function MemoryTab({ userId }: Props) {
     })
   }, [filterTag, localSearch, memories])
 
-  const activeSutras = useMemo(
-    () => sutras.filter(sutra => sutra.status === 'active').slice(0, 8),
-    [sutras],
-  )
-
   return (
     <div style={{ height: '100%', minHeight: 0, overflowX: 'hidden', overflowY: 'auto', WebkitOverflowScrolling: 'touch', touchAction: 'pan-y', padding: 18 }}>
       <div
@@ -138,11 +115,10 @@ export function MemoryTab({ userId }: Props) {
           Smriti keeps together retained recall, approved learnings, and the commitments Narad should carry forward from past work.
         </div>
 
-        <div style={{ display: 'grid', gap: 10, marginTop: 14 }} className="md:grid-cols-3">
+        <div style={{ display: 'grid', gap: 10, marginTop: 14 }} className="md:grid-cols-2">
           {[
             { label: 'Retained memories', value: filteredMemories.length, hint: 'Searchable recall entries' },
             { label: 'Commitments', value: commitments.length, hint: 'Active Sankalpa constraints' },
-            { label: 'Active Sutras', value: activeSutras.length, hint: 'Approved learnings in context' },
           ].map(item => (
             <div
               key={item.label}
@@ -224,8 +200,6 @@ export function MemoryTab({ userId }: Props) {
         </div>
       </div>
 
-      <KnowledgeGraphPanel userId={userId} />
-
       <div style={{ display: 'grid', gap: 16, marginTop: 16 }} className="xl:grid-cols-[0.9fr_1.35fr]">
         <div style={{ display: 'grid', gap: 16 }}>
           <section
@@ -297,62 +271,6 @@ export function MemoryTab({ userId }: Props) {
             </div>
           </section>
 
-          <section
-            style={{
-              padding: 18,
-              borderRadius: 18,
-              border: '1px solid rgba(26,24,21,0.08)',
-              background: 'rgba(252,250,242,0.9)',
-            }}
-          >
-            <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--kajal)', fontFamily: 'var(--font-hero)' }}>
-              Active Sutras
-            </div>
-            <div style={{ marginTop: 6, fontSize: 12, lineHeight: 1.5, color: 'rgba(26,24,21,0.55)' }}>
-              Approved learnings that are now part of Narad&apos;s retained operating context.
-            </div>
-
-            <div style={{ display: 'grid', gap: 10, marginTop: 14 }}>
-              {!loading && activeSutras.length === 0 && (
-                <div style={{ color: 'rgba(26,24,21,0.45)', fontSize: 12 }}>
-                  No active Sutras yet.
-                </div>
-              )}
-              {activeSutras.map(sutra => (
-                <div
-                  key={sutra.id}
-                  style={{
-                    padding: '10px 12px',
-                    borderRadius: 14,
-                    background: 'rgba(26,24,21,0.03)',
-                    border: '1px solid rgba(26,24,21,0.06)',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                    <span
-                      style={{
-                        padding: '2px 7px',
-                        borderRadius: 999,
-                        background: 'rgba(6,95,70,0.1)',
-                        color: 'var(--tulsi)',
-                        fontSize: 10,
-                        fontWeight: 700,
-                        textTransform: 'uppercase',
-                      }}
-                    >
-                      {sutra.avatar}
-                    </span>
-                    <span style={{ fontSize: 10.5, color: 'rgba(26,24,21,0.46)' }}>
-                      score {sutra.score.toFixed(2)}
-                    </span>
-                  </div>
-                  <div style={{ fontSize: 12.5, lineHeight: 1.55, color: 'var(--kajal)' }}>
-                    {sutra.query}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
         </div>
 
         <section

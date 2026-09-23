@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
 import json
 import os
 import secrets
@@ -104,6 +105,11 @@ def _save_tokens(tokens: dict[str, Any]) -> None:
         os.chmod(_TOKEN_PATH, 0o600)
     except OSError:
         pass
+
+
+def _same_token(left: str, right: str) -> bool:
+    """Compare credential values without creating timing-dependent branches."""
+    return bool(left and right) and hmac.compare_digest(left, right)
 
 
 def _store_token_response(payload: dict[str, Any], previous: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -257,12 +263,25 @@ def get_access_token() -> str | None:
     tokens = _load_tokens()
     if not tokens.get("access_token"):
         return None
+    previous_access_token = str(tokens["access_token"])
     if time.time() >= float(tokens.get("expires_at", 0)) - REFRESH_SKEW_SECONDS:
         tokens = _refresh(tokens)
         if not tokens:
+            # Do not let LiteLLM keep using an expired OAuth token. A separately
+            # configured XAI_API_KEY is intentionally left untouched.
+            if _same_token(os.environ.get("XAI_API_KEY", ""), previous_access_token):
+                os.environ.pop("XAI_API_KEY", None)
             return None
-    token = tokens["access_token"]
-    if not os.environ.get("NARAD_XAI_ENV_LOCKED"):
+    token = str(tokens["access_token"])
+    current = os.environ.get("XAI_API_KEY", "").strip()
+    if (
+        not os.environ.get("NARAD_XAI_ENV_LOCKED")
+        and (
+            not current
+            or _same_token(current, previous_access_token)
+            or _same_token(current, token)
+        )
+    ):
         os.environ["XAI_API_KEY"] = token
     return token
 
@@ -273,16 +292,38 @@ def apply_to_env(*, force: bool = False) -> bool:
     Mirrors kunji.apply_keys_to_env: the .env escape hatch always wins —
     except right after an interactive sign-in (force=True).
     """
-    if not force and os.environ.get("XAI_API_KEY", "").strip():
-        return False
     tokens = _load_tokens()
     if not tokens.get("access_token"):
         return False
-    token = get_access_token() if time.time() >= float(tokens.get("expires_at", 0)) - REFRESH_SKEW_SECONDS else tokens["access_token"]
+    current = os.environ.get("XAI_API_KEY", "").strip()
+    stored = str(tokens["access_token"])
+    # A real API key always wins. ``force`` means refresh/export the stored
+    # OAuth session immediately after login; it never overwrites a different
+    # credential supplied by the user or environment.
+    if current and not _same_token(current, stored):
+        return False
+    token = get_access_token()
     if not token:
         return False
     os.environ["XAI_API_KEY"] = token
     return True
+
+
+def ensure_runtime_token() -> bool:
+    """Ensure the credential LiteLLM will read is valid for the next request.
+
+    OAuth access tokens are short lived. Calling this before every xAI model
+    request refreshes the stored session when necessary while preserving a
+    separately configured API key.
+    """
+    tokens = _load_tokens()
+    current = os.environ.get("XAI_API_KEY", "").strip()
+    stored = str(tokens.get("access_token", ""))
+    if current and (not stored or not _same_token(current, stored)):
+        return True
+    if not stored:
+        return False
+    return bool(get_access_token())
 
 
 def signed_in() -> bool:
@@ -303,10 +344,13 @@ def status() -> dict[str, Any]:
 
 def disconnect() -> bool:
     """Remove tokens + env export. True if a session existed."""
-    existed = signed_in()
+    tokens = _load_tokens()
+    stored = str(tokens.get("access_token", ""))
+    existed = bool(stored)
     try:
         _TOKEN_PATH.unlink(missing_ok=True)
     except OSError:
         pass
-    os.environ.pop("XAI_API_KEY", None)
+    if _same_token(os.environ.get("XAI_API_KEY", ""), stored):
+        os.environ.pop("XAI_API_KEY", None)
     return existed

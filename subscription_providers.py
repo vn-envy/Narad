@@ -154,7 +154,7 @@ class XaiOAuthAdapter:
     name = "xai-oauth"
     label = "Grok (SuperGrok / X Premium+)"
     model_prefix = "xai/"
-    default_models = ["xai/grok-4.3"]
+    default_models = ["xai/grok-4.6"]
 
     @staticmethod
     def _oauth_signed_in() -> bool:
@@ -170,12 +170,19 @@ class XaiOAuthAdapter:
         return self._oauth_signed_in()
 
     def available(self) -> bool:
-        return self.signed_in()
+        try:
+            import xai_oauth
+            return xai_oauth.ensure_runtime_token()
+        except Exception:
+            return bool(os.environ.get("XAI_API_KEY", "").strip())
 
     def status(self) -> SubscriptionStatus:
         signed_in = self.signed_in()
-        if signed_in:
-            detail = "ready — Grok is available as an alternative brain (xai/grok-4.3)"
+        available = self.available()
+        if available:
+            detail = "ready — Grok 4.6 priority is Narad's default worker model"
+        elif signed_in:
+            detail = "Grok sign-in expired and could not refresh — connect it again"
         else:
             detail = "not signed in — use Sign in with Grok (needs SuperGrok or X Premium+)"
         return SubscriptionStatus(
@@ -183,9 +190,9 @@ class XaiOAuthAdapter:
             label=self.label,
             installed=True,  # no local runtime needed — pure HTTPS
             signed_in=signed_in,
-            available=signed_in,
+            available=available,
             detail=detail,
-            models=self.default_models if signed_in else [],
+            models=self.default_models if available else [],
         )
 
 

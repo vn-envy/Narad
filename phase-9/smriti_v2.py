@@ -226,7 +226,7 @@ async def get_project_context(
         user_id=user_id,
         project_id=project_id,
         token_budget=token_budget,
-        model=model or "deepseek/deepseek-v4-flash",
+        model=model or "deepseek/deepseek-flash",
         limit=top_n,
     )
     if vector_packet.get("text"):

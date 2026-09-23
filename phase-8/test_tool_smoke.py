@@ -1,14 +1,20 @@
+import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+_root = next(path for path in Path(__file__).resolve().parents if (path / "narad_paths.py").exists())
+sys.path[:0] = [str(_root)]
 import docling_skill
 import email_skill
 import finance_skill
 import http_skill
 import local_skill
 import shell_skill
+
+import narad_paths  # noqa: F401
 
 
 class ToolSmokeTests(unittest.TestCase):
@@ -135,7 +141,9 @@ class ToolSmokeTests(unittest.TestCase):
                 return {"status": "ok", "body": nitter_html}
             return {"status": "error", "message": "unexpected url"}
 
-        with patch.object(http_skill, "http_request", side_effect=fake_http):
+        with patch.dict(os.environ, {"EXA_API_KEY": ""}), patch.object(
+            http_skill, "http_request", side_effect=fake_http
+        ):
             payload = http_skill.search_last30days("Narad")
 
         self.assertEqual(payload["status"], "ok")
@@ -145,6 +153,30 @@ class ToolSmokeTests(unittest.TestCase):
         self.assertIn("coverage_gaps", payload)
         self.assertTrue(payload["citations"])
         self.assertIn("github", payload["source_breakdown"])
+        self.assertEqual(payload["source_backends"]["reddit"]["selected"], "reddit_public_json")
+        self.assertEqual(payload["source_backends"]["youtube"]["status"], "gap")
+
+    def test_search_last30days_uses_one_domain_fallback_for_missing_channels(self) -> None:
+        fallback = [{
+            "platform": "youtube",
+            "title": "Narad walkthrough",
+            "url": "https://youtube.com/watch?v=test",
+            "snippet": "Recent walkthrough",
+            "engagement": 0,
+            "comments": 0,
+            "backend": "exa_domain_search",
+        }]
+        with patch.dict(os.environ, {"EXA_API_KEY": "test"}), patch.object(
+            http_skill, "http_request", return_value={"status": "error", "message": "blocked"}
+        ), patch.object(
+            http_skill, "_exa_source_fallback", return_value=(fallback, None)
+        ) as exa_fallback:
+            payload = http_skill.search_last30days("Narad", platforms=["youtube", "x"])
+
+        exa_fallback.assert_called_once_with("Narad", ["youtube", "x"])
+        self.assertEqual(payload["source_backends"]["youtube"]["selected"], "exa_domain_search")
+        self.assertEqual(payload["source_backends"]["x"]["status"], "gap")
+        self.assertEqual(payload["results"][0]["engagement"], 0)
 
 
 if __name__ == "__main__":

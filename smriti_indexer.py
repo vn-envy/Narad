@@ -7,6 +7,7 @@ import sqlite3
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
+from time import monotonic
 from typing import Any
 
 from turbovec_policy import select_memory_tier
@@ -461,6 +462,7 @@ def fts_search_wiki_sections(
 # synchronously at append time.
 
 _REFRESH_LOCK = threading.Lock()
+_REFRESH_IDLE = threading.Condition(_REFRESH_LOCK)
 _REFRESH_IN_FLIGHT: set[str] = set()
 
 
@@ -470,7 +472,7 @@ def schedule_index_refresh(user_id: str = "default", project_id: str = "general"
     same episode manifests concurrently; a skipped project is picked up on the
     next call. Returns True if a new refresh was started."""
     key = user_id
-    with _REFRESH_LOCK:
+    with _REFRESH_IDLE:
         if key in _REFRESH_IN_FLIGHT:
             return False
         _REFRESH_IN_FLIGHT.add(key)
@@ -482,8 +484,21 @@ def schedule_index_refresh(user_id: str = "default", project_id: str = "general"
         except Exception as exc:  # visible, never fatal — recall stays lexical
             log.warning("Smriti background index refresh failed: %s", exc)
         finally:
-            with _REFRESH_LOCK:
+            with _REFRESH_IDLE:
                 _REFRESH_IN_FLIGHT.discard(key)
+                _REFRESH_IDLE.notify_all()
 
     threading.Thread(target=_run, name=f"smriti-index-{key}", daemon=True).start()
+    return True
+
+
+def wait_for_index_refresh(user_id: str | None = None, *, timeout_s: float = 5.0) -> bool:
+    """Wait for active background refreshes without making recall synchronous."""
+    deadline = monotonic() + max(0.0, timeout_s)
+    with _REFRESH_IDLE:
+        while _REFRESH_IN_FLIGHT if user_id is None else user_id in _REFRESH_IN_FLIGHT:
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                return False
+            _REFRESH_IDLE.wait(timeout=remaining)
     return True

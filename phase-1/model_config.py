@@ -8,20 +8,18 @@ Per-avatar overrides via environment variables (each falls back to tier default)
   KRISHNA_MODEL      — Krishna: communication, creation, wellness
   PARASHURAMA_MODEL  — Parashurama: code, systems, quantitative modeling
 
-Tier aliases (used as fallbacks when per-avatar var is unset):
-  DS_PRO_MODEL    — DeepSeek V4 Pro (reasoning, planning, code, analysis)
-  DS_FLASH_MODEL  — DeepSeek V4 Flash (fast retrieval, prose, lighter tasks)
-  GROK_MODEL      — Grok via xAI OAuth / XAI_API_KEY (default xai/grok-4.3)
+Default split:
+  Narad orchestrator — DeepSeek V4.1 Flash (`deepseek/deepseek-flash`)
+  Four avatar workers — Grok 4.6 (`xai/grok-4.6`) through xAI OAuth
 
-Whole-brain switch: NARAD_BRAIN=grok flips all tier defaults onto Grok
-(sign in with SuperGrok / X Premium+ in Settings → Connections). Per-avatar
-vars still win, so mixed DeepSeek+Grok fleets stay one-line changes.
+Tier aliases (used as fallbacks when per-avatar vars are unset):
+  DS_FLASH_MODEL  — DeepSeek V4.1 Flash API alias
+  DS_PRO_MODEL    — DeepSeek fallback for legacy pro-tier callers
+  GROK_MODEL      — Grok worker model via xAI OAuth / XAI_API_KEY
 
-When NARAD_BRAIN is unset the brain resolves itself: DeepSeek if its key
-exists AND the API accepts it, otherwise Grok when signed in. A rejected
-DeepSeek key (401/403, verdict cached on disk) also disables the provider
-for context-escalation fallbacks — signing into Grok is enough; no .env
-edit required.
+`NARAD_BRAIN` now controls the worker fleet only. The orchestrator stays on
+DeepSeek unless `NARAD_MODEL` is explicitly set or DeepSeek is unavailable,
+in which case it safely falls back to the connected Grok model.
 
 Switching any avatar to a local model, OpenAI, or Claude is a one-line .env change.
 Example: KRISHNA_MODEL=ollama/llama3  or  KRISHNA_MODEL=claude-opus-4-7
@@ -34,21 +32,39 @@ from __future__ import annotations
 
 import logging
 import os
+from dataclasses import dataclass
 
 log = logging.getLogger("narad.models")
 
-DS_PRO   = os.environ.get("DS_PRO_MODEL",   "deepseek/deepseek-v4-pro")
-DS_FLASH = os.environ.get("DS_FLASH_MODEL", "deepseek/deepseek-v4-flash")
-GROK     = os.environ.get("GROK_MODEL",     "xai/grok-4.3")
+DS_FLASH = os.environ.get("DS_FLASH_MODEL", "deepseek/deepseek-flash")
+# V4.1 Flash supersedes the V4 Pro generation and is the safer compatibility
+# default while keeping DS_PRO_MODEL as an explicit escape hatch.
+DS_PRO = os.environ.get("DS_PRO_MODEL", DS_FLASH)
+GROK = os.environ.get("GROK_MODEL", "xai/grok-4.6")
+
+
+def _local_gemma_model() -> str:
+    try:
+        from local_model_runtime import local_model_id
+
+        return local_model_id()
+    except Exception:
+        return "ollama/gemma4:e2b-it-q4_K_M"
+
+
+def _local_gemma_ready() -> bool:
+    try:
+        from local_model_runtime import local_model_ready
+
+        return local_model_ready()
+    except Exception:
+        return False
 
 
 # ── Brain resolution ──────────────────────────────────────────────────────────
-# NARAD_BRAIN=grok flips every tier default onto Grok (via xAI OAuth or
-# XAI_API_KEY). Per-avatar env vars still override individually — so mixed
-# fleets (e.g. Grok brain + DeepSeek Flash for retrieval) stay one-liners.
-#
-# When NARAD_BRAIN is unset, the brain picks itself so a Grok sign-in "just
-# works": DeepSeek only when its key exists and the API accepts it, else Grok.
+# NARAD_BRAIN selects the four worker defaults. Narad itself has an independent
+# orchestration default so one provider failure cannot silently move the whole
+# fleet mid-turn.
 
 def _hydrate_stored_credentials() -> None:
     """Stored Kunji keys + Grok OAuth token → env (idempotent; .env wins).
@@ -69,13 +85,46 @@ def _hydrate_stored_credentials() -> None:
 
 
 def _grok_available() -> bool:
-    if os.environ.get("XAI_API_KEY", "").strip():
-        return True
     try:
-        from xai_oauth import signed_in
-        return signed_in()
+        from xai_oauth import ensure_runtime_token
+        return ensure_runtime_token()
     except Exception:
+        return bool(os.environ.get("XAI_API_KEY", "").strip())
+
+
+def _deepseek_available() -> bool:
+    key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
+    if not key:
         return False
+    if _deepseek_key_rejected(key):
+        _disable_provider("deepseek")
+        return False
+    return True
+
+
+def _connected_provider_fallback() -> tuple[str, str, str] | None:
+    """Return a configured non-xAI/DeepSeek model before falling back local."""
+    candidates = (
+        (
+            "google",
+            ("GEMINI_API_KEY", "GOOGLE_API_KEY"),
+            os.environ.get("GEMINI_MODEL", "gemini/gemini-2.5-flash"),
+        ),
+        (
+            "openai",
+            ("OPENAI_API_KEY",),
+            os.environ.get("OPENAI_MODEL", "openai/gpt-4o-mini"),
+        ),
+        (
+            "anthropic",
+            ("ANTHROPIC_API_KEY",),
+            os.environ.get("ANTHROPIC_MODEL", "anthropic/claude-sonnet-4-6"),
+        ),
+    )
+    for provider, key_names, model in candidates:
+        if any(os.environ.get(name, "").strip() for name in key_names):
+            return provider, model, f"connected {provider} credential"
+    return None
 
 
 def _probe_cache_path():
@@ -146,34 +195,73 @@ def _disable_provider(provider: str) -> None:
 
 
 def resolve_brain() -> tuple[str, str]:
-    """→ (brain, reason) with brain ∈ {"deepseek", "grok"}."""
+    """Resolve workers from connected endpoints, then the zero-key local lane."""
     explicit = os.environ.get("NARAD_BRAIN", "").strip().lower()
     if explicit in {"grok", "xai"}:
         return "grok", "NARAD_BRAIN=grok"
-    if explicit:
+    if explicit in {"deepseek", "ds"}:
         return "deepseek", f"NARAD_BRAIN={explicit}"
+    if explicit in {"local", "offline", "gemma", "gemma4"}:
+        return "local", f"NARAD_BRAIN={explicit}"
+    if explicit in {"google", "gemini", "openai", "anthropic", "claude"}:
+        normalized = "google" if explicit == "gemini" else "anthropic" if explicit == "claude" else explicit
+        return normalized, f"NARAD_BRAIN={explicit}"
     _hydrate_stored_credentials()
-    ds_key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
-    if not ds_key:
-        if _grok_available():
-            return "grok", "no DeepSeek key — using the Grok sign-in"
-        return "deepseek", "default"
-    if _grok_available() and _deepseek_key_rejected(ds_key):
-        _disable_provider("deepseek")
-        return "grok", "DeepSeek rejected its key (401) — using the Grok sign-in instead"
-    return "deepseek", "DeepSeek key present"
+    if _grok_available():
+        return "grok", "connected Grok OAuth/API credential"
+    if _deepseek_available():
+        return "deepseek", "connected DeepSeek credential"
+    configured = _connected_provider_fallback()
+    if configured:
+        return configured[0], configured[2]
+    readiness = "ready" if _local_gemma_ready() else "download required"
+    return "local", f"zero-key Gemma 4 edge fallback ({readiness})"
+
+
+def resolve_orchestrator_model() -> tuple[str, str]:
+    """Resolve Narad independently, ending on a zero-key local model."""
+    explicit = os.environ.get("NARAD_MODEL", "").strip()
+    if explicit:
+        return explicit, "NARAD_MODEL override"
+    _hydrate_stored_credentials()
+    if _deepseek_available():
+        return DS_FLASH, "DeepSeek V4.1 Flash orchestrator"
+    if _grok_available():
+        return GROK, "DeepSeek unavailable — Grok orchestrator fallback"
+    configured = _connected_provider_fallback()
+    if configured:
+        return configured[1], f"DeepSeek and Grok unavailable — {configured[2]}"
+    readiness = "ready" if _local_gemma_ready() else "download required"
+    return _local_gemma_model(), f"zero-key Gemma 4 edge orchestrator ({readiness})"
+
+
+def _worker_models_for_brain(brain: str) -> tuple[str, str]:
+    if brain == "grok":
+        return GROK, GROK
+    if brain == "deepseek":
+        return DS_PRO, DS_FLASH
+    if brain == "local":
+        local = _local_gemma_model()
+        return local, local
+    configured = _connected_provider_fallback()
+    if configured and configured[0] == brain:
+        return configured[1], configured[1]
+    local = _local_gemma_model()
+    return local, local
 
 
 _BRAIN, _BRAIN_REASON = resolve_brain()
+_ORCHESTRATOR_MODEL, _ORCHESTRATOR_REASON = resolve_orchestrator_model()
 if _BRAIN == "grok":
     _TIER_PRO, _TIER_FLASH = GROK, GROK
     if os.environ.get("NARAD_BRAIN", "").strip():
-        log.info("Brain: %s (%s)", GROK, _BRAIN_REASON)
+        log.info("Worker fleet: %s (%s)", GROK, _BRAIN_REASON)
     else:
-        log.warning("Brain: %s (%s)", GROK, _BRAIN_REASON)
+        log.warning("Worker fleet: %s (%s)", GROK, _BRAIN_REASON)
 else:
-    _TIER_PRO, _TIER_FLASH = DS_PRO, DS_FLASH
-    log.info("Brain: %s (%s)", DS_PRO, _BRAIN_REASON)
+    _TIER_PRO, _TIER_FLASH = _worker_models_for_brain(_BRAIN)
+    log.info("Worker fleet: %s (%s)", _TIER_PRO, _BRAIN_REASON)
+log.info("Orchestrator: %s (%s)", _ORCHESTRATOR_MODEL, _ORCHESTRATOR_REASON)
 
 # Public tier aliases — follow the resolved brain. (DS_PRO / DS_FLASH always
 # name the DeepSeek models; use these when "same provider as the brain" is
@@ -181,12 +269,40 @@ else:
 TIER_PRO, TIER_FLASH = _TIER_PRO, _TIER_FLASH
 
 AVATAR_MODELS = {
-    "narad":       os.environ.get("NARAD_MODEL",       _TIER_FLASH),  # fast routing dispatch, not multi-turn reasoning
+    "narad":       _ORCHESTRATOR_MODEL,                              # routing and synthesis
     "matsya":      os.environ.get("MATSYA_MODEL",      _TIER_FLASH),  # retrieval, analysis, synthesis, local access
     "rama":        os.environ.get("RAMA_MODEL",        _TIER_PRO),    # planning, calendar, personal data lifecycle
     "krishna":     os.environ.get("KRISHNA_MODEL",     _TIER_FLASH),  # communication, creation, wellness
     "parashurama": os.environ.get("PARASHURAMA_MODEL", _TIER_PRO),    # code, systems, quantitative modeling
 }
+
+_AVATAR_MODEL_ENV = {
+    "narad": "NARAD_MODEL",
+    "matsya": "MATSYA_MODEL",
+    "rama": "RAMA_MODEL",
+    "krishna": "KRISHNA_MODEL",
+    "parashurama": "PARASHURAMA_MODEL",
+}
+
+
+def get_avatar_model(avatar_name: str) -> str:
+    """Return the live model assignment, including post-login OAuth changes."""
+    name = avatar_name.strip().lower()
+    env_name = _AVATAR_MODEL_ENV.get(name)
+    if env_name and os.environ.get(env_name, "").strip():
+        return os.environ[env_name].strip()
+    if name == "narad":
+        return resolve_orchestrator_model()[0]
+    brain, _ = resolve_brain()
+    pro, flash = _worker_models_for_brain(brain)
+    return pro if name in {"rama", "parashurama"} else flash
+
+
+def refresh_avatar_models() -> dict[str, str]:
+    """Refresh the public snapshot used by capabilities and new sessions."""
+    for name in AVATAR_MODELS:
+        AVATAR_MODELS[name] = get_avatar_model(name)
+    return dict(AVATAR_MODELS)
 
 
 # ── Capability detection (auto-derived from model name, never hardcoded) ──────
@@ -208,10 +324,10 @@ def _provider(model: str) -> str:
     return "unknown"
 
 
-# Extended/native thinking support: Anthropic claude-3-7+ only.
-# All other providers: use <thinking>...</thinking> prompt-based chain-of-thought.
+# Native reasoning support. Do not ask these providers to print chain-of-thought
+# into normal message content; their APIs carry reasoning separately.
 SUPPORTS_THINKING: dict[str, bool] = {
-    name: _provider(model) == "anthropic"
+    name: _provider(model) in {"anthropic", "deepseek", "xai"} or "gemma4" in model.lower()
     for name, model in AVATAR_MODELS.items()
 }
 
@@ -219,9 +335,9 @@ SUPPORTS_THINKING: dict[str, bool] = {
 _CTX: dict[str, int] = {
     "anthropic": 200_000,
     "openai":    128_000,
-    "deepseek":  128_000,
+    "deepseek": 1_048_565,
     "google":  1_000_000,
-    "xai":       256_000,
+    "xai":       500_000,
     "local":      32_000,
     "unknown":    32_000,
 }
@@ -239,40 +355,137 @@ SUPPORTS_PROMPT_CACHE: dict[str, bool] = {
 }
 
 
-def _detect_vision_model() -> tuple[str, str | None]:
-    """Return (model_string, api_base_or_None) for best available vision provider.
+@dataclass(frozen=True)
+class ModelEndpoint:
+    model: str
+    provider: str
+    source: str
+    api_base: str | None = None
+    api_key: str | None = None
 
-    Priority: MiMo (MIMO_API_KEY) > OpenAI > Anthropic.
-    Gemini removed — use only DeepSeek + Mimo stack.
-    Used only when the user attaches images — visual output tasks stay on DeepSeek.
-    """
-    if os.environ.get("MIMO_API_KEY"):
-        model = os.environ.get("MIMO_MODEL", "openai/mimo-v2.5")
-        return model, os.environ.get("MIMO_BASE_URL")
-    if os.environ.get("OPENAI_API_KEY"):
-        return "gpt-4o", None
-    if os.environ.get("ANTHROPIC_API_KEY"):
-        return "claude-opus-4-7", None
-    return "", None
+    def litellm_kwargs(self) -> dict[str, str]:
+        model = self.model
+        if self.api_base and "/" not in model:
+            model = f"openai/{model}"
+        result = {"model": model}
+        if self.api_base:
+            result["api_base"] = self.api_base
+        if self.api_key:
+            result["api_key"] = self.api_key
+        return result
 
 
-_GLOBAL_VISION_MODEL = os.environ.get("VISION_MODEL", "")
-_AUTO_VISION_MODEL, _AUTO_VISION_BASE = _detect_vision_model()
+_VISION_MODEL_HINTS = (
+    "gemma4", "grok", "gemini", "gpt-4", "gpt-5", "claude", "deepseek", "mimo",
+    "vision", "vl", "pixtral", "llava", "qwen2.5-vl", "qwen3-vl",
+)
+
+
+def _model_supports_images(model: str) -> bool:
+    lower = (model or "").lower()
+    return any(hint in lower for hint in _VISION_MODEL_HINTS)
+
+
+def _endpoint_for_model(model: str, *, source: str) -> ModelEndpoint | None:
+    provider = _provider(model)
+    if provider == "local":
+        if not _local_gemma_ready():
+            return None
+        try:
+            from local_model_runtime import local_runtime_status
+
+            return ModelEndpoint(
+                model=model,
+                provider="local",
+                source=source,
+                api_base=str(local_runtime_status().get("url") or "http://127.0.0.1:11434"),
+            )
+        except Exception:
+            return ModelEndpoint(model=model, provider="local", source=source)
+    if provider == "xai" and _grok_available():
+        return ModelEndpoint(model=model, provider=provider, source=source, api_key=os.environ.get("XAI_API_KEY"))
+    if provider == "deepseek" and _deepseek_available():
+        return ModelEndpoint(model=model, provider=provider, source=source)
+    if provider == "google" and (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")):
+        return ModelEndpoint(model=model, provider=provider, source=source)
+    if provider == "openai" and os.environ.get("OPENAI_API_KEY"):
+        return ModelEndpoint(model=model, provider=provider, source=source)
+    if provider == "anthropic" and os.environ.get("ANTHROPIC_API_KEY"):
+        return ModelEndpoint(model=model, provider=provider, source=source)
+    return None
+
+
+def get_vision_endpoint(avatar_name: str) -> ModelEndpoint | None:
+    """Choose a healthy multimodal endpoint rather than a hardcoded provider."""
+    _hydrate_stored_credentials()
+    upper = avatar_name.upper()
+    override = (
+        os.environ.get(f"{upper}_VISION_MODEL", "").strip()
+        or os.environ.get("VISION_MODEL", "").strip()
+    )
+    if override:
+        base = (
+            os.environ.get(f"{upper}_VISION_BASE_URL", "").strip()
+            or os.environ.get("VISION_BASE_URL", "").strip()
+            or None
+        )
+        key = (
+            os.environ.get(f"{upper}_VISION_API_KEY", "").strip()
+            or os.environ.get("VISION_API_KEY", "").strip()
+            or None
+        )
+        if base:
+            return ModelEndpoint(override, "custom", "vision override", base, key)
+        endpoint = _endpoint_for_model(override, source="vision override")
+        if endpoint:
+            return endpoint
+
+    custom_model = os.environ.get("NARAD_ENDPOINT_MODEL", "").strip()
+    custom_base = os.environ.get("NARAD_ENDPOINT_URL", "").strip()
+    custom_multimodal = os.environ.get("NARAD_ENDPOINT_MULTIMODAL", "").strip().lower()
+    if custom_model and custom_base and custom_multimodal in {"1", "true", "yes", "on"}:
+        return ModelEndpoint(
+            custom_model,
+            "custom",
+            "connected custom endpoint",
+            custom_base,
+            os.environ.get("NARAD_ENDPOINT_API_KEY", "").strip() or None,
+        )
+
+    assigned = get_avatar_model(avatar_name)
+    if _model_supports_images(assigned):
+        endpoint = _endpoint_for_model(assigned, source="active avatar endpoint")
+        if endpoint:
+            return endpoint
+
+    candidates = (
+        (GROK, "connected xAI endpoint"),
+        (os.environ.get("GEMINI_VISION_MODEL", "gemini/gemini-2.5-flash"), "connected Google endpoint"),
+        (os.environ.get("ANTHROPIC_VISION_MODEL", "anthropic/claude-sonnet-4-6"), "connected Anthropic endpoint"),
+        (os.environ.get("OPENAI_VISION_MODEL", "openai/gpt-4o"), "connected OpenAI endpoint"),
+    )
+    for model, source in candidates:
+        endpoint = _endpoint_for_model(model, source=source)
+        if endpoint:
+            return endpoint
+
+    if os.environ.get("MIMO_API_KEY", "").strip():
+        return ModelEndpoint(
+            model=os.environ.get("MIMO_MODEL", "mimo-v2.5"),
+            provider="mimo",
+            source="connected MiMo endpoint",
+            api_base=os.environ.get("MIMO_BASE_URL") or None,
+            api_key=os.environ.get("MIMO_API_KEY"),
+        )
+
+    local = _local_gemma_model()
+    return _endpoint_for_model(local, source="offline Gemma fallback")
 
 
 def get_vision_model(avatar_name: str) -> tuple[str, str | None]:
-    """Return (model, api_base_or_None) for vision tasks, with per-avatar override support.
-
-    Model name resolution: per-avatar env > VISION_MODEL global > auto-detected default.
-    Base URL: always uses MIMO_BASE_URL when MIMO_API_KEY is present — regardless of where
-    the model name came from. This lets VISION_MODEL override the model string while still
-    routing through Mimo's endpoint.
-    """
-    per_avatar = os.environ.get(f"{avatar_name.upper()}_VISION_MODEL", "")
-    model = per_avatar or _GLOBAL_VISION_MODEL or _AUTO_VISION_MODEL
-    # _AUTO_VISION_BASE is non-None only when MIMO_API_KEY is configured; apply it for any model
-    base = _AUTO_VISION_BASE
-    return model, base
+    """Backward-compatible vision tuple; new callers should use the endpoint."""
+    endpoint = get_vision_endpoint(avatar_name)
+    return (endpoint.model, endpoint.api_base) if endpoint else ("", None)
 
 
 # ── Visual output task detection (UI / PPT / HTML deck generation) ────────────
@@ -303,23 +516,24 @@ def is_visual_output_task(task: str) -> bool:
 def get_visual_output_model(avatar_name: str) -> tuple[str, str | None]:
     """Return (model, api_base_or_None) for visual output generation tasks.
 
-    Visual output tasks stay on the brain's own pro tier to avoid
+    Visual output tasks stay on the avatar's live worker model to avoid
     cross-provider auth failures mid-turn. A per-avatar override remains
     possible via {AVATAR_NAME}_VISUAL_MODEL.
     """
     override = os.environ.get(f"{avatar_name.upper()}_VISUAL_MODEL", "")
-    return (override or TIER_PRO, None)
+    return (override or get_avatar_model(avatar_name), None)
 
 
 def get_thinking_instructions(avatar_name: str) -> str:
     """Return a model-agnostic prompt fragment for structured chain-of-thought.
 
-    Anthropic models with native thinking: returns '' — thinking activated via
-    API parameter, not prompt text.
+    Models with native reasoning: returns '' — thinking is activated via API
+    behavior or a provider parameter, not printed into response text.
     All other models: injects <thinking>...</thinking> instruction so the model
     produces equivalent structured pre-response reasoning.
     """
-    if SUPPORTS_THINKING.get(avatar_name, False):
+    model = get_avatar_model(avatar_name)
+    if _provider(model) in {"anthropic", "deepseek", "xai"} or "gemma4" in model.lower():
         return ""
     return (
         "\nBefore responding, write your full reasoning process in "

@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import json
+import os
 import sys
+import time
 import unittest
 from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
 from urllib.parse import parse_qs, urlparse
 
 _r = next(p for p in Path(__file__).resolve().parents if (p / "narad_paths.py").exists())
@@ -74,6 +79,44 @@ class StatusTest(unittest.TestCase):
         )
         for value in status.values():
             self.assertNotIsInstance(value, str)  # booleans/numbers/None only
+
+
+class RuntimeCredentialTest(unittest.TestCase):
+    def test_expiring_oauth_token_is_refreshed_before_use(self) -> None:
+        with TemporaryDirectory() as directory:
+            token_path = Path(directory) / "xai_oauth.json"
+            token_path.write_text(json.dumps({
+                "access_token": "old-oauth-token",
+                "refresh_token": "refresh-token",
+                "expires_at": time.time() - 1,
+            }))
+            refreshed = {
+                "access_token": "new-oauth-token",
+                "refresh_token": "refresh-token",
+                "expires_at": time.time() + 3600,
+            }
+            with (
+                patch.object(xai_oauth, "_TOKEN_PATH", token_path),
+                patch.object(xai_oauth, "_refresh", return_value=refreshed),
+                patch.dict(os.environ, {"XAI_API_KEY": "old-oauth-token"}, clear=False),
+            ):
+                self.assertTrue(xai_oauth.ensure_runtime_token())
+                self.assertEqual(os.environ["XAI_API_KEY"], "new-oauth-token")
+
+    def test_disconnect_does_not_remove_an_external_api_key(self) -> None:
+        with TemporaryDirectory() as directory:
+            token_path = Path(directory) / "xai_oauth.json"
+            token_path.write_text(json.dumps({
+                "access_token": "stored-oauth-token",
+                "refresh_token": "refresh-token",
+                "expires_at": time.time() + 3600,
+            }))
+            with (
+                patch.object(xai_oauth, "_TOKEN_PATH", token_path),
+                patch.dict(os.environ, {"XAI_API_KEY": "external-api-key"}, clear=False),
+            ):
+                self.assertTrue(xai_oauth.disconnect())
+                self.assertEqual(os.environ["XAI_API_KEY"], "external-api-key")
 
 
 if __name__ == "__main__":

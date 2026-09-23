@@ -4,8 +4,8 @@
 #
 #   ./dev.sh
 #
-# Backend  → http://127.0.0.1:8000   (uvicorn, auth mode "local")
-# Frontend → http://localhost:5173   (Vite dev server; api.ts targets the backend directly)
+# Backend  → http://127.0.0.1:8000   (desktop development only)
+# Frontend → http://127.0.0.1:5174   (use Start Family Pilot.command for phones)
 #
 # Loads .env, waits for backend /health before starting the frontend, and
 # shuts both processes down cleanly on Ctrl-C.
@@ -20,6 +20,8 @@ cd "$ROOT"
 # frontend targets whatever port the backend actually got.
 BACKEND_HOST="${NARAD_HOST:-127.0.0.1}"
 BACKEND_PORT="${NARAD_PORT:-8000}"
+FRONTEND_HOST="${NARAD_FRONTEND_HOST:-127.0.0.1}"
+FRONTEND_PORT="${NARAD_FRONTEND_PORT:-5174}"
 FRONTEND_DIR="$ROOT/phase-4/frontend"
 
 log()  { printf '\033[1;36m[dev]\033[0m %s\n' "$*"; }
@@ -34,7 +36,7 @@ if [ -f "$ROOT/.env" ]; then
   source "$ROOT/.env"
   set +a
 else
-  warn "No .env found — the backend needs GEMINI_API_KEY and DEEPSEEK_API_KEY at minimum."
+  log "No .env found — Narad will use the zero-key local Gemma setup path."
 fi
 
 # ── 2. Resolve the Python interpreter ─────────────────────────────────────────
@@ -74,7 +76,7 @@ for i in $(seq 1 40); do
   if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
     die "Backend exited during startup — see the traceback above."
   fi
-  if curl -fsS "http://$BACKEND_HOST:$BACKEND_PORT/health" >/dev/null 2>&1; then
+  if curl -fsS "http://127.0.0.1:$BACKEND_PORT/health" >/dev/null 2>&1; then
     log "Backend healthy."
     break
   fi
@@ -89,9 +91,11 @@ if [ ! -d "$FRONTEND_DIR/node_modules" ]; then
   (cd "$FRONTEND_DIR" && npm install)
 fi
 
-log "Starting frontend on http://localhost:5173"
-(cd "$FRONTEND_DIR" && VITE_API_BASE_URL="http://127.0.0.1:$BACKEND_PORT" npm run dev) &
+log "Starting frontend on http://$FRONTEND_HOST:$FRONTEND_PORT"
+(cd "$FRONTEND_DIR" && npm run dev -- --host "$FRONTEND_HOST" --port "$FRONTEND_PORT") &
 FRONTEND_PID=$!
 
-log "Both servers up. Open http://localhost:5173  ·  Ctrl-C to stop."
+log "Both servers up. Desktop: http://127.0.0.1:$FRONTEND_PORT"
+log "For family phones, use Start Family Pilot.command (trusted HTTPS)."
+log "Press Ctrl-C to stop."
 wait

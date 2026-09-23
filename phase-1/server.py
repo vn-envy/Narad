@@ -153,6 +153,26 @@ try:
 except ImportError:
     _HAS_JSON_REPAIR = False
 
+
+def _looks_like_incomplete_json(text: str, error: json.JSONDecodeError) -> bool:
+    """Identify partial function-call JSON emitted during provider streaming.
+
+    LiteLLM probes an accumulating function-call buffer with ``json.loads``.
+    Repairing every incomplete prefix is both wasteful and unsafe: json_repair
+    may turn a half-written argument into a callable object. Let the provider
+    finish the chunk and reserve repair for structurally complete payloads.
+    """
+    stripped = text.rstrip()
+    if not stripped or stripped[0] not in "[{":
+        return False
+    closes_container = stripped[-1] in "]}"
+    error_at_tail = error.pos >= max(0, len(text) - 2)
+    return not closes_container and (
+        error.msg.startswith("Unterminated string")
+        or error.msg.startswith("Expecting value")
+        or error_at_tail
+    )
+
 def _json_loads_tolerant(s, /, *args, **kwargs):
     try:
         return _orig_json_loads(s, *args, **kwargs)
@@ -160,6 +180,10 @@ def _json_loads_tolerant(s, /, *args, **kwargs):
         if isinstance(s, (bytes, bytearray)):
             s = s.decode('utf-8', errors='replace')
         if not isinstance(s, str):
+            raise
+        if not s.strip():
+            raise
+        if _looks_like_incomplete_json(s, first_err):
             raise
         # Stage 1: escape stray control characters (fast, lossless)
         repaired = _repair_json_strings(s)
@@ -191,11 +215,11 @@ def _json_loads_tolerant(s, /, *args, **kwargs):
 json.loads = _json_loads_tolerant
 # ─────────────────────────────────────────────────────────────────────────────
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
 _ADK_IMPORT_ERROR: str | None = None
@@ -228,8 +252,26 @@ except Exception as _agent_exc:
     AGENT_TOOL_NAMES: dict[str, str] = {}
     _images_ctx = contextvars.ContextVar("_images_ctx", default=[])
     _AGENT_RUNTIME_IMPORT_ERROR = f"agent runtime unavailable: {_agent_exc}"
+from chat_attachments import (
+    AttachmentError as _AttachmentError,
+)
+from chat_attachments import (
+    build_attachment_bundle as _build_attachment_bundle,
+)
+from chat_attachments import (
+    delete_batch as _delete_attachment_batch,
+)
+from chat_attachments import (
+    load_attachment as _load_chat_attachment,
+)
+from chat_attachments import (
+    references_prior_attachments as _references_prior_attachments,
+)
+from chat_attachments import (
+    store_upload_batch as _store_upload_batch,
+)
 from context_governor import RuntimeEpoch, choose_model_and_plan, should_rollover_epoch
-from model_config import AVATAR_MODELS
+from model_config import AVATAR_MODELS, refresh_avatar_models
 from runtime_contract import (
     agent_contract_map as _agent_contract_map,
 )
@@ -374,21 +416,14 @@ logging.root.setLevel(logging.INFO)
 
 app = FastAPI(title="Narad API", version="0.15.0-pre15")
 
-# ── Phase 11: Project Wiki + Projects + Sessions API ──────────────────────────
+# ── Product routers ───────────────────────────────────────────────────────────
 try:
     from learning_workspace_api import learning_router
-    from project_execution_api import project_execution_router, tasks_router
-    from project_wiki_api import projects_router, sessions_router, wiki_router
-    from smriti_graph_api import graph_router
-    app.include_router(wiki_router)
-    app.include_router(projects_router)
-    app.include_router(sessions_router)
-    app.include_router(project_execution_router)
-    app.include_router(tasks_router)
+    from workflow_api import workflow_router
     app.include_router(learning_router)
-    app.include_router(graph_router)
-except Exception as _wiki_err:
-    logging.getLogger("narad.server").warning("Project routers unavailable: %s", _wiki_err)
+    app.include_router(workflow_router)
+except Exception as _router_err:
+    logging.getLogger("narad.server").warning("Product routers unavailable: %s", _router_err)
 
 # ── Voice (Smallest.ai + local-first STT/TTS) ────────────────────────────────
 try:
@@ -442,6 +477,20 @@ def _load_or_create_api_token() -> str:
 _API_TOKEN = _load_or_create_api_token() if _AUTH_MODE != "off" else ""
 
 
+def _profile_from_request(request: Request) -> str:
+    return str(getattr(request.state, "profile_id", "default") or "default")
+
+
+def _assert_profile_match(request: Request, claimed_user_id: str) -> str:
+    from profile_context import validate_profile_id
+
+    claimed = validate_profile_id(claimed_user_id)
+    authenticated = _profile_from_request(request)
+    if getattr(request.state, "profile_authenticated", False) and claimed != authenticated:
+        raise HTTPException(status_code=403, detail="Profile identity does not match this session")
+    return claimed
+
+
 def _is_public_shell_path(path: str) -> bool:
     """SPA shell + static assets are public — they contain no user data.
     All API routes stay behind auth in strict mode."""
@@ -452,25 +501,74 @@ def _is_public_shell_path(path: str) -> bool:
 
 @app.middleware("http")
 async def _bearer_auth(request, call_next):
-    if _AUTH_MODE == "off" or request.method == "OPTIONS":
+    if request.method == "OPTIONS":
         return await call_next(request)
     path = request.url.path
-    # /callback is the xAI OAuth browser redirect — it can't carry a bearer
-    # header; it's safe: code+state are useless without the in-process PKCE
-    # verifier held by this server.
+    public_profile_path = (
+        path == "/profiles"
+        or path == "/profiles/login"
+        or path == "/profiles/bootstrap"
+    )
+    # OAuth redirects cannot carry Narad's bearer header. Codes are protected
+    # by short-lived in-process state and PKCE verifiers.
     if (
         path == "/health"
+        or public_profile_path
         or path == "/callback"
+        or path == "/google/callback"
         or path.startswith("/media/")
         or _is_public_shell_path(path)
     ):
         return await call_next(request)
+    from family_profiles import verify_session
+    from profile_context import profile_scope, validate_profile_id
+
+    supplied = request.headers.get("authorization", "")
+    bearer = supplied.removeprefix("Bearer ").strip() if supplied.startswith("Bearer ") else ""
+    profile = verify_session(bearer) if bearer else None
+    if profile:
+        profile_id = str(profile["user_id"])
+        claimed_header = request.headers.get("x-narad-profile-id", "").strip()
+        claimed_query = request.query_params.get("user_id", "").strip()
+        if claimed_header and validate_profile_id(claimed_header) != profile_id:
+            return _AuthJSONResponse({"detail": "Profile identity mismatch"}, status_code=403)
+        if claimed_query and validate_profile_id(claimed_query) != profile_id:
+            return _AuthJSONResponse({"detail": "Profile identity mismatch"}, status_code=403)
+        request.state.profile_id = profile_id
+        request.state.profile_authenticated = True
+        with profile_scope(profile_id):
+            return await call_next(request)
+    if _AUTH_MODE == "off":
+        try:
+            request.state.profile_id = validate_profile_id(
+                request.headers.get("x-narad-profile-id", "default")
+            )
+        except ValueError:
+            return _AuthJSONResponse({"detail": "Invalid profile identity"}, status_code=400)
+        request.state.profile_authenticated = False
+        with profile_scope(request.state.profile_id):
+            return await call_next(request)
     client_host = request.client.host if request.client else ""
     if _AUTH_MODE == "local" and client_host in _LOCAL_CLIENTS:
-        return await call_next(request)
-    supplied = request.headers.get("authorization", "")
+        profile_id = request.headers.get("x-narad-profile-id", "default")
+        try:
+            profile_id = validate_profile_id(profile_id)
+        except ValueError:
+            return _AuthJSONResponse({"detail": "Invalid profile identity"}, status_code=400)
+        request.state.profile_id = profile_id
+        request.state.profile_authenticated = False
+        with profile_scope(profile_id):
+            return await call_next(request)
     if _API_TOKEN and supplied == f"Bearer {_API_TOKEN}":
-        return await call_next(request)
+        profile_id = request.headers.get("x-narad-profile-id", "default")
+        try:
+            profile_id = validate_profile_id(profile_id)
+        except ValueError:
+            return _AuthJSONResponse({"detail": "Invalid profile identity"}, status_code=400)
+        request.state.profile_id = profile_id
+        request.state.profile_authenticated = False
+        with profile_scope(profile_id):
+            return await call_next(request)
     return _AuthJSONResponse({"detail": "Unauthorized"}, status_code=401)
 
 
@@ -481,13 +579,21 @@ _ALLOWED_ORIGINS = [
     origin.strip()
     for origin in os.environ.get(
         "NARAD_ALLOWED_ORIGINS",
-        "http://localhost:5173,http://127.0.0.1:5173",
+        (
+            "http://localhost:5173,http://127.0.0.1:5173,"
+            "http://localhost:5174,http://127.0.0.1:5174"
+        ),
     ).split(",")
     if origin.strip()
 ]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_ALLOWED_ORIGINS,
+    allow_origin_regex=(
+        r"^https?://(localhost|127\.0\.0\.1|10(?:\.\d{1,3}){3}|"
+        r"192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2})"
+        r"(?::\d+)?$"
+    ),
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -541,6 +647,17 @@ async def _startup_runtime_contract() -> None:
         xai_oauth.apply_to_env()
     except Exception:
         pass
+    try:
+        from local_model_runtime import get_local_model_runtime
+
+        # Keep the zero-key runtime reachable. Model weights stay lazy on
+        # constrained machines, so this does not reserve 7.7 GB at startup.
+        await asyncio.to_thread(get_local_model_runtime().ensure_server, timeout=3.0)
+    except Exception:
+        logging.getLogger("narad.server").warning(
+            "local model runtime startup skipped", exc_info=True
+        )
+    refresh_avatar_models()
     app.state.runtime_contract = None
 
     # Contract collection imports every optional skill module (docling → torch,
@@ -559,6 +676,27 @@ async def _startup_runtime_contract() -> None:
     threading.Thread(
         target=_warm_contract, name="runtime-contract-warmup", daemon=True
     ).start()
+
+
+@app.on_event("shutdown")
+async def _shutdown_computer_runtime() -> None:
+    """Release managed browser processes instead of leaving Chromium orphaned."""
+    try:
+        from computer_use_skill import shutdown_computer_use
+
+        await asyncio.to_thread(shutdown_computer_use)
+    except Exception:
+        logging.getLogger("narad.server").warning(
+            "computer-use runtime shutdown failed", exc_info=True
+        )
+    try:
+        from local_model_runtime import get_local_model_runtime
+
+        await asyncio.to_thread(get_local_model_runtime().shutdown)
+    except Exception:
+        logging.getLogger("narad.server").warning(
+            "local model runtime shutdown failed", exc_info=True
+        )
 
 # ── Dharma Gate — input-level topic blocking ──────────────────────────────────
 import re as _re_gate
@@ -618,11 +756,11 @@ def _get_runner_for_user(user_id: str, model: str | None = None) -> Any:
     return _user_runners[cache_key]
 
 
-# Background task registry: session_id → (task, event_queue)
+# Background task registry: (user_id, session_id) → (task, event_queue)
 # The ADK run lives here, decoupled from the SSE stream. If the client
 # disconnects (screen lock, browser throttle) and reconnects, the task
 # keeps running and the client re-attaches to the same queue.
-_active_tasks: dict[str, tuple[asyncio.Task, asyncio.Queue]] = {}
+_active_tasks: dict[tuple[str, str], tuple[asyncio.Task, asyncio.Queue]] = {}
 _CONTINUATION_CUES = (
     "continue",
     "carry it on",
@@ -638,41 +776,6 @@ _CONTINUATION_CUES = (
     "that plan",
 )
 _LEARNING_SUMMARY_LIMIT = 1_600
-
-
-def _compact_karya_state(session_id: str) -> dict[str, Any] | None:
-    try:
-        from kanban import KanbanBoard
-    except Exception:
-        return None
-
-    try:
-        board = KanbanBoard().get_board(session_id)
-    except Exception:
-        return None
-
-    total = int(board.get("total", 0) or 0)
-    if total <= 0:
-        return None
-
-    columns = board.get("columns", {})
-    active_titles: list[str] = []
-    for column_name in ("in_progress", "review", "backlog"):
-        for step in columns.get(column_name, [])[:3]:
-            title = str(step.get("title", "")).strip()
-            if title and title not in active_titles:
-                active_titles.append(title)
-            if len(active_titles) >= 5:
-                break
-        if len(active_titles) >= 5:
-            break
-
-    return {
-        "total": total,
-        "done_count": int(board.get("done_count", 0) or 0),
-        "blocked_count": int(board.get("blocked_count", 0) or 0),
-        "active_titles": active_titles,
-    }
 
 
 def _looks_like_continuation(query: str) -> bool:
@@ -736,6 +839,15 @@ def _working_state_context(state: dict[str, Any] | None) -> str:
         if recent_phases:
             lines.append("Recent phase transitions:")
             lines.extend(f"- {item}" for item in recent_phases)
+    attachment_refs = state.get("attachment_refs")
+    if isinstance(attachment_refs, list) and attachment_refs:
+        lines.append("Recent user-provided inputs (exact local references):")
+        for item in attachment_refs[:12]:
+            if not isinstance(item, dict):
+                continue
+            label = item.get("relative_path") or item.get("name") or "attachment"
+            path = item.get("path") or ""
+            lines.append(f"- {label}: {path}" if path else f"- {label}")
     karya = state.get("karya")
     if isinstance(karya, dict) and karya.get("total"):
         parts = [f"{karya.get('total', 0)} tasks"]
@@ -777,10 +889,74 @@ class ChatRequest(BaseModel):
     query: str
     session_id: Optional[str] = None
     user_id: str = "default"
-    images: list[str] = []
+    images: list[str] = Field(default_factory=list)
+    attachment_ids: list[str] = Field(default_factory=list, max_length=256)
     active_artifact_id: Optional[str] = None
     active_artifact_workspace_id: Optional[str] = None
     active_artifact_type: Optional[str] = None
+    workflow_run_id: Optional[str] = None
+
+
+@app.post("/chat/attachments")
+async def upload_chat_attachments(
+    request: Request,
+    files: list[UploadFile] = File(...),
+    user_id: str = Form("default"),
+    session_id: str = Form(""),
+    source: str = Form("files"),
+    relative_paths: str = Form("[]"),
+):
+    """Persist files or an expanded browser folder as one private batch."""
+    user_id = _assert_profile_match(request, user_id)
+    try:
+        parsed_paths = json.loads(relative_paths)
+        if not isinstance(parsed_paths, list) or not all(isinstance(item, str) for item in parsed_paths):
+            raise ValueError
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=400, detail="relative_paths must be a JSON string array") from exc
+    try:
+        return await _store_upload_batch(
+            files,
+            user_id=user_id,
+            session_id=session_id,
+            relative_paths=parsed_paths,
+            source=source,
+        )
+    except _AttachmentError as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
+
+
+@app.get("/chat/attachments/{attachment_id}/content")
+async def chat_attachment_content(attachment_id: str, user_id: str = "default"):
+    """Serve one owned attachment without publicly mounting the upload tree."""
+    try:
+        item = _load_chat_attachment(attachment_id, user_id=user_id)
+    except _AttachmentError as exc:
+        raise HTTPException(status_code=404, detail="Attachment not found") from exc
+    if not item:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    return FileResponse(
+        path=str(item["path"]),
+        media_type=str(item.get("mime_type") or "application/octet-stream"),
+        filename=str(item.get("name") or "attachment"),
+        headers={
+            "Cache-Control": "private, max-age=60",
+            "Content-Security-Policy": "sandbox; default-src 'none'",
+            "X-Content-Type-Options": "nosniff",
+        },
+        content_disposition_type="inline",
+    )
+
+
+@app.delete("/chat/attachment-batches/{batch_id}")
+async def delete_chat_attachment_batch(batch_id: str, user_id: str = "default"):
+    try:
+        removed = _delete_attachment_batch(batch_id, user_id=user_id)
+    except _AttachmentError as exc:
+        raise HTTPException(status_code=404, detail="Attachment batch not found") from exc
+    if not removed:
+        raise HTTPException(status_code=404, detail="Attachment batch not found")
+    return {"status": "ok", "removed": True, "batch_id": batch_id}
 
 
 @app.get("/health")
@@ -796,10 +972,76 @@ async def capabilities():
     return app.state.runtime_contract
 
 
+@app.get("/interaction-runtimes")
+async def interaction_runtimes(request: Request):
+    """Report optional local interaction runtimes without starting either one."""
+    from artemis_adapter import artemis_status
+    from browser_skill_adapter import browser_skill_status
+    from computer_use_skill import browser_runtime_status
+    from interaction_targets import list_interaction_targets
+
+    profile_id = _profile_from_request(request)
+    return {
+        "profile_id": profile_id,
+        "browser_skill": browser_skill_status(),
+        "artemis": artemis_status(include_devices=True),
+        "desktop": browser_runtime_status().get("desktop", {}),
+        "grants": list_interaction_targets(profile_id=profile_id),
+    }
+
+
+@app.get("/interaction-targets")
+async def get_interaction_targets(request: Request, kind: str | None = None):
+    from interaction_targets import list_interaction_targets
+
+    try:
+        targets = list_interaction_targets(
+            profile_id=_profile_from_request(request), kind=kind
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"targets": targets}
+
+
+@app.post("/interaction-targets")
+async def add_interaction_target(request: Request, payload: dict):
+    """Grant one local browser or Android target to the active family profile."""
+    from interaction_targets import register_interaction_target
+
+    try:
+        target = register_interaction_target(
+            str(payload.get("kind") or ""),
+            str(payload.get("external_id") or ""),
+            label=str(payload.get("label") or ""),
+            metadata=payload.get("metadata") if isinstance(payload.get("metadata"), dict) else None,
+            profile_id=_profile_from_request(request),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    app.state.runtime_contract = None
+    return {"ok": True, "target": target}
+
+
+@app.delete("/interaction-targets/{target_id}")
+async def delete_interaction_target(request: Request, target_id: str):
+    from interaction_targets import revoke_interaction_target
+
+    removed = revoke_interaction_target(
+        target_id, profile_id=_profile_from_request(request)
+    )
+    if not removed:
+        raise HTTPException(status_code=404, detail="Interaction target not found")
+    app.state.runtime_contract = None
+    return {"ok": True, "removed": True, "target_id": target_id}
+
+
 @app.post("/chat")
-async def chat(req: ChatRequest):
-    if not req.query.strip():
+async def chat(req: ChatRequest, request: Request):
+    req.user_id = _assert_profile_match(request, req.user_id)
+    if not req.query.strip() and not req.attachment_ids and not req.images:
         raise HTTPException(status_code=400, detail="query cannot be empty")
+    if not req.query.strip():
+        req.query = "Review the attached inputs and summarize what matters."
 
     runtime_error = _agent_runtime_unavailable_reason()
     if runtime_error:
@@ -815,6 +1057,42 @@ async def chat(req: ChatRequest):
             })
             yield json.dumps({"type": "done", "data": {"session_id": "unavailable"}})
         return EventSourceResponse(_unavailable_stream())
+
+    # Re-resolve only when the selected endpoint cannot answer. This catches a
+    # newly installed local model without adding provider probes to every turn.
+    try:
+        from model_registry import provider_available_for_model
+
+        selected_model = AVATAR_MODELS["narad"]
+        if not provider_available_for_model(selected_model):
+            refresh_avatar_models()
+            selected_model = AVATAR_MODELS["narad"]
+        model_ready = provider_available_for_model(selected_model)
+    except Exception:
+        selected_model = AVATAR_MODELS.get("narad", "")
+        model_ready = False
+    if not model_ready:
+        async def _model_setup_stream():
+            yield json.dumps({
+                "type": "model_setup_required",
+                "data": {
+                    "model": selected_model,
+                    "message": (
+                        "No model endpoint is ready. Open Setup and install the offline "
+                        "Gemma 4 model, or connect a provider. No API key is required "
+                        "for the offline option."
+                    ),
+                },
+            })
+            yield json.dumps({
+                "type": "error",
+                "data": {
+                    "code": "model_setup_required",
+                    "message": "Offline model setup is required before the first chat.",
+                },
+            })
+            yield json.dumps({"type": "done", "data": {"session_id": "model-setup"}})
+        return EventSourceResponse(_model_setup_stream())
 
     # Dharma Gate: block hard-forbidden inputs before any agent work starts
     block_reason = _dharma_gate(req.query)
@@ -837,20 +1115,21 @@ async def chat(req: ChatRequest):
     # Re-attach to a still-running task (screen-lock / brief-disconnect reconnect).
     # The client resends the same session_id — we return the existing queue instead
     # of starting a new ADK run.
-    if session_id in _active_tasks:
-        task, queue = _active_tasks[session_id]
+    task_key = (req.user_id, session_id)
+    if task_key in _active_tasks:
+        task, queue = _active_tasks[task_key]
         if not task.done():
             return EventSourceResponse(_drain_queue(session_id, queue))
 
     # Start a new background task and return a stream that drains its queue.
     queue: asyncio.Queue = asyncio.Queue()
     task = asyncio.create_task(_run_agent_task(req, session_id, queue))
-    _active_tasks[session_id] = (task, queue)
+    _active_tasks[task_key] = (task, queue)
     return EventSourceResponse(_drain_queue(session_id, queue))
 
 
 @app.get("/chat/attach/{session_id}")
-async def chat_attach(session_id: str):
+async def chat_attach(session_id: str, request: Request):
     """Re-attach to a still-running background task after a client disconnect
     (phone screen lock, network blip, tab backgrounding).
 
@@ -859,7 +1138,7 @@ async def chat_attach(session_id: str):
     nothing is running: the client should check /thread/{session_id} for the
     completed answer instead.
     """
-    entry = _active_tasks.get(session_id)
+    entry = _active_tasks.get((_profile_from_request(request), session_id))
     if entry is None or entry[0].done():
         raise HTTPException(status_code=404, detail="No active run for this session")
     return EventSourceResponse(_drain_queue(session_id, entry[1]))
@@ -890,6 +1169,13 @@ async def _run_agent_task(
     rehydration_meta: dict[str, Any] = {}
     learning_workspace: dict[str, Any] | None = None
     learning_artifact_request: tuple[str, str] | None = None
+    workflow_context = ""
+    workflow_tool_artifacts: list[dict[str, Any]] = []
+    workflow_tool_citations: list[dict[str, Any]] = []
+    attachment_context = ""
+    attachment_history: list[dict[str, Any]] = []
+    attachment_refs: list[dict[str, Any]] = []
+    request_images = list(req.images)
     try:
         # Prevent macOS idle sleep for the duration of the task.
         try:
@@ -901,13 +1187,42 @@ async def _run_agent_task(
         except FileNotFoundError:
             pass  # Not macOS — no-op
 
-        try:
-            from project_manager import detect_project as _detect_project
-            await _detect_project(req.user_id, session_id, [req.query])
-        except Exception:
-            pass
-
         restored_working_state = _load_working_state(req.user_id, session_id)
+        attachment_ids = list(req.attachment_ids)
+        if (
+            not attachment_ids
+            and restored_working_state
+            and _references_prior_attachments(req.query)
+        ):
+            attachment_ids = [
+                str(item.get("attachment_id", ""))
+                for item in restored_working_state.get("attachment_refs", [])
+                if isinstance(item, dict) and item.get("attachment_id")
+            ]
+        attachment_bundle = await asyncio.to_thread(
+            _build_attachment_bundle,
+            attachment_ids,
+            user_id=req.user_id,
+            query=req.query,
+        )
+        attachment_context = str(attachment_bundle.get("context", ""))
+        attachment_history = list(attachment_bundle.get("attachments", []))
+        attachment_refs = list(attachment_bundle.get("durable_refs", []))
+        request_images.extend(attachment_bundle.get("image_data_uris", []))
+        if attachment_history or attachment_bundle.get("urls"):
+            await queue.put(json.dumps({
+                "type": "inputs_ready",
+                "data": {
+                    "attachment_count": len(attachment_history),
+                    "attachment_batch_count": len({
+                        item.get("batch_id")
+                        for item in attachment_history
+                        if item.get("batch_id")
+                    }),
+                    "url_count": len(attachment_bundle.get("urls", [])),
+                    "missing_attachment_ids": attachment_bundle.get("missing", []),
+                },
+            }))
         prior_turns = _load_thread(req.user_id, session_id, limit=10)
         restored_turn_count = len(prior_turns)
         same_thread_restore_available = bool(
@@ -920,6 +1235,16 @@ async def _run_agent_task(
             )
         )
         working_context = _working_state_context(restored_working_state)
+        if req.workflow_run_id:
+            from workflow_engine import build_workflow_context as _build_workflow_context
+
+            workflow_context = _build_workflow_context(
+                req.workflow_run_id,
+                user_id=req.user_id,
+            )
+            working_context = "\n\n".join(
+                block for block in [workflow_context, working_context] if block.strip()
+            )
         learning_artifact_offer_pending = bool(
             restored_working_state.get("learning_artifact_offer_pending")
             if restored_working_state else False
@@ -1074,7 +1399,7 @@ async def _run_agent_task(
                 workspace_id=learning_workspace_id,
                 topic=artifact_topic,
                 artifact_type=artifact_type,
-                teaching_context=artifact_topic,
+                teaching_context=attachment_context or artifact_topic,
                 record_ids=[predicted_record_id],
             )
             record = _append_learning_record(
@@ -1112,7 +1437,10 @@ async def _run_agent_task(
                 session_id=session_id,
                 role="user",
                 text=req.query,
-                metadata={"images": len(req.images)},
+                metadata={
+                    "images": len(request_images),
+                    "attachments": attachment_history,
+                },
             )
             _append_thread_turn(
                 user_id=req.user_id,
@@ -1134,6 +1462,7 @@ async def _run_agent_task(
                 "learning_record_ids": [record["record_id"]],
                 "learning_artifact_offer_pending": False,
                 "active_artifact": artifact_session,
+                "attachment_refs": attachment_refs or (restored_working_state or {}).get("attachment_refs", []),
             })
             _save_working_state(user_id=req.user_id, session_id=session_id, state=short_circuit_state)
             _record_harness_session_state(
@@ -1194,7 +1523,11 @@ async def _run_agent_task(
                 session_id=session_id,
                 role="user",
                 text=req.query,
-                metadata={"images": len(req.images), "artifact_id": artifact_id},
+                metadata={
+                    "images": len(request_images),
+                    "attachments": attachment_history,
+                    "artifact_id": artifact_id,
+                },
             )
             _append_thread_turn(
                 user_id=req.user_id,
@@ -1216,6 +1549,7 @@ async def _run_agent_task(
                 "learning_record_ids": [record["record_id"]],
                 "learning_artifact_offer_pending": False,
                 "active_artifact": artifact_session,
+                "attachment_refs": attachment_refs or (restored_working_state or {}).get("attachment_refs", []),
             })
             _save_working_state(user_id=req.user_id, session_id=session_id, state=short_circuit_state)
             _record_harness_session_state(
@@ -1239,6 +1573,36 @@ async def _run_agent_task(
             if recent_context:
                 candidate_query = recent_context
 
+        # Jev shadows the existing supervisor concurrently. It records what a
+        # fast typed router would have chosen without delaying or overriding
+        # the production route; confidence thresholds can be calibrated from
+        # these events before direct routing is enabled.
+        if os.environ.get("NARAD_JEV_ROUTE_MODE", "shadow").strip().lower() != "off":
+            async def _emit_route_shadow() -> None:
+                try:
+                    from decision_contracts import compact_decision, route_turn_v1
+                    from decision_engine import jev_status
+
+                    if not jev_status().get("available"):
+                        return
+                    decision = await asyncio.to_thread(
+                        route_turn_v1,
+                        {
+                            "request": req.query[:4000],
+                            "has_attachments": bool(attachment_history),
+                            "active_workflow": bool(workflow_context),
+                            "active_learning_workspace": bool(learning_workspace_id),
+                        },
+                    )
+                    await queue.put(json.dumps({
+                        "type": "decision_shadow",
+                        "data": compact_decision(decision),
+                    }))
+                except Exception as exc:
+                    logging.getLogger("narad.server").debug("Jev route shadow skipped: %s", exc)
+
+            asyncio.create_task(_emit_route_shadow())
+
         preflight_plan, preflight_profile = choose_model_and_plan(
             model=selected_model,
             plane_specs=[
@@ -1256,6 +1620,14 @@ async def _run_agent_task(
                     "priority": 2,
                     "hard": False,
                     "compaction_strategy": "state_summary",
+                },
+                {
+                    "key": "artifact_plane",
+                    "content": attachment_context,
+                    "priority": 3,
+                    "hard": False,
+                    "compaction_strategy": "bounded_extracts_exact_reread",
+                    "metadata": {"attachment_count": len(attachment_history)},
                 },
                 {
                     "key": "current_turn_plane",
@@ -1317,6 +1689,14 @@ async def _run_agent_task(
                     "compaction_strategy": "state_summary",
                 },
                 {
+                    "key": "artifact_plane",
+                    "content": attachment_context,
+                    "priority": 3,
+                    "hard": False,
+                    "compaction_strategy": "bounded_extracts_exact_reread",
+                    "metadata": {"attachment_count": len(attachment_history)},
+                },
+                {
                     "key": "current_turn_plane",
                     "content": effective_query,
                     "priority": 0,
@@ -1336,9 +1716,20 @@ async def _run_agent_task(
             runner = _get_runner_for_user(req.user_id, selected_model)
 
         if needs_restore and same_thread_restore_available:
+            attachment_tokens = next(
+                (
+                    plane.token_estimate
+                    for plane in final_context_plan.planes
+                    if plane.key == "artifact_plane"
+                ),
+                0,
+            )
             restore_budget = max(
                 2_048,
-                final_profile.hard_input_budget_tokens - _STATIC_SYSTEM_OVERHEAD_TOKENS - 1_024,
+                final_profile.hard_input_budget_tokens
+                - _STATIC_SYSTEM_OVERHEAD_TOKENS
+                - attachment_tokens
+                - 1_024,
             )
             effective_query, rehydration_meta = _build_rehydration_query(
                 user_id=req.user_id,
@@ -1365,6 +1756,14 @@ async def _run_agent_task(
                         "priority": 2,
                         "hard": False,
                         "compaction_strategy": "state_summary",
+                    },
+                    {
+                        "key": "artifact_plane",
+                        "content": attachment_context,
+                        "priority": 3,
+                        "hard": False,
+                        "compaction_strategy": "bounded_extracts_exact_reread",
+                        "metadata": {"attachment_count": len(attachment_history)},
                     },
                     {
                         "key": "current_turn_plane",
@@ -1430,6 +1829,10 @@ async def _run_agent_task(
                     "Narad supervisor recall skipped this turn: %s", exc
                 )
 
+        # A workflow run is a compact durable state packet, not replayed chat.
+        if workflow_context:
+            effective_query = f"{workflow_context}\n\nUser request for this stage:\n{effective_query}"
+
         # ── G6.2: deliver the Gurukul packet to the model ─────────────────────
         # working_context only informs token budgeting (choose_model_and_plan);
         # the model sees nothing but effective_query — so the teaching packet,
@@ -1453,6 +1856,11 @@ async def _run_agent_task(
             gurukul_lines += ["", _TEACHING_RULES, "[END GURUKUL TEACHING CONTEXT]"]
             effective_query = "\n".join(gurukul_lines) + f"\n\n{effective_query}"
 
+        # Keep the user's actual request at the end while giving the router a
+        # bounded, exact-reread-capable view of uploaded inputs and live URLs.
+        if attachment_context:
+            effective_query = f"{attachment_context}\n\n{effective_query}"
+
         user_message = genai_types.Content(
             role="user", parts=[genai_types.Part(text=effective_query)]
         )
@@ -1460,7 +1868,7 @@ async def _run_agent_task(
         # Share the SSE queue, images, and HTTP session_id with avatar tool execution
         from avatar_agents import _http_session_id_ctx, _step_queue_ctx
         _step_queue_ctx.set(queue)
-        _images_ctx.set(req.images)
+        _images_ctx.set(request_images)
         _http_session_id_ctx.set(session_id)
 
         tracer.session_start(req.query)
@@ -1545,6 +1953,27 @@ async def _run_agent_task(
                                 workspace_id=learning_workspace_id,
                                 resources=citations,
                             )
+                    if payload.get("type") == "tool_ui":
+                        tool_payload = payload.get("data", {}).get("payload", {})
+                        artifacts = tool_payload.get("artifacts", []) if isinstance(tool_payload, dict) else []
+                        citations = tool_payload.get("citations", []) if isinstance(tool_payload, dict) else []
+                        if isinstance(artifacts, list):
+                            workflow_tool_artifacts.extend(item for item in artifacts if isinstance(item, dict))
+                        if isinstance(citations, list):
+                            workflow_tool_citations.extend(item for item in citations if isinstance(item, dict))
+                    if payload.get("type") == "avatar_done":
+                        avatar_result = payload.get("data", {}).get("result", {})
+                        if isinstance(avatar_result, dict):
+                            artifacts = avatar_result.get("artifacts", [])
+                            citations = avatar_result.get("citations", [])
+                            if isinstance(artifacts, list):
+                                workflow_tool_artifacts.extend(
+                                    item for item in artifacts if isinstance(item, dict)
+                                )
+                            if isinstance(citations, list):
+                                workflow_tool_citations.extend(
+                                    item for item in citations if isinstance(item, dict)
+                                )
                 except Exception:
                     pass
             usage_payload = _usage_to_sse(
@@ -1608,13 +2037,53 @@ async def _run_agent_task(
 
         learning_artifact_offer_pending = _learning_artifact_offer_pending(narad_response_text)
 
+        workflow_payload: dict[str, Any] | None = None
+        if req.workflow_run_id and narad_response_text.strip():
+            try:
+                from workflow_engine import record_chat_stage_result as _record_workflow_result
+                from workflow_engine import workflow_run_payload as _workflow_run_payload
+
+                workflow_run = _record_workflow_result(
+                    req.workflow_run_id,
+                    user_id=req.user_id,
+                    session_id=session_id,
+                    response_text=narad_response_text,
+                    artifacts=workflow_tool_artifacts,
+                    citations=workflow_tool_citations,
+                )
+                workflow_payload = _workflow_run_payload(workflow_run, include_history=False)
+                await queue.put(json.dumps({
+                    "type": "workflow_updated",
+                    "data": {
+                        "workflow_run_id": req.workflow_run_id,
+                        "workflow_id": workflow_run.workflow_id,
+                        "project_id": workflow_run.project_id,
+                        "run": workflow_payload,
+                    },
+                }))
+                await queue.put(json.dumps({
+                    "type": "task_state_changed",
+                    "data": {
+                        "workflow_run_id": req.workflow_run_id,
+                        "project_id": workflow_run.project_id,
+                        "session_id": session_id,
+                    },
+                }))
+            except Exception as workflow_exc:
+                logging.getLogger("narad.server").warning(
+                    "Workflow stage result was not advanced: %s", workflow_exc
+                )
+
         tracer.session_done()
         _append_thread_turn(
             user_id=req.user_id,
             session_id=session_id,
             role="user",
             text=req.query,
-            metadata={"images": len(req.images)},
+            metadata={
+                "images": len(request_images),
+                "attachments": attachment_history,
+            },
         )
         if narad_response_text.strip():
             _append_thread_turn(
@@ -1632,7 +2101,7 @@ async def _run_agent_task(
             user_id=req.user_id,
             session_id=session_id,
         )
-        karya_state = _compact_karya_state(session_id)
+        karya_state = None
         turn_count = len(_load_thread(req.user_id, session_id))
         runtime_epoch.turn_count += 1
         runtime_epoch.last_prompt_tokens = final_context_plan.predicted_input_tokens
@@ -1658,6 +2127,7 @@ async def _run_agent_task(
                 "thread_summary": thread_summary,
                 "karya": karya_state,
                 "continued_from_sessions": recent_source_sessions,
+                "attachment_refs": attachment_refs or (restored_working_state or {}).get("attachment_refs", []),
                 "learning_workspace_id": learning_workspace_id or None,
                 "learning_topic": (learning_workspace or {}).get("topic"),
                 "learning_record_ids": learning_record_ids,
@@ -1679,6 +2149,7 @@ async def _run_agent_task(
                     else None
                 ),
                 "active_artifact": active_artifact_session or (restored_working_state or {}).get("active_artifact"),
+                "workflow_run_id": req.workflow_run_id or (restored_working_state or {}).get("workflow_run_id"),
                 "runtime_epoch_id": runtime_epoch.epoch_id,
                 "runtime_epoch_model": selected_model,
                 "runtime_epoch_turn_count": runtime_epoch.turn_count,
@@ -1705,15 +2176,9 @@ async def _run_agent_task(
             "data": {
                 "session_id": session_id,
                 "runtime_epoch_id": runtime_epoch.epoch_id,
+                "workflow_run_id": req.workflow_run_id,
             },
         }))
-
-        # Phase 10a: Compile session into project wiki (fire-and-forget)
-        try:
-            from scribe import compile_session as _compile
-            asyncio.create_task(_compile(session_id, req.user_id))
-        except Exception:
-            pass
 
     except Exception as exc:
         tb = traceback.format_exc()
@@ -1731,7 +2196,7 @@ async def _run_agent_task(
         if caffeinate is not None:
             caffeinate.terminate()
         await queue.put(None)  # sentinel — signals _drain_queue to stop
-        _active_tasks.pop(session_id, None)
+        _active_tasks.pop((req.user_id, session_id), None)
 
 
 async def _drain_queue(
@@ -1758,10 +2223,14 @@ async def _drain_queue(
 
 
 @app.get("/trace/{session_id}")
-async def get_trace(session_id: str):
+async def get_trace(session_id: str, request: Request):
     events = Tracer.load(session_id)
     if not events:
         raise HTTPException(status_code=404, detail="No trace found for session")
+    if getattr(request.state, "profile_authenticated", False):
+        profile_id = _profile_from_request(request)
+        if any(str(event.get("user_id") or "default") != profile_id for event in events):
+            raise HTTPException(status_code=404, detail="No trace found for session")
     return {"session_id": session_id, "events": events, "summary": Tracer.summary(session_id)}
 
 
@@ -1889,14 +2358,6 @@ async def fork_harness_session(session_id: str, user_id: str = "default", title:
     return {"status": "ok", "session": record}
 
 
-@app.get("/plan/{session_id}")
-async def get_plan(session_id: str):
-    plan_path = Path.home() / ".narad" / "plans" / f"{session_id}.json"
-    if not plan_path.exists():
-        raise HTTPException(status_code=404, detail="No plan found for session")
-    return json.loads(plan_path.read_text())
-
-
 @app.get("/sutras")
 async def get_sutras():
     from sutra_engine import COOLDOWN_HOURS, get_all_sutras
@@ -1937,6 +2398,163 @@ async def get_tiers():
     return tiers_payload()
 
 
+# ── Family profiles ─────────────────────────────────────────────────────────
+
+@app.get("/profiles")
+async def get_family_profiles():
+    from family_profiles import list_profiles
+
+    profiles = list_profiles()
+    return {"profiles": profiles, "count": len(profiles), "max_profiles": 12}
+
+
+@app.post("/profiles", status_code=201)
+async def create_family_profile(payload: dict):
+    from family_profiles import create_profile, issue_session
+    from onboarding import save_onboarding_state
+
+    try:
+        profile = create_profile(
+            str(payload.get("display_name") or ""),
+            str(payload.get("pin") or ""),
+            str(payload.get("color") or ""),
+        )
+        save_onboarding_state(profile["user_id"], display_name=profile["display_name"])
+        return issue_session(profile["user_id"], str(payload.get("pin") or ""))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/profiles/login")
+async def login_family_profile(payload: dict):
+    from family_profiles import issue_session
+
+    try:
+        return issue_session(
+            str(payload.get("user_id") or ""),
+            str(payload.get("pin") or ""),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+
+
+@app.post("/profiles/bootstrap")
+async def bootstrap_family_owner(payload: dict):
+    from family_profiles import bootstrap_owner_pin
+
+    try:
+        return bootstrap_owner_pin(
+            str(payload.get("user_id") or "default"),
+            str(payload.get("pin") or ""),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/profiles/session")
+async def get_family_profile_session(request: Request):
+    from family_profiles import get_profile
+
+    if not getattr(request.state, "profile_authenticated", False):
+        raise HTTPException(status_code=401, detail="Profile session required")
+    profile = get_profile(_profile_from_request(request))
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    return {"profile": profile}
+
+
+@app.patch("/profiles/{user_id}")
+async def patch_family_profile(user_id: str, payload: dict, request: Request):
+    from family_profiles import update_profile
+    from onboarding import save_onboarding_state
+
+    safe_id = _assert_profile_match(request, user_id)
+    try:
+        profile = update_profile(
+            safe_id,
+            display_name=payload.get("display_name") if "display_name" in payload else None,
+            color=payload.get("color") if "color" in payload else None,
+            pin=payload.get("pin") if "pin" in payload else None,
+        )
+        if "display_name" in payload:
+            save_onboarding_state(safe_id, display_name=profile["display_name"])
+        return {"profile": profile}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/onboarding")
+async def get_onboarding(request: Request, user_id: str = "default"):
+    """Return first-run state plus non-secret model and research readiness."""
+    from onboarding import build_onboarding_status
+
+    try:
+        return build_onboarding_status(_assert_profile_match(request, user_id))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.patch("/onboarding")
+async def update_onboarding(payload: dict, request: Request):
+    """Persist profile/completion state without touching keys or tier settings."""
+    from onboarding import save_onboarding_state
+
+    user_id = _assert_profile_match(request, str(payload.get("user_id", "default")))
+    for field in ("completed", "skipped"):
+        if field in payload and not isinstance(payload[field], bool):
+            raise HTTPException(status_code=400, detail=f"{field} must be a boolean")
+    if "display_name" in payload and not isinstance(payload["display_name"], str):
+        raise HTTPException(status_code=400, detail="display_name must be a string")
+    try:
+        return save_onboarding_state(
+            user_id,
+            display_name=payload.get("display_name") if "display_name" in payload else None,
+            completed=payload.get("completed") if "completed" in payload else None,
+            skipped=payload.get("skipped") if "skipped" in payload else None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def _activate_runtime_model(status: dict[str, Any]) -> dict[str, Any]:
+    """Refresh future runners when a local install changes the model fleet."""
+    if not status.get("ready"):
+        return status
+    previous = dict(AVATAR_MODELS)
+    current = refresh_avatar_models()
+    if current != previous:
+        _user_runners.clear()
+        app.state.runtime_contract = None
+    return status
+
+
+@app.get("/local-model/status")
+async def get_local_model_status():
+    from local_model_runtime import local_runtime_status
+
+    status = await asyncio.to_thread(local_runtime_status, force=True)
+    return _activate_runtime_model(status)
+
+
+@app.post("/local-model/start")
+async def start_local_model_runtime():
+    from local_model_runtime import get_local_model_runtime
+
+    status = await asyncio.to_thread(get_local_model_runtime().ensure_server)
+    return _activate_runtime_model(status)
+
+
+@app.post("/local-model/install", status_code=202)
+async def install_local_model():
+    from local_model_runtime import get_local_model_runtime
+
+    try:
+        status = await asyncio.to_thread(get_local_model_runtime().start_install)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return _activate_runtime_model(status)
+
+
 @app.post("/tiers/choice")
 async def set_tier_choice(payload: dict):
     from tier_engine import save_tier_choice
@@ -1952,9 +2570,15 @@ async def set_tier_choice(payload: dict):
 @app.get("/connections")
 async def get_connections():
     """Settings → Connections: one card per provider + subscription adapters (O5/S3)."""
+    from google_workspace import status as google_status
+
     from kunji import list_connections
     from subscription_providers import subscriptions_payload
-    return {"connections": list_connections(), "subscriptions": subscriptions_payload()}
+    return {
+        "connections": list_connections(),
+        "subscriptions": subscriptions_payload(),
+        "google_workspace": google_status(),
+    }
 
 
 @app.post("/connections")
@@ -1975,6 +2599,8 @@ async def add_connection(payload: dict):
     if validate and not tested:
         return {"ok": False, "provider": provider, "tested": False, "detail": detail}
     entry = set_key(provider, key)
+    refresh_avatar_models()
+    app.state.runtime_contract = None
     return {"ok": True, "tested": tested, "detail": detail, **entry}
 
 
@@ -1991,6 +2617,8 @@ async def delete_connection(provider: str):
     existed = delete_key(provider)
     if not existed:
         raise HTTPException(status_code=404, detail="no stored key for that provider")
+    refresh_avatar_models()
+    app.state.runtime_contract = None
     return {"ok": True, "provider": provider, "action": "disconnected"}
 
 
@@ -1998,7 +2626,99 @@ async def delete_connection(provider: str):
 async def import_env_connections():
     """One-time .env → keychain migration (explicit, never silent)."""
     from kunji import import_env_keys
-    return {"ok": True, "imported": import_env_keys()}
+    imported = import_env_keys()
+    if imported:
+        refresh_avatar_models()
+        app.state.runtime_contract = None
+    return {"ok": True, "imported": imported}
+
+
+# ── Google Workspace OAuth ───────────────────────────────────────────────────
+
+@app.post("/connections/google/oauth/config")
+async def google_oauth_configure(request: Request, payload: dict):
+    from google_workspace import configure_client
+
+    from family_profiles import get_profile
+
+    profile_id = _profile_from_request(request)
+    profile = get_profile(profile_id)
+    if not profile or not profile.get("is_owner"):
+        raise HTTPException(status_code=403, detail="Only the family pilot owner can configure Google OAuth")
+    try:
+        result = configure_client(
+            str(payload.get("client_id") or ""),
+            str(payload.get("client_secret") or ""),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    app.state.runtime_contract = None
+    return {"ok": True, **result}
+
+def _google_oauth_redirect_uri(request: Request) -> str:
+    """Resolve a callback that remains valid behind a trusted HTTPS proxy."""
+    configured = os.environ.get("NARAD_PUBLIC_URL", "").strip().rstrip("/")
+    if configured:
+        from urllib.parse import urlparse
+
+        parsed = urlparse(configured)
+        if parsed.scheme != "https" or not parsed.netloc or parsed.path not in ("", "/"):
+            raise ValueError("NARAD_PUBLIC_URL must be an HTTPS origin without a path")
+        return f"{configured}/google/callback"
+    port = request.url.port or 8000
+    return f"http://127.0.0.1:{port}/google/callback"
+
+@app.post("/connections/google/oauth/start")
+async def google_oauth_start(request: Request, payload: dict):
+    from google_workspace import start_login
+
+    services = payload.get("services") or ["gmail", "calendar", "drive", "photos"]
+    access = str(payload.get("access") or "read")
+    try:
+        redirect_uri = _google_oauth_redirect_uri(request)
+        result = start_login(
+            redirect_uri,
+            [str(item) for item in services],
+            access,
+            user_id=_profile_from_request(request),
+        )
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"ok": True, **result}
+
+
+@app.get("/google/callback")
+async def google_oauth_callback(code: str = "", state: str = "", error: str = ""):
+    import html
+
+    from fastapi.responses import HTMLResponse
+    from google_workspace import finish_login
+
+    if error or not code:
+        return HTMLResponse(
+            f"<h2>Google connection failed</h2><p>{html.escape(error or 'No authorization code returned')}</p>",
+            status_code=400,
+        )
+    try:
+        finish_login(code, state)
+        app.state.runtime_contract = None
+    except (ValueError, RuntimeError) as exc:
+        return HTMLResponse(f"<h2>Google connection failed</h2><p>{html.escape(str(exc))}</p>", status_code=400)
+    return HTMLResponse("<h2>Google connected</h2><p>You can close this tab and return to Narad.</p>")
+
+
+@app.get("/connections/google/oauth/status")
+async def google_oauth_status(request: Request):
+    from google_workspace import status
+    return status(_profile_from_request(request))
+
+
+@app.delete("/connections/google/oauth")
+async def google_oauth_disconnect(request: Request):
+    from google_workspace import disconnect
+    existed = await asyncio.to_thread(disconnect, _profile_from_request(request))
+    app.state.runtime_contract = None
+    return {"ok": True, "existed": existed, "action": "disconnected"}
 
 
 # ── xAI OAuth (Grok via SuperGrok / X Premium+) ───────────────────────────────
@@ -2031,6 +2751,8 @@ async def xai_oauth_callback(code: str = "", state: str = "", error: str = ""):
         return HTMLResponse(body, status_code=400)
     try:
         xai_oauth.finish_login(code, state)
+        refresh_avatar_models()
+        app.state.runtime_contract = None
     except (ValueError, RuntimeError) as exc:
         return HTMLResponse(f"<h2>Grok sign-in failed</h2><p>{exc}</p>", status_code=400)
     return HTMLResponse(
@@ -2046,7 +2768,10 @@ async def xai_oauth_finish(payload: dict):
     import xai_oauth
     raw = str(payload.get("code", "") or payload.get("code_or_url", ""))
     try:
-        return {"ok": True, **xai_oauth.finish_login_input(raw)}
+        result = xai_oauth.finish_login_input(raw)
+        refresh_avatar_models()
+        app.state.runtime_contract = None
+        return {"ok": True, **result}
     except (ValueError, RuntimeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -2063,6 +2788,8 @@ async def xai_oauth_disconnect():
     existed = xai_oauth.disconnect()
     if not existed:
         raise HTTPException(status_code=404, detail="no Grok session to disconnect")
+    refresh_avatar_models()
+    app.state.runtime_contract = None
     return {"ok": True, "provider": "xai-oauth", "action": "disconnected"}
 
 
@@ -2108,21 +2835,6 @@ async def revert_sankalpa_endpoint(sankalpa_id: str, user_id: str = "default"):
     return {"ok": True, "sankalpa_id": sankalpa_id, "action": "reverted"}
 
 
-# ── Phase 13: Six Sigma endpoints ────────────────────────────────────────────
-
-# Karyakrama Kanban
-@app.get("/kanban/{session_id}")
-async def get_kanban_board(session_id: str):
-    from kanban import KanbanBoard
-    return KanbanBoard().get_board(session_id)
-
-
-@app.get("/kanban")
-async def get_all_kanban():
-    from kanban import KanbanBoard
-    return {"boards": KanbanBoard().get_all_active()}
-
-
 # Jaagruti Andon
 @app.get("/andon/log")
 async def get_andon_log(limit: int = 50):
@@ -2134,130 +2846,6 @@ async def get_andon_log(limit: int = 50):
 async def get_andon_stats(days: int = 7):
     from andon import andon_stats
     return andon_stats(days=days)
-
-
-# Shuddhi 5S
-@app.get("/5s/report")
-async def get_5s_report():
-    from narad_5s import NaradShuddhi
-    return NaradShuddhi().report()
-
-
-@app.post("/5s/shine")
-async def run_5s_shine(dry_run: bool = True):
-    from narad_5s import NaradShuddhi
-    return NaradShuddhi().shine(dry_run=dry_run)
-
-
-# Viveka DMAIC quality report
-_last_quality_report: dict | None = None
-
-
-@app.post("/quality/report")
-async def generate_quality_report(user_id: str = "default"):
-    global _last_quality_report
-
-    from andon import andon_stats, load_andon_log
-
-    # Assemble metrics packet for the canonical quality-auditor path
-    stats = andon_stats(days=7)
-    recent_andon = load_andon_log(limit=20)
-
-    metrics_packet = {
-        "period": "last_7_days",
-        "andon_stats": stats,
-        "recent_andon_events": recent_andon,
-    }
-
-    try:
-        sessions = list((Path.home() / ".narad" / "sessions").glob("*.jsonl"))
-        metrics_packet["session_count_7d"] = len(sessions)
-    except Exception:
-        pass
-
-    # Invoke Parashurama with a structured DMAIC task
-    from avatar_agents import parashurama
-    from google.adk.runners import Runner
-    from google.adk.sessions import InMemorySessionService
-    from google.genai import types as genai_types
-
-    dmaic_task = (
-        "VIVEKA DMAIC QUALITY REPORT\n\n"
-        "Metrics for the last 7 days:\n"
-        f"{json.dumps(metrics_packet, indent=2)}\n\n"
-        "Produce a structured 5-section DMAIC report:\n"
-        "DEFINE: Top task types; CTQs\n"
-        "MEASURE: Avg score by avatar; error/andon rates; P95 latency\n"
-        "ANALYZE: Which avatar fires Andon most; which task types score lowest\n"
-        "IMPROVE: Patterns learned; recovery options used\n"
-        "CONTROL: Trend vs prior period\n\n"
-        "Be concise — 3–5 bullet points per section. No JSON in output."
-    )
-
-    try:
-        svc = InMemorySessionService()
-        sid = str(uuid.uuid4())
-        await svc.create_session(app_name="quality_report", user_id="narad", session_id=sid)
-        runner = Runner(agent=parashurama, app_name="quality_report", session_service=svc)
-        msg = genai_types.Content(role="user", parts=[genai_types.Part(text=dmaic_task)])
-        report_text = ""
-        async for event in runner.run_async(user_id="narad", session_id=sid, new_message=msg):
-            if event.is_final_response() and event.content and event.content.parts:
-                report_text = "".join(
-                    p.text or "" for p in event.content.parts
-                    if not getattr(p, "thought", False)
-                )
-
-        # Save to wiki
-        try:
-            wiki_dir = Path.home() / ".narad" / "wiki" / user_id / "quality"
-            wiki_dir.mkdir(parents=True, exist_ok=True)
-            date_str = __import__("datetime").date.today().isoformat()
-            report_path = wiki_dir / f"DMAIC_{date_str}.md"
-            report_path.write_text(report_text)
-        except Exception:
-            pass
-
-        _last_quality_report = {
-            "generated_at": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
-            "report": report_text,
-            "metrics": metrics_packet,
-        }
-        return _last_quality_report
-
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Quality report generation failed: {exc}")
-
-
-@app.get("/quality/report")
-async def get_quality_report():
-    if _last_quality_report is None:
-        raise HTTPException(status_code=404, detail="No quality report generated yet. POST /quality/report first.")
-    return _last_quality_report
-
-
-# ── Cultural-core endpoints ───────────────────────────────────────────────────
-
-@app.post("/swapna/run")
-async def run_swapna_endpoint(
-    user_id: str = "default",
-    project_id: str = "general",
-    max_episodes: int = 20,
-    apply: bool = False,
-):
-    from swapna import dream
-    return dream(
-        user_id=user_id,
-        project_id=project_id,
-        max_episodes=max_episodes,
-        apply=apply,
-    )
-
-
-@app.get("/swapna/inbox")
-async def get_swapna_inbox():
-    from swapna import inbox
-    return {"items": inbox()}
 
 
 # ── Vahana inbox endpoints (M3.1) ─────────────────────────────────────────────
@@ -2282,18 +2870,21 @@ class InboxMarkReadRequest(BaseModel):
 
 
 @app.post("/inbox/mark-read")
-async def post_inbox_mark_read(req: InboxMarkReadRequest):
+async def post_inbox_mark_read(req: InboxMarkReadRequest, request: Request):
     from vahana import mark_read
+    req.user_id = _assert_profile_match(request, req.user_id)
     return mark_read(req.user_id, req.ids)
 
 
 # ── Cost ledger (M4.1) ─────────────────────────────────────────────────────────
 
 @app.get("/costs")
-async def get_costs(days: int = 7, user_id: Optional[str] = None):
+async def get_costs(request: Request, days: int = 7, user_id: Optional[str] = None):
     """Trailing cost roll-up: totals, by_day, by_source (turn vs tapas_*), by_model."""
     from cost_ledger import summarize
-    return summarize(days=days, user_id=user_id)
+    resolved_user_id = user_id or _profile_from_request(request)
+    resolved_user_id = _assert_profile_match(request, resolved_user_id)
+    return summarize(days=days, user_id=resolved_user_id)
 
 
 @app.get("/provenance/{entity_id}")
@@ -2306,12 +2897,6 @@ async def get_provenance_endpoint(entity_id: str, user_id: str = "default"):
 async def get_architecture_scorecard():
     from smriti_core import architecture_scorecard
     return architecture_scorecard()
-
-
-@app.get("/evolution/history")
-async def get_evolution_history(days: int = 30):
-    from smriti_core import evolution_history
-    return evolution_history(days=days)
 
 
 # ── Memory query endpoint ─────────────────────────────────────────────────────
@@ -2393,7 +2978,7 @@ async def unified_search(
     user_id: str = "default",
     limit: int = 20,
 ):
-    """Search across memories, sutras, kanban steps, and andon log."""
+    """Search across memories, learned rules, and diagnostics."""
     if not q or len(q.strip()) < 2:
         return []
 
@@ -2433,24 +3018,6 @@ async def unified_search(
                 sutra_count += 1
                 if sutra_count >= 5:
                     break
-    except Exception:
-        pass
-
-    # Kanban steps (active sessions)
-    try:
-        from kanban import KanbanBoard  # type: ignore
-        for board in KanbanBoard().get_all_active():
-            for col_steps in board.get("columns", {}).values():
-                for step in col_steps:
-                    if q_lower in step.get("title", "").lower():
-                        results.append({
-                            "id": f"step_{step.get('session_id','')}_{step.get('step_id','')}",
-                            "type": "plan",
-                            "avatar": step.get("owner", ""),
-                            "preview": step.get("title", "")[:120],
-                            "ts": step.get("started_at") or step.get("completed_at") or "",
-                            "nav": "kanban",
-                        })
     except Exception:
         pass
 
@@ -2503,7 +3070,7 @@ async def unified_search(
     except Exception:
         pass
 
-    type_order = {"memory": 0, "sutra": 1, "plan": 2, "andon": 3, "audit": 4}
+    type_order = {"memory": 0, "sutra": 1, "andon": 2, "audit": 3}
     results.sort(key=lambda x: type_order.get(x["type"], 9))
     return results[:limit]
 
@@ -2555,24 +3122,9 @@ async def expand_sandbox(doc_id: str):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-# ── Daily Shuddhi background loop ─────────────────────────────────────────────
-
-async def _daily_shuddhi_loop():
-    """Run a dry-run Shuddhi cycle every 24 hours and emit a Yantra event."""
-    while True:
-        await asyncio.sleep(86_400)
-        try:
-            from narad_5s import NaradShuddhi
-            NaradShuddhi().sustain()
-            logging.getLogger("narad.server").info("Daily Shuddhi cycle complete.")
-        except Exception as exc:
-            logging.getLogger("narad.server").warning("Daily Shuddhi failed: %s", exc)
-
-
 @app.on_event("startup")
 async def _start_background_tasks():
-    asyncio.create_task(_daily_shuddhi_loop())
-    # Kala scheduler (M3.2) — reminders fire + Swapna consumed nightly.
+    # Kala owns user-visible reminders and workflow cadence.
     # Disable with NARAD_SCHEDULER=0 (e.g. in tests / one-off scripts).
     if os.environ.get("NARAD_SCHEDULER", "1") != "0":
         try:

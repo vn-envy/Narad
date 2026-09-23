@@ -1,23 +1,17 @@
 """
 Matsya document extraction skill.
 
-Default engines are lightweight: PyMuPDF for PDFs, python-docx for Word,
-plain read for text/HTML/Markdown. IBM Docling (heavy: torch + layout models)
-is OPT-IN via NARAD_USE_DOCLING=1 — it adds multi-column layout, table
-structure, and figure/caption fidelity when you need it.
+Uses lightweight, format-specific readers and never loads model runtimes.
 """
 from __future__ import annotations
 
-import os
 from pathlib import Path
-
-_USE_DOCLING = os.environ.get("NARAD_USE_DOCLING", "").strip().lower() in {"1", "true", "yes"}
 
 
 def extract_document(file_path: str) -> dict:
     """Extract text, tables, and structure from a document file.
 
-    Supports PDF, DOCX, PPTX, HTML, Markdown, and plain text.
+    Supports PDF, DOCX, PPTX, XLSX, CSV, HTML, Markdown, and plain text.
     Tables are preserved as Markdown tables. Multi-column layouts are
     linearised in reading order.
 
@@ -50,7 +44,8 @@ def extract_document(file_path: str) -> dict:
 
     supported = {
         ".pdf", ".docx", ".doc", ".pptx", ".ppt",
-        ".html", ".htm", ".md", ".txt", ".rtf", ".odt",
+        ".xlsx", ".xlsm", ".csv", ".json", ".jsonl", ".yaml", ".yml",
+        ".xml", ".html", ".htm", ".md", ".txt", ".rtf", ".odt",
     }
     if p.suffix.lower() not in supported:
         return {
@@ -61,46 +56,6 @@ def extract_document(file_path: str) -> dict:
             ),
             "content": "",
         }
-
-    # Docling (heavy, full fidelity) — opt-in only via NARAD_USE_DOCLING=1
-    if _USE_DOCLING:
-        try:
-            from docling.document_converter import DocumentConverter
-
-            converter = DocumentConverter()
-            doc_result = converter.convert(str(p))
-            markdown = doc_result.document.export_to_markdown()
-
-            # Count tables (markdown tables start with a line containing |)
-            table_count = sum(
-                1 for i, ln in enumerate(markdown.splitlines())
-                if ln.strip().startswith("|") and (
-                    i == 0 or not markdown.splitlines()[i - 1].strip().startswith("|")
-                )
-            )
-
-            return {
-                "status":  "ok",
-                "path":    str(p),
-                "content": markdown,
-                "tables":  table_count,
-                "pages":   0,
-                "engine":  "docling",
-                "message": (
-                    f"Extracted {len(markdown):,} characters from {p.name}. "
-                    f"{table_count} table(s) found."
-                ),
-            }
-
-        except ImportError:
-            pass  # docling requested but not installed — fall through to light engines
-
-        except Exception as exc:
-            return {
-                "status":  "error",
-                "message": f"Docling extraction failed: {exc}",
-                "content": "",
-            }
 
     # Default: PDF extraction via PyMuPDF
     if p.suffix.lower() == ".pdf":
@@ -120,13 +75,39 @@ def extract_document(file_path: str) -> dict:
                 "tables":  0,
                 "pages":   len(pages_text),
                 "engine":  "pymupdf",
-                "message": (
-                    f"Extracted {len(content):,} characters from {p.name} via PyMuPDF. "
-                    "Set NARAD_USE_DOCLING=1 for richer table/layout extraction."
-                ),
+                "message": f"Extracted {len(content):,} characters from {p.name} via PyMuPDF.",
             }
         except ImportError:
             pass
+
+        # PyMuPDF is optional; pypdf is a lighter fallback commonly already
+        # present in the local document stack.
+        try:
+            from pypdf import PdfReader
+
+            reader = PdfReader(str(p))
+            pages_text = [
+                f"## Page {index + 1}\n\n{page.extract_text() or ''}"
+                for index, page in enumerate(reader.pages)
+            ]
+            content = "\n\n".join(pages_text)
+            return {
+                "status": "ok",
+                "path": str(p),
+                "content": content,
+                "tables": 0,
+                "pages": len(pages_text),
+                "engine": "pypdf",
+                "message": f"Extracted {len(content):,} characters from {p.name} via pypdf.",
+            }
+        except ImportError:
+            pass
+        except Exception as exc:
+            return {
+                "status": "error",
+                "message": f"PDF extraction failed: {exc}",
+                "content": "",
+            }
 
     # Word documents via python-docx (lightweight)
     if p.suffix.lower() in {".docx", ".doc"}:
@@ -161,8 +142,85 @@ def extract_document(file_path: str) -> dict:
                 "content": "",
             }
 
+    # Presentations via python-pptx.
+    if p.suffix.lower() == ".pptx":
+        try:
+            from pptx import Presentation
+
+            presentation = Presentation(str(p))
+            parts: list[str] = []
+            table_count = 0
+            for slide_index, slide in enumerate(presentation.slides):
+                parts.append(f"## Slide {slide_index + 1}")
+                for shape in slide.shapes:
+                    if getattr(shape, "has_text_frame", False):
+                        text = str(getattr(shape, "text", "")).strip()
+                        if text:
+                            parts.append(text)
+                    if getattr(shape, "has_table", False):
+                        table_count += 1
+                        for row in shape.table.rows:
+                            parts.append(" | ".join(cell.text.strip() for cell in row.cells))
+            content = "\n\n".join(parts)
+            return {
+                "status": "ok",
+                "path": str(p),
+                "content": content,
+                "tables": table_count,
+                "pages": len(presentation.slides),
+                "engine": "python-pptx",
+                "message": (
+                    f"Extracted {len(content):,} characters from {p.name} via python-pptx. "
+                    f"{table_count} table(s) found."
+                ),
+            }
+        except ImportError:
+            pass
+        except Exception as exc:
+            return {
+                "status": "error",
+                "message": f"python-pptx extraction failed: {exc}",
+                "content": "",
+            }
+
+    # Spreadsheets via openpyxl, retaining sheet names and a compact row view.
+    if p.suffix.lower() in {".xlsx", ".xlsm"}:
+        try:
+            import openpyxl
+
+            workbook = openpyxl.load_workbook(str(p), read_only=True, data_only=True)
+            parts: list[str] = []
+            for sheet in workbook.worksheets:
+                parts.append(f"## Sheet: {sheet.title}")
+                for row in sheet.iter_rows(values_only=True):
+                    values = ["" if value is None else str(value) for value in row]
+                    if any(values):
+                        parts.append(" | ".join(values))
+            workbook.close()
+            content = "\n".join(parts)
+            return {
+                "status": "ok",
+                "path": str(p),
+                "content": content,
+                "tables": len(parts),
+                "pages": 0,
+                "engine": "openpyxl",
+                "message": f"Extracted {len(content):,} characters from {p.name} via openpyxl.",
+            }
+        except ImportError:
+            pass
+        except Exception as exc:
+            return {
+                "status": "error",
+                "message": f"Spreadsheet extraction failed: {exc}",
+                "content": "",
+            }
+
     # Last resort: plain text read
-    if p.suffix.lower() in {".txt", ".md", ".html", ".htm", ".rtf"}:
+    if p.suffix.lower() in {
+        ".txt", ".md", ".html", ".htm", ".rtf", ".csv", ".json",
+        ".jsonl", ".yaml", ".yml", ".xml",
+    }:
         try:
             content = p.read_text(encoding="utf-8", errors="replace")
             return {
@@ -172,10 +230,7 @@ def extract_document(file_path: str) -> dict:
                 "tables":  0,
                 "pages":   0,
                 "engine":  "plaintext_fallback",
-                "message": (
-                    f"Read {len(content):,} characters from {p.name} as plain text. "
-                    "Install docling for richer extraction."
-                ),
+                "message": f"Read {len(content):,} characters from {p.name} as plain text.",
             }
         except Exception as exc:
             return {
@@ -187,8 +242,7 @@ def extract_document(file_path: str) -> dict:
     return {
         "status":  "error",
         "message": (
-            f"No extraction engine available for {p.suffix}. "
-            "Install pymupdf/python-docx, or set NARAD_USE_DOCLING=1 with docling installed."
+            f"No lightweight extraction engine is installed for {p.suffix}."
         ),
         "content": "",
     }

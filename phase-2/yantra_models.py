@@ -6,7 +6,7 @@ Every avatar run produces one Trajectory stored inside the avatar_done Yantra ev
 This makes every tool call fully auditable without reading the full result text.
 
 Usage:
-    traj = Trajectory(avatar="Krishna", model="deepseek/deepseek-chat", task_preview=task[:80])
+    traj = Trajectory(avatar="Krishna", model="xai/grok-4.6", task_preview=task[:80])
     tc = ToolCall(tool="create_webpage", params_preview="...", result_preview="...", latency_ms=420)
     traj.turns.append(TurnRecord(turn=1, tool_calls=[tc], prompt_tokens=800, completion_tokens=200))
     traj.total_ms = 3200

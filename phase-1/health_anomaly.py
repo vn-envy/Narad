@@ -21,16 +21,26 @@ from pathlib import Path
 from typing import Any
 
 _DB_PATH = Path.home() / ".narad" / "health.db"
+
+
+def _profile_db_path() -> Path:
+    try:
+        from profile_context import profile_data_path
+
+        return profile_data_path("health.db", legacy_default=_DB_PATH)
+    except ImportError:
+        return _DB_PATH
 _ZSCORE_THRESHOLD = 2.0   # flag points more than 2 std-devs above the mean
 
 
 def _load_symptom_series(symptom: str, days: int) -> list[dict[str, Any]]:
     """Load severity time series for a named symptom from health.db."""
-    if not _DB_PATH.exists():
+    db_path = _profile_db_path()
+    if not db_path.exists():
         return []
     cutoff = (datetime.now() - timedelta(days=days)).isoformat(timespec="seconds")
     try:
-        conn = sqlite3.connect(str(_DB_PATH))
+        conn = sqlite3.connect(str(db_path))
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT timestamp, severity FROM symptom_log "

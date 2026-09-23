@@ -1,16 +1,5 @@
 """
-Krishna email skill — SMTP sending with dry-run-first confirmation + HTML templates.
-
-Uses Python's built-in smtplib — no OAuth required.
-Configure with environment variables:
-
-  EMAIL_ADDRESS       sender address          e.g. you@gmail.com
-  EMAIL_APP_PASSWORD  app-specific password   (NOT your account password)
-  EMAIL_SMTP_HOST     SMTP server             default: smtp.gmail.com
-  EMAIL_SMTP_PORT     SMTP port               default: 587
-
-For Gmail: generate an App Password at
-  Google Account → Security → 2-Step Verification → App passwords
+Krishna email skill — Gmail OAuth with dry-run-first confirmation and HTML templates.
 
 Safety model — preview-first:
   send_email(... dry_run=True)  → previews what would be sent, nothing goes out
@@ -18,10 +7,9 @@ Safety model — preview-first:
 """
 from __future__ import annotations
 
+import base64
 import os
 import re
-import smtplib
-import ssl
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
@@ -93,7 +81,7 @@ def send_email(
     dry_run: bool = True,
     html_body: str = "",
 ) -> dict:
-    """Send an email via SMTP. Requires EMAIL_ADDRESS and EMAIL_APP_PASSWORD env vars.
+    """Preview or send an email through the connected Gmail account.
 
     SAFETY CONTRACT — same preview-first pattern as other mutating Narad tools:
       dry_run=True (default): returns a full preview of the email. Nothing is sent.
@@ -111,12 +99,6 @@ def send_email(
         dry_run:   True = preview only (default). False = send now.
         html_body: Optional rendered HTML from compose_rich_email(). When provided,
                    the email is sent as multipart/alternative with HTML + plain-text.
-
-    Required environment variables:
-        EMAIL_ADDRESS       — sender address (e.g. you@gmail.com)
-        EMAIL_APP_PASSWORD  — app-specific password (not your login password)
-        EMAIL_SMTP_HOST     — SMTP server (default: smtp.gmail.com)
-        EMAIL_SMTP_PORT     — SMTP port (default: 587)
 
     Returns:
         status:   "ok" | "error" | "preview"
@@ -136,8 +118,14 @@ def send_email(
         return {"status": "error", "message": "body cannot be empty.", "preview": {}}
 
     sender = os.environ.get("EMAIL_ADDRESS", "")
+    google_write = False
+    try:
+        from google_workspace import status as google_status
+        google_write = bool(google_status()["services"]["gmail"]["write"])
+    except Exception:
+        pass
     preview = {
-        "from":      sender or "(EMAIL_ADDRESS not set)",
+        "from":      sender or ("connected Google account" if google_write else "(EMAIL_ADDRESS not set)"),
         "to":        to_list,
         "cc":        cc_list,
         "subject":   subject,
@@ -173,30 +161,9 @@ def send_email(
     if _gate_err:
         return {"status": "blocked", "message": _gate_err, "preview": preview}
 
-    # Validate configuration
-    app_password = os.environ.get("EMAIL_APP_PASSWORD", "")
-    smtp_host    = os.environ.get("EMAIL_SMTP_HOST", "smtp.gmail.com")
-    smtp_port    = int(os.environ.get("EMAIL_SMTP_PORT", "587"))
-
-    if not sender:
-        return {
-            "status":  "error",
-            "message": "EMAIL_ADDRESS environment variable is not set.",
-            "preview": preview,
-        }
-    if not app_password:
-        return {
-            "status":  "error",
-            "message": (
-                "EMAIL_APP_PASSWORD environment variable is not set. "
-                "For Gmail: Google Account → Security → App Passwords."
-            ),
-            "preview": preview,
-        }
-
     # Build MIME message
     msg = MIMEMultipart("alternative")
-    msg["From"]    = sender
+    msg["From"]    = sender or "me"
     msg["To"]      = ", ".join(to_list)
     msg["Subject"] = subject
     if cc_list:
@@ -206,37 +173,27 @@ def send_email(
     if html_body.strip():
         msg.attach(MIMEText(html_body, "html"))
 
-    all_recipients = to_list + cc_list
+    if google_write:
+        try:
+            from google_workspace import api_request
+            raw = base64.urlsafe_b64encode(msg.as_bytes()).decode().rstrip("=")
+            result = api_request(
+                "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+                method="POST", payload={"raw": raw},
+            )
+            return {
+                "status": "ok", "provider": "google",
+                "message": f"Email sent to {', '.join(to_list)} through Gmail.",
+                "message_id": result.get("id"), "preview": preview,
+            }
+        except Exception as exc:
+            return {"status": "error", "message": f"Gmail API error: {exc}", "preview": preview}
 
-    try:
-        context_ssl = ssl.create_default_context()
-        with smtplib.SMTP(smtp_host, smtp_port) as server:
-            server.ehlo()
-            server.starttls(context=context_ssl)
-            server.login(sender, app_password)
-            server.sendmail(sender, all_recipients, msg.as_string())
-
-        return {
-            "status":  "ok",
-            "message": f"Email sent to {', '.join(to_list)}.",
-            "preview": preview,
-        }
-
-    except smtplib.SMTPAuthenticationError:
-        return {
-            "status":  "error",
-            "message": (
-                "SMTP authentication failed. Check EMAIL_APP_PASSWORD. "
-                "For Gmail use an App Password, not your account password."
-            ),
-            "preview": preview,
-        }
-    except Exception as exc:
-        return {
-            "status":  "error",
-            "message": f"SMTP error: {exc}",
-            "preview": preview,
-        }
+    return {
+        "status": "unconfigured",
+        "message": "Connect Gmail write access in System -> Connections.",
+        "preview": preview,
+    }
 
 
 def compose_email(to: str, subject: str, body: str, cc: str = "") -> dict:

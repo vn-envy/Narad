@@ -205,7 +205,7 @@ def build_semantic_memory_context(
     user_id: str = "default",
     project_id: str = "general",
     token_budget: int | None = None,
-    model: str = "deepseek/deepseek-v4-flash",
+    model: str = "deepseek/deepseek-flash",
     limit: int = 4,
 ) -> dict[str, Any]:
     try:
@@ -292,7 +292,7 @@ def build_project_memory_context(
     user_id: str = "default",
     project_id: str = "general",
     token_budget: int | None = None,
-    model: str = "deepseek/deepseek-v4-flash",
+    model: str = "deepseek/deepseek-flash",
     limit: int = 5,
 ) -> dict[str, Any]:
     # The wiki plane is lexical-only (FTS5) — no embeddings, no reload pass.

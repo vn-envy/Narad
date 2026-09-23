@@ -81,16 +81,110 @@ class CheckAnswer(BaseModel):
 class GuidedStart(BaseModel):
     topic: str
     mode: str = "teach"
+    workflow_run_id: Optional[str] = None
 
 
 class GuidedAnswer(BaseModel):
     workspace_id: str
     answer: str = ""
     choice_index: Optional[int] = None
+    workflow_run_id: Optional[str] = None
 
 
 class GuidedWorkspaceRef(BaseModel):
     workspace_id: str
+    workflow_run_id: Optional[str] = None
+
+
+def _resolve_teach_workflow(*, user_id: str, topic: str, run_id: Optional[str] = None):
+    from workflow_engine import get_workflow_run, list_workflow_runs, start_workflow_run
+
+    if run_id:
+        run = get_workflow_run(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail="Teach workflow run not found")
+        if run.user_id != user_id:
+            raise HTTPException(status_code=403, detail="Teach workflow belongs to another user")
+        if run.workflow_id != "teach":
+            raise HTTPException(status_code=409, detail="The selected workflow is not a Teach Anything path")
+        if run.status in {"completed", "cancelled"}:
+            raise HTTPException(status_code=409, detail="Start a new Teach Anything path for this lesson")
+        return run
+
+    topic_key = topic.strip().casefold()
+    for candidate in list_workflow_runs(user_id=user_id, workflow_id="teach", limit=50):
+        if candidate.status in {"completed", "cancelled"}:
+            continue
+        if str(candidate.inputs.get("topic") or "").strip().casefold() == topic_key:
+            return candidate
+    return start_workflow_run(
+        "teach",
+        user_id=user_id,
+        inputs={
+            "topic": topic,
+            "outcome": f"Build durable, usable understanding of {topic}",
+            "current_level": "New",
+            "mode": "Hybrid",
+            "spaced_reviews": True,
+        },
+    )
+
+
+def _sync_guided_checkpoint(run_id: Optional[str], result: dict, *, user_id: str, action: str):
+    if not run_id:
+        return None
+    from workflow_engine import (
+        complete_current_stage,
+        get_workflow_run,
+        record_workflow_checkpoint,
+    )
+
+    run = get_workflow_run(run_id)
+    if not run:
+        return None
+    if run.user_id != user_id:
+        raise HTTPException(status_code=403, detail="Teach workflow belongs to another user")
+    if run.workflow_id != "teach" or run.status in {"completed", "cancelled"}:
+        return run
+    grade = result.get("grade") if isinstance(result.get("grade"), dict) else {}
+    progress = (result.get("step") or {}).get("progress", {}) if isinstance(result.get("step"), dict) else {}
+    details = {
+        "action": action,
+        "correct": grade.get("correct"),
+        "feedback": grade.get("feedback"),
+        "progress": progress,
+    }
+    if run.current_stage_id == "diagnostic" and action in {"answer", "skip"}:
+        run = complete_current_stage(
+            run_id,
+            summary="Initial understanding checked; the paced lesson is now underway.",
+            output=details,
+        )
+    else:
+        run = record_workflow_checkpoint(
+            run_id,
+            summary=f"Guided learning checkpoint: {action}.",
+            details=details,
+            event_type="guided_learning_checkpoint",
+        )
+
+    step = result.get("step") if isinstance(result.get("step"), dict) else {}
+    if step.get("kind") == "complete":
+        completion_summaries = {
+            "lesson": "The paced lesson sequence was completed.",
+            "check": "Understanding checks were completed across the syllabus.",
+            "reinforce": "Misconceptions were reinforced during the guided loop.",
+            "review": "Mastery was recorded and the next spaced review is scheduled.",
+        }
+        for _ in range(8):
+            if not run or run.status == "completed" or not run.current_stage_id:
+                break
+            run = complete_current_stage(
+                run_id,
+                summary=completion_summaries.get(run.current_stage_id, "Teaching stage completed."),
+                output={"source": "guided_teach", "progress": progress},
+            )
+    return run
 
 
 @learning_router.get("/workspaces")
@@ -280,13 +374,26 @@ async def get_guided_modes():
 
 @learning_router.post("/guided/start")
 async def post_guided_start(payload: GuidedStart, user_id: str = "default"):
+    workflow_run = _resolve_teach_workflow(
+        user_id=user_id,
+        topic=payload.topic,
+        run_id=payload.workflow_run_id,
+    )
     try:
         result = guided_mode.start_session(
             user_id=user_id, mode=payload.mode, topic=payload.topic,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    return {"status": "ok", **result}
+    from workflow_engine import record_workflow_checkpoint, workflow_run_payload
+
+    workflow_run = record_workflow_checkpoint(
+        workflow_run.run_id,
+        summary="Guided teaching session opened.",
+        details={"workspace_id": result.get("session", {}).get("workspace_id"), "resumed": result.get("resumed", False)},
+        event_type="guided_learning_started",
+    )
+    return {"status": "ok", **result, "workflow_run": workflow_run_payload(workflow_run, include_history=False)}
 
 
 @learning_router.get("/guided/session/{workspace_id}")
@@ -308,6 +415,11 @@ async def post_guided_answer(payload: GuidedAnswer, user_id: str = "default"):
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    workflow_run = _sync_guided_checkpoint(payload.workflow_run_id, result, user_id=user_id, action="answer")
+    if workflow_run:
+        from workflow_engine import workflow_run_payload
+
+        result["workflow_run"] = workflow_run_payload(workflow_run, include_history=False)
     return {"status": "ok", **result}
 
 
@@ -317,6 +429,11 @@ async def post_guided_skip(payload: GuidedWorkspaceRef, user_id: str = "default"
         result = guided_mode.skip_atom(user_id=user_id, workspace_id=payload.workspace_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    workflow_run = _sync_guided_checkpoint(payload.workflow_run_id, result, user_id=user_id, action="skip")
+    if workflow_run:
+        from workflow_engine import workflow_run_payload
+
+        result["workflow_run"] = workflow_run_payload(workflow_run, include_history=False)
     return {"status": "ok", **result}
 
 
@@ -326,4 +443,9 @@ async def post_guided_exit(payload: GuidedWorkspaceRef, user_id: str = "default"
         result = guided_mode.exit_session(user_id=user_id, workspace_id=payload.workspace_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    workflow_run = _sync_guided_checkpoint(payload.workflow_run_id, result, user_id=user_id, action="exit")
+    if workflow_run:
+        from workflow_engine import workflow_run_payload
+
+        result["workflow_run"] = workflow_run_payload(workflow_run, include_history=False)
     return {"status": "ok", **result}
