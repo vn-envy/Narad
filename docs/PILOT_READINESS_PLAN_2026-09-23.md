@@ -156,6 +156,15 @@ Each phase is one reviewable PR (or a small stack). Exit gates are hard: a phase
 
 ### Phase 0: Pilot safety floor *(blockers; no product decisions required)*
 
+> **Status: done (`e4c8d9a`).** 329 tests pass (baseline 226), 1 is skipped; ruff is clean; the frontend builds. A live strict-mode smoke test confirmed the auth boundaries. An adversarial review found 24 issues and all 24 were fixed. The most important was a pre-existing hole: family profiles could reach host secrets through the shell tools, which are now owner-only.
+>
+> **Carryovers (not blockers):**
+> - Executor, Imagen and Veo output under `artifacts/<run_id>/` is readable by any signed-in profile that knows the run id.
+> - `/sutras`, `/andon/log`, `/karma` and the audit part of `/search` are not filtered by profile.
+> - There is no UI yet for changing your own PIN or signing out all devices; the APIs exist.
+> - The Security Floor section of `AGENTS.md` is out of date.
+> - The signed-in browser does not re-check the URL after redirects.
+
 - **Identity**
   - Every route derives `user_id` from the authenticated session through one FastAPI dependency. Remove all `user_id="default"` defaults.
   - Profile creation requires the owner or a single-use invite code.
