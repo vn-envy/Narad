@@ -386,12 +386,23 @@ Each phase is one reviewable PR (or a small stack). Exit gates are hard: a phase
 | Family isolation | owner data reachable by omitting `user_id` | identity derived on the server everywhere |
 | Sensitive-data egress | health and finance go to whichever brain is configured | only `trusted` or `local` tiers, logged per turn |
 
-## 7. Decisions needed from you
+## 7. Owner decisions (2026-09-23)
 
-1. **Trusted tier for sensitive data** (Health, Finance, identity documents). Recommendation:
-   - `trusted` means API providers whose terms say no training on your data and bounded retention, with zero data retention where you can get it.
-   - DeepSeek's hosted API and xAI consumer sign-in start as `open`: fine for public research, not for family health or finance records.
-   - This changes the default brain for those workflows. You pick which providers qualify.
-2. **Cloud browser for unauthenticated tasks** (parallelism, fewer bot walls, keeps the Mac free). Recommendation: stay on the Mac for the pilot and benchmark one cloud option in Pariksha before deciding.
-3. **Family devices.** Android phones can be operated through Artemis. iPhones get handoff and takeover only. How many of each determines how much Phase 4 invests in Android.
-4. **Pilot size.** Number of profiles and expected concurrent users. A single non-blocking process is fine for about 6 concurrent users; beyond that, Kriya workers move out of process.
+1. **Providers.**
+   - **xAI/Grok is out.** It is removed from every routing and fallback chain in Phase 0.
+   - **DeepSeek stays, on one condition: a local OpenMed model strips PII before any turn reaches it.** Phase 3 adds this as a pseudonymisation gateway:
+     - It runs only for providers marked `redact-required`. It does not run on every message.
+     - Attachments are redacted once, when they are uploaded.
+     - Placeholders such as `<PERSON_1>` are mapped back to the real values on the Mac.
+     - India-specific identifiers need their own recognisers: Aadhaar (with its Verhoeff checksum), PAN, UPI, IFSC, and +91 phone numbers.
+   - **All other vendors must publish clear data-handling terms:** no training on your data, bounded retention, and zero retention where available.
+   - **Alternatives to DeepSeek with better data handling at similar prices** (including whether "GPT 6 Luna" exists) are being researched with source-checked pricing and policies. The routing table will be filled in from that research.
+2. **Cloud browser: yes, for unauthenticated tasks.** Phase 4 adds a `CloudBrowser` surface with these rules:
+   - It never receives credentials, cookies, or vault values.
+   - Session recording is off.
+   - Each profile gets its own isolated session.
+   - The vendor is chosen by the research and confirmed in the Pariksha bake-off, with a self-hostable option preferred.
+3. **Pilot: 4 people, all on Android phones, plus the host Mac.**
+   - Controlling Android phones is a first-class part of Phase 4. The phones are usually away from the Mac's Wi-Fi, so the transport (an outbound on-device companion app, or ADB over a private network) is chosen from the research.
+   - Web Push and PWA install target Android Chrome first.
+   - A single non-blocking server process is enough at this size.
