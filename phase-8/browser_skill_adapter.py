@@ -19,10 +19,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from computer_use_skill import _validate_url
+
 from narad_config import ARTIFACTS_DIR
 from profile_context import current_profile_id, validate_profile_id
 
 _REF_RE = re.compile(r"@?(e\d+)\b")
+# VOM renders one ref per line: ``@e5 button "Send" [ctx: ...] placeholder="..."``.
+_REF_LINE_RE = re.compile(r'^\s*@(e\d+)\s+([^\s"\[]+)(?:\s+("(?:[^"\\]|\\.)*"))?(.*)$')
+_PLACEHOLDER_RE = re.compile(r'\bplaceholder=("(?:[^"\\]|\\.)*")')
+_EFFECT_STATES = frozenset({"none", "unknown", "committed"})
 _SESSIONS_LOCK = threading.RLock()
 
 
@@ -70,6 +76,19 @@ def _decode_json(text: str) -> Any:
     return {"message": candidate[:2_000]}
 
 
+def _effect_state(payload: Any) -> str:
+    """Read ``effect_state`` from a ``bsk --json`` error.
+
+    The CLI renders errors flat as ``{code, message, hint, exit_code, data}``
+    and the daemon reports the input outcome at ``data.effect_state``.
+    """
+    if not isinstance(payload, dict):
+        return "none"
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    state = str(data.get("effect_state") or payload.get("effect_state") or "none")
+    return state if state in _EFFECT_STATES else "unknown"
+
+
 def _error_message(payload: Any, fallback: str) -> str:
     if isinstance(payload, dict):
         for key in ("message", "error", "detail", "reason"):
@@ -84,6 +103,8 @@ def _run(args: list[str], *, timeout_s: int = 45, auto_start: bool = True) -> An
     if not binary:
         raise BrowserSkillError("BrowserSkill CLI is not installed")
     env = os.environ.copy()
+    # Only the exact value "off" disables bsk's self-update.
+    env["BSK_AUTO_UPDATE"] = "off"
     if not auto_start:
         env["BSK_AUTO_START"] = "0"
     command = [binary, "--json", *args]
@@ -104,10 +125,9 @@ def _run(args: list[str], *, timeout_s: int = 45, auto_start: bool = True) -> An
         ) from exc
     payload = _decode_json(completed.stdout or completed.stderr)
     if completed.returncode != 0:
-        effect_state = "unknown" if isinstance(payload, dict) and payload.get("effect_state") == "unknown" else "none"
         raise BrowserSkillError(
             _error_message(payload, completed.stderr or completed.stdout),
-            effect_state=effect_state,
+            effect_state=_effect_state(payload),
         )
     return payload
 
@@ -215,6 +235,22 @@ def _target_args(action: dict[str, Any], *, optional: bool = False) -> list[str]
     raise ValueError("Signed-in browser actions require a fresh ref or an explicit selector")
 
 
+def _download_path(session: BrowserSkillSession, requested: str, action_index: int) -> Path:
+    """Confine signed-in downloads to this profile's session download folder."""
+    download_dir = (session.run_dir / "downloads").resolve()
+    if not requested:
+        output_path = download_dir / f"download-{action_index:04d}.bin"
+    else:
+        relative = Path(requested)
+        if relative.is_absolute() or requested.startswith("~") or ".." in relative.parts:
+            raise ValueError("download path must be a relative file name inside the session downloads folder")
+        output_path = (download_dir / relative).resolve()
+        if output_path == download_dir or not output_path.is_relative_to(download_dir):
+            raise ValueError("download path must stay inside the session downloads folder")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    return output_path
+
+
 def _command_for_action(
     session: BrowserSkillSession,
     action: dict[str, Any],
@@ -227,7 +263,7 @@ def _command_for_action(
         url = str(action.get("url") or action.get("value") or "").strip()
         if not url:
             raise ValueError("navigate requires url")
-        return ["navigate", url, "--session", sid], None
+        return ["navigate", _validate_url(url), "--session", sid], None
     if kind == "back":
         return ["navigate-back", "--session", sid], None
     if kind == "forward":
@@ -298,12 +334,7 @@ def _command_for_action(
         args.extend(["--session", sid])
         return args, None
     if kind == "download":
-        requested = str(action.get("path") or "").strip()
-        output_path = (
-            Path(requested).expanduser().resolve()
-            if requested
-            else session.run_dir / f"download-{action_index:04d}.bin"
-        )
+        output_path = _download_path(session, str(action.get("path") or "").strip(), action_index)
         return [
             "download",
             *_target_args(action),
@@ -344,8 +375,12 @@ def execute_browser_skill_actions(
             effect_state = "none" if action["action"] in {"wait", "screenshot"} else "committed"
             if isinstance(payload, dict):
                 effect_state = str(payload.get("effect_state") or effect_state)
+                # Redirects settle on final_url; history moves report only final_url.
+                final_url = str(payload.get("final_url") or "")
                 if action["action"] == "navigate":
-                    session.last_url = str(payload.get("url") or action.get("url") or "")
+                    session.last_url = final_url or str(payload.get("url") or action.get("url") or "")
+                elif final_url:
+                    session.last_url = final_url
             row: dict[str, Any] = {
                 "index": index,
                 "action": action["action"],
@@ -365,6 +400,39 @@ def execute_browser_skill_actions(
             })
             break
     return results
+
+
+def observation_ref_elements(text: str) -> dict[str, dict[str, str]]:
+    """Map each ``@eN`` ref in BrowserSkill observation text to its role and label.
+
+    A ref rendered on two lines with different labels is left out, so callers
+    treat it as unresolved rather than trusting either reading.
+    """
+    elements: dict[str, dict[str, str]] = {}
+    conflicting: set[str] = set()
+    for line in (text or "").splitlines():
+        match = _REF_LINE_RE.match(line)
+        if not match:
+            continue
+        ref, role, name, rest = match.groups()
+        element = {"ref": ref, "role": role, "name": _json_text(name)}
+        placeholder = _PLACEHOLDER_RE.search(rest or "")
+        if placeholder:
+            element["placeholder"] = _json_text(placeholder.group(1))
+        if elements.setdefault(ref, element) != element:
+            conflicting.add(ref)
+    for ref in conflicting:
+        elements.pop(ref, None)
+    return elements
+
+
+def _json_text(value: str | None) -> str:
+    if not value:
+        return ""
+    try:
+        return str(json.loads(value))
+    except json.JSONDecodeError:
+        return value.strip('"')
 
 
 def observe_browser_skill_session(

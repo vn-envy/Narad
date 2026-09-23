@@ -704,7 +704,7 @@ import re as _re_gate
 _HARD_BLOCKS: list[tuple] = [
     (r"(?i)IGNORE\s+ALL\s+PREVIOUS\s+INSTRUCTIONS?", "Prompt injection detected."),
     (r"(?i)\[INST\]", "Prompt injection detected."),
-    (r"(?i)(SSN|social\s+security\s+number|passport\s+number)", "I can't collect sensitive personal identifiers."),
+    (r"(?i)(\bSSNs?\b|social\s+security\s+number|passport\s+number)", "I can't collect sensitive personal identifiers."),
     (r"(?i)how\s+(to|do\s+I|can\s+I)\s+(kill|seriously\s+harm)\s+(myself|someone)", "If you're in crisis, please reach out to iCall: 9152987821 or your local emergency services."),
 ]
 

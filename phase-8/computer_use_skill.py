@@ -74,7 +74,8 @@ _SUPPORTED_DESKTOP_ACTIONS = frozenset({
 })
 _HIGH_RISK_PATTERN = re.compile(
     r"\b(submit|send|publish|post|buy|purchase|pay|checkout|confirm|delete|remove|"
-    r"cancel\s+(?:account|subscription)|transfer|book|reserve|apply|sign|authorize)\b",
+    r"cancel\s+(?:account|subscription)|transfer|book|reserve|apply|sign|authorize|"
+    r"place\s+(?:your\s+|an?\s+)?order)\b",
     re.IGNORECASE,
 )
 _SENSITIVE_PATTERN = re.compile(
@@ -242,6 +243,12 @@ def _desktop_permission_status() -> dict[str, bool | None]:
     }
 
 
+def _cua_env() -> dict[str, str]:
+    env = os.environ.copy()
+    env["CUA_DRIVER_RS_TELEMETRY_ENABLED"] = "false"
+    return env
+
+
 def _desktop_driver_status() -> dict[str, Any]:
     """Resolve the configured desktop adapter without starting or switching it."""
     enabled = os.environ.get("NARAD_ENABLE_DESKTOP_CONTROL", "0").strip().lower() in {
@@ -258,34 +265,43 @@ def _desktop_driver_status() -> dict[str, Any]:
     cua_version: str | None = None
     cua_detail = ""
     if cua_binary:
+        env = _cua_env()
         try:
             version = subprocess.run(
-                [cua_binary, "--version"], capture_output=True, text=True, timeout=3, check=False
+                [cua_binary, "--version"], capture_output=True, text=True, timeout=3, check=False, env=env
             )
             cua_version = (version.stdout or version.stderr).strip()[:120] or None
             status = subprocess.run(
-                [cua_binary, "status"], capture_output=True, text=True, timeout=3, check=False
+                [cua_binary, "status"], capture_output=True, text=True, timeout=3, check=False, env=env
             )
             cua_detail = f"{status.stdout}\n{status.stderr}".strip()
             daemon_ready = status.returncode == 0 and "daemon is running" in cua_detail.lower()
             permission = subprocess.run(
-                [cua_binary, "permissions", "status"],
+                [cua_binary, "permissions", "status", "--json"],
                 capture_output=True,
                 text=True,
                 timeout=4,
                 check=False,
+                env=env,
             )
-            permission_text = f"{permission.stdout}\n{permission.stderr}".lower()
+            # The JSON form carries the daemon's own TCC booleans; without a
+            # trustworthy answer it reports {"status": "unknown"} and omits them.
+            try:
+                grants = json.loads(permission.stdout or "{}")
+            except json.JSONDecodeError:
+                grants = {}
+            grants = grants if isinstance(grants, dict) else {}
             permissions_ready = (
                 permission.returncode == 0
-                and "accessibility" in permission_text
-                and "screen recording" in permission_text
-                and "unknown" not in permission_text
-                and "pending" not in permission_text
-                and permission_text.count("granted") >= 2
+                and grants.get("accessibility") is True
+                and grants.get("screen_recording") is True
+                and grants.get("screen_recording_capturable") is not False
             )
-            if permission_text.strip():
-                cua_detail = f"{cua_detail}\n{permission_text}".strip()
+            permission_detail = str(grants.get("reason") or "") or (
+                f"accessibility={grants.get('accessibility')}, "
+                f"screen_recording={grants.get('screen_recording')}"
+            )
+            cua_detail = f"{cua_detail}\n{permission_detail}".strip()
         except (OSError, subprocess.SubprocessError) as exc:
             cua_detail = str(exc)
     cua_ready = bool(cua_binary and daemon_ready and permissions_ready)
@@ -1186,6 +1202,37 @@ def _browser_decision_hint(task: str, observation: dict[str, Any]) -> dict[str, 
         }
 
 
+_WHEEL_NOTCH_PX = 120  # cua-driver's per-notch line step and the usual wheel delta
+_CUA_UNCONFIRMED_EFFECTS = frozenset({"unverifiable", "suspected_noop"})
+
+
+def _desktop_scroll_steps(action: dict[str, Any]) -> tuple[str, int]:
+    """Normalise a desktop scroll to (direction, wheel notches) for every engine.
+
+    ``direction`` with ``amount`` is used as given. ``clicks`` counts wheel
+    notches with pyautogui's sign (positive scrolls up). ``delta_x``/``delta_y``
+    are browser-style pixels (positive scrolls right/down), 120 px per notch.
+    """
+    direction = str(action.get("direction") or "").strip().lower()
+    if direction:
+        if direction not in {"up", "down", "left", "right"}:
+            raise ValueError("scroll direction must be up, down, left, or right")
+        amount = int(action.get("amount") or 3)
+    elif action.get("clicks") is not None:
+        clicks = int(action["clicks"])
+        direction, amount = ("up" if clicks > 0 else "down"), abs(clicks)
+    else:
+        delta_x = float(action.get("delta_x") or 0)
+        delta_y = action.get("delta_y")
+        delta_y = float(delta_y) if delta_y is not None else (0.0 if delta_x else 5.0 * _WHEEL_NOTCH_PX)
+        if abs(delta_x) > abs(delta_y):
+            direction, pixels = ("right" if delta_x > 0 else "left"), abs(delta_x)
+        else:
+            direction, pixels = ("down" if delta_y > 0 else "up"), abs(delta_y)
+        amount = round(pixels / _WHEEL_NOTCH_PX)
+    return direction, max(1, min(amount, 50))
+
+
 def _cua_action_command(
     binary: str,
     action: dict[str, Any],
@@ -1198,11 +1245,13 @@ def _cua_action_command(
     if kind == "move":
         payload.update({"target": target, "x": float(action["x"]), "y": float(action["y"])})
         tool = "move_cursor"
+    # The driver contract requires delivery_mode on click and refuses background
+    # delivery for desktop-scoped targets.
     if kind == "click":
-        payload.update({"target": target, "x": float(action["x"]), "y": float(action["y"]), "button": str(action.get("button", "left"))})
+        payload.update({"target": target, "x": float(action["x"]), "y": float(action["y"]), "button": str(action.get("button", "left")), "delivery_mode": "foreground"})
         tool = "click"
     elif kind == "double_click":
-        payload.update({"target": target, "x": float(action["x"]), "y": float(action["y"]), "count": 2})
+        payload.update({"target": target, "x": float(action["x"]), "y": float(action["y"]), "count": 2, "delivery_mode": "foreground"})
         tool = "click"
     elif kind == "type":
         payload.update({"target": target, "text": str(action.get("text", action.get("value", "")))})
@@ -1217,8 +1266,18 @@ def _cua_action_command(
         payload.update({"target": target, "keys": [str(key) for key in keys]})
         tool = "hotkey"
     elif kind == "scroll":
-        delta_y = float(action.get("delta_y", action.get("clicks", -5) * 120))
-        payload.update({"target": target, "delta_x": float(action.get("delta_x", 0)), "delta_y": delta_y})
+        # Desktop scroll is a wheel at an absolute get_desktop_state point.
+        if action.get("x") is None or action.get("y") is None:
+            raise ValueError("desktop scroll requires x and y in get_desktop_state coordinates")
+        direction, amount = _desktop_scroll_steps(action)
+        payload.update({
+            "target": target,
+            "x": float(action["x"]),
+            "y": float(action["y"]),
+            "direction": direction,
+            "amount": amount,
+            "by": "line",
+        })
         tool = "scroll"
     elif kind == "drag":
         payload.update({
@@ -1247,6 +1306,7 @@ def _execute_cua_actions(
 ) -> tuple[list[dict[str, Any]], Path | None]:
     results: list[dict[str, Any]] = []
     screenshot_path: Path | None = None
+    env = _cua_env()
     for index, action in enumerate(actions):
         kind = action["action"]
         try:
@@ -1264,6 +1324,7 @@ def _execute_cua_actions(
                 text=True,
                 timeout=60,
                 check=False,
+                env=env,
             )
             if completed.returncode != 0:
                 message = (completed.stderr or completed.stdout or "CUA action failed").strip()[:800]
@@ -1276,7 +1337,9 @@ def _execute_cua_actions(
             except json.JSONDecodeError:
                 pass
             effect = parsed.get("effect") if isinstance(parsed, dict) else None
-            results.append({"action": kind, "status": "ok", "effect": effect, "driver_result": parsed})
+            # The driver delivered the input but could not confirm it landed.
+            status = "unverified" if effect in _CUA_UNCONFIRMED_EFFECTS else "ok"
+            results.append({"action": kind, "status": status, "effect": effect, "driver_result": parsed})
         except Exception as exc:
             results.append({"action": kind, "status": "error", "error": f"{type(exc).__name__}: {exc}"})
             break
@@ -1293,6 +1356,7 @@ def _execute_cua_actions(
                 text=True,
                 timeout=60,
                 check=False,
+                env=env,
             )
             if completed.returncode == 0 and candidate.exists():
                 screenshot_path = candidate
@@ -1361,7 +1425,16 @@ def _execute_pyautogui_actions(
                     raise ValueError("hotkey requires a non-empty keys list")
                 pyautogui.hotkey(*(str(key) for key in keys))
             elif kind == "scroll":
-                pyautogui.scroll(int(action.get("clicks", action.get("delta_y", -5))))
+                direction, notches = _desktop_scroll_steps(action)
+                point = (
+                    {"x": float(action["x"]), "y": float(action["y"])}
+                    if action.get("x") is not None and action.get("y") is not None
+                    else {}
+                )
+                if direction in {"up", "down"}:
+                    pyautogui.scroll(notches if direction == "up" else -notches, **point)
+                else:
+                    pyautogui.hscroll(notches if direction == "right" else -notches, **point)
             elif kind == "drag":
                 pyautogui.moveTo(float(action["x1"]), float(action["y1"]))
                 pyautogui.dragTo(float(action["x2"]), float(action["y2"]), duration=float(action.get("duration", 0.4)))
@@ -1395,18 +1468,18 @@ def _desktop_use(
 ) -> dict[str, Any]:
     readiness = _desktop_driver_status()
     engine = str(readiness["selected_provider"])
-    grant = None
-    if engine == "cua":
-        from interaction_targets import resolve_interaction_target
+    from interaction_targets import resolve_interaction_target
 
-        grant = resolve_interaction_target("cua", target_id, profile_id=owner_profile_id)
-        if grant is None:
-            return envelope(
-                status="unavailable",
-                summary="Grant the Narad host desktop to this family profile in onboarding first.",
-                error="desktop_target_unavailable",
-                readiness=readiness,
-            )
+    # The host-desktop grant is recorded under the "cua" kind; it gates every
+    # engine that drives this desktop, including the pyautogui fallback.
+    grant = resolve_interaction_target("cua", target_id, profile_id=owner_profile_id)
+    if grant is None:
+        return envelope(
+            status="unavailable",
+            summary="Grant the Narad host desktop to this family profile in onboarding first.",
+            error="desktop_target_unavailable",
+            readiness=readiness,
+        )
     decision_hint = _desktop_decision_hint(task, actions)
     needs_confirmation = any(_action_requires_confirmation(action, "desktop") for action in actions)
     summary = f"Desktop action plan prepared with {len(actions)} action(s)."
@@ -1484,13 +1557,25 @@ def _desktop_use(
             description="Desktop state after the confirmed action batch.",
         ))
     verification_hint = _desktop_decision_hint(task, actions, results=results)
+    unverified = sum(item["status"] == "unverified" for item in results)
+    summary = f"Executed {sum(item['status'] in {'ok', 'unverified'} for item in results)} desktop action(s)."
+    if unverified:
+        summary += f" The driver could not verify {unverified} of them; check the screenshot before continuing."
+    if any(item["status"] == "error" for item in results):
+        status = "partial"
+    else:
+        status = "unverified" if unverified else "ok"
     return envelope(
-        status="ok" if all(item["status"] == "ok" for item in results) else "partial",
-        summary=f"Executed {sum(item['status'] == 'ok' for item in results)} desktop action(s).",
+        status=status,
+        summary=summary,
         artifacts=artifacts,
         ui=ui_panel(
             title="Desktop control",
-            summary=f"Confirmed desktop action batch complete through {engine}.",
+            summary=(
+                f"Confirmed desktop action batch complete through {engine}."
+                if status == "ok"
+                else summary
+            ),
             primary_artifact_label="Desktop screenshot" if screenshot_path else None,
             tone="computer-use",
         ),
@@ -1510,6 +1595,43 @@ def _desktop_use(
     )
 
 
+# BrowserSkill executes these as a click on the target ref.
+_SIGNED_REF_CLICK_ACTIONS = frozenset({"click", "submit", "check", "uncheck", "download"})
+_SIGNED_REF_INPUT_ACTIONS = frozenset({"fill", "set_field", "type", "select", "press"})
+
+
+def _signed_action_requires_confirmation(
+    action: dict[str, Any], ref_elements: dict[str, dict[str, str]]
+) -> bool:
+    """Classify a signed-in action by the element its ``@eN`` ref names.
+
+    A bare ref carries no label, so "Send" or "Place order" would otherwise pass
+    as "e5". Resolve it from the latest observation and apply the same risk
+    check used for isolated-browser targets; a ref that is missing or has no
+    accessible label cannot be classified, so it needs approval.
+    """
+    if _action_requires_confirmation(action):
+        return True
+    kind = action["action"]
+    if kind not in _SIGNED_REF_CLICK_ACTIONS | _SIGNED_REF_INPUT_ACTIONS:
+        return False
+    target = action.get("target") if isinstance(action.get("target"), dict) else {}
+    ref = str(action.get("ref") or target.get("ref") or "").strip().removeprefix("@")
+    if not ref:
+        return False
+    element = ref_elements.get(ref)
+    if element is None or not (element.get("name") or element.get("placeholder")):
+        return True
+    resolved_target = {
+        key: element[key] for key in ("role", "name", "placeholder") if element.get(key)
+    }
+    kinds = {kind, "click"} if kind in _SIGNED_REF_CLICK_ACTIONS else {kind}
+    return any(
+        _action_requires_confirmation({**action, "action": resolved_kind, "ref": None, "target": resolved_target})
+        for resolved_kind in kinds
+    )
+
+
 def _signed_browser_use(
     *,
     task: str,
@@ -1526,6 +1648,7 @@ def _signed_browser_use(
         BrowserSkillError,
         close_browser_skill_session,
         execute_browser_skill_actions,
+        observation_ref_elements,
         observe_browser_skill_session,
         open_browser_skill_session,
     )
@@ -1606,7 +1729,12 @@ def _signed_browser_use(
         )
         signals = _injection_signals(str(observation.get("text") or ""))
         observation["prompt_injection_signals"] = signals
-        needs_confirmation = any(_action_requires_confirmation(action) for action in planned)
+        # This observation rebuilt BrowserSkill's ref store, so its labels are
+        # the elements the planned refs will actually hit.
+        ref_elements = observation_ref_elements(str(observation.get("text") or ""))
+        needs_confirmation = any(
+            _signed_action_requires_confirmation(action, ref_elements) for action in planned
+        )
         mutating = any(
             action["action"] not in {"wait", "scroll", "hover", "screenshot", "request_help"}
             for action in planned
@@ -1683,14 +1811,18 @@ def _signed_browser_use(
         )
         complete = sum(item.get("status") == "ok" for item in results)
         status = "ok" if all(item.get("status") == "ok" for item in results) else "partial"
-        unknown_effect = any(item.get("effect_state") == "unknown" for item in results)
+        unknown_effect = any(
+            item.get("effect_state") == "unknown"
+            or (item.get("status") != "ok" and item.get("effect_state") == "committed")
+            for item in results
+        )
         summary = (
             f"Signed-in browser session ready on {observation.get('title') or observation.get('url')}."
             if not planned
             else f"Executed {complete} of {len(planned)} signed-in browser action(s)."
         )
         if unknown_effect:
-            summary += " One action has an unknown effect state; inspect before retrying."
+            summary += " One action may already have taken effect; inspect before retrying."
         return _browser_envelope(
             session_id=session.session_id,
             task=task,
