@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
-import { ArrowLeft, ArrowRight, LoaderCircle, LockKeyhole, Plus, ShieldCheck, UserRound } from 'lucide-react'
+import { ArrowLeft, ArrowRight, KeyRound, LoaderCircle, LockKeyhole, Plus, ShieldCheck, UserRound } from 'lucide-react'
 import {
   apiFetch,
   clearProfileSession,
   setProfileSession,
   type FamilyProfile,
+  type FamilyProfileInvite,
   type FamilyProfileSession,
 } from '@/lib/api'
 import { MahatiLogo } from './MahatiLogo'
@@ -34,9 +35,14 @@ export function FamilyProfileGate({ onAuthenticated }: Props) {
   const [profiles, setProfiles] = useState<FamilyProfile[]>([])
   const [selected, setSelected] = useState<FamilyProfile | null>(null)
   const [creating, setCreating] = useState(false)
+  const [inviting, setInviting] = useState(false)
   const [name, setName] = useState('')
   const [pin, setPin] = useState('')
   const [confirmPin, setConfirmPin] = useState('')
+  const [inviteCode, setInviteCode] = useState('')
+  const [ownerApproves, setOwnerApproves] = useState(false)
+  const [ownerPin, setOwnerPin] = useState('')
+  const [invite, setInvite] = useState<FamilyProfileInvite | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -106,6 +112,21 @@ export function FamilyProfileGate({ onAuthenticated }: Props) {
     }
   }
 
+  const owner = profiles.find(profile => profile.is_owner && profile.has_pin)
+
+  // The owner approves on this device with their PIN. That session is used for
+  // one request and never stored, so this device stays signed out.
+  const ownerHeaders = async (): Promise<Record<string, string>> => {
+    if (!owner) throw new Error('The owner profile has no PIN yet.')
+    const response = await apiFetch('/profiles/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: owner.user_id, pin: ownerPin }),
+    })
+    const session = await readJson<FamilyProfileSession>(response)
+    return { Authorization: `Bearer ${session.token}` }
+  }
+
   const create = async () => {
     if (pin !== confirmPin) {
       setError('The two PINs do not match.')
@@ -114,10 +135,11 @@ export function FamilyProfileGate({ onAuthenticated }: Props) {
     setBusy(true)
     setError(null)
     try {
+      const approval = ownerApproves ? await ownerHeaders() : {}
       const response = await apiFetch('/profiles', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ display_name: name, pin }),
+        headers: { 'Content-Type': 'application/json', ...approval },
+        body: JSON.stringify({ display_name: name, pin, invite_code: ownerApproves ? '' : inviteCode }),
       })
       finish(await readJson<FamilyProfileSession>(response))
     } catch (cause) {
@@ -125,6 +147,28 @@ export function FamilyProfileGate({ onAuthenticated }: Props) {
     } finally {
       setBusy(false)
     }
+  }
+
+  const createInvite = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      const response = await apiFetch('/profiles/invites', { method: 'POST', headers: await ownerHeaders() })
+      setInvite(await readJson<FamilyProfileInvite>(response))
+      setOwnerPin('')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The invite could not be created.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const backToProfiles = () => {
+    setCreating(false)
+    setInviting(false)
+    setInvite(null)
+    setOwnerPin('')
+    setError(null)
   }
 
   return (
@@ -136,12 +180,12 @@ export function FamilyProfileGate({ onAuthenticated }: Props) {
           <MahatiLogo size={38} />
           <div>
             <p className="family-gate-kicker">NARAD FAMILY</p>
-            <h1>{creating ? 'Create your space' : selected ? `${selected.has_pin ? 'Welcome' : 'Secure your space'}, ${selected.display_name}` : 'Who is using Narad?'}</h1>
-            <p>{creating ? 'Private memory, workflows, health, finance, and Google access.' : selected ? selected.has_pin ? 'Enter your private PIN to continue.' : 'Choose a PIN before opening your existing Narad data.' : 'Each person gets an isolated local workspace.'}</p>
+            <h1>{inviting ? 'Invite someone' : creating ? 'Create your space' : selected ? `${selected.has_pin ? 'Welcome' : 'Secure your space'}, ${selected.display_name}` : 'Who is using Narad?'}</h1>
+            <p>{inviting ? 'The owner creates a one-time code for a new family member.' : creating ? 'Private memory, workflows, health, finance, and Google access.' : selected ? selected.has_pin ? 'Enter your private PIN to continue.' : 'Choose a PIN before opening your existing Narad data.' : 'Each person gets an isolated local workspace.'}</p>
           </div>
         </header>
 
-        {!creating && !selected && (
+        {!creating && !inviting && !selected && (
           <div className="family-profile-grid">
             {profiles.map(profile => (
               <button key={profile.user_id} type="button" className="family-profile-card" onClick={() => choose(profile)} disabled={busy}>
@@ -153,9 +197,34 @@ export function FamilyProfileGate({ onAuthenticated }: Props) {
             <button type="button" className="family-profile-card family-profile-add" onClick={() => { setCreating(true); setError(null) }}>
               <span className="family-profile-avatar"><Plus size={22} /></span>
               <span className="family-profile-name">Add person</span>
-              <span className="family-profile-meta">Up to 12 profiles</span>
+              <span className="family-profile-meta">Owner or invite code</span>
             </button>
           </div>
+        )}
+
+        {!creating && !inviting && !selected && owner && (
+          <button type="button" className="family-back" style={{ alignSelf: 'center', margin: '14px auto 0' }} onClick={() => { setInviting(true); setError(null) }}>
+            <KeyRound size={12} /> Owner: create an invite code
+          </button>
+        )}
+
+        {inviting && (
+          <form className="family-profile-form" onSubmit={event => { event.preventDefault(); void createInvite() }}>
+            <button type="button" className="family-back" onClick={backToProfiles}><ArrowLeft size={14} /> Profiles</button>
+            <span className="family-create-icon"><KeyRound size={22} /></span>
+            {invite ? (
+              <>
+                <label>Invite code<input readOnly value={invite.code} onFocus={event => event.currentTarget.select()} style={{ textAlign: 'center', letterSpacing: '0.2em' }} /></label>
+                <p className="family-profile-meta" style={{ justifyContent: 'center', textAlign: 'center' }}>Works once, until {new Date(invite.expires_at * 1000).toLocaleString()}. It will not be shown again.</p>
+                <button className="family-primary" type="button" onClick={backToProfiles}>Done</button>
+              </>
+            ) : (
+              <>
+                <label>{owner?.display_name ?? 'Owner'} PIN<input inputMode="numeric" autoComplete="current-password" pattern="[0-9]*" maxLength={8} value={ownerPin} onChange={event => setOwnerPin(event.target.value.replace(/\D/g, ''))} autoFocus placeholder="4-8 digits" /></label>
+                <button className="family-primary" type="submit" disabled={busy || ownerPin.length < 4}>{busy ? <LoaderCircle size={16} className="animate-spin" /> : <KeyRound size={16} />} Create invite code</button>
+              </>
+            )}
+          </form>
         )}
 
         {selected && !creating && (
@@ -172,14 +241,24 @@ export function FamilyProfileGate({ onAuthenticated }: Props) {
 
         {creating && (
           <form className="family-profile-form" onSubmit={event => { event.preventDefault(); void create() }}>
-            <button type="button" className="family-back" onClick={() => { setCreating(false); setError(null) }}><ArrowLeft size={14} /> Profiles</button>
+            <button type="button" className="family-back" onClick={backToProfiles}><ArrowLeft size={14} /> Profiles</button>
             <span className="family-create-icon"><UserRound size={22} /></span>
             <label>Your name<input autoComplete="name" maxLength={48} value={name} onChange={event => setName(event.target.value)} autoFocus placeholder="e.g. Meera" /></label>
             <div className="family-pin-row">
               <label>Choose PIN<input inputMode="numeric" autoComplete="new-password" pattern="[0-9]*" maxLength={8} value={pin} onChange={event => setPin(event.target.value.replace(/\D/g, ''))} placeholder="4-8 digits" /></label>
               <label>Confirm PIN<input inputMode="numeric" autoComplete="new-password" pattern="[0-9]*" maxLength={8} value={confirmPin} onChange={event => setConfirmPin(event.target.value.replace(/\D/g, ''))} placeholder="Repeat PIN" /></label>
             </div>
-            <button className="family-primary" type="submit" disabled={busy || !name.trim() || pin.length < 4 || confirmPin.length < 4}>{busy ? <LoaderCircle size={16} className="animate-spin" /> : <Plus size={16} />} Create private profile</button>
+            {ownerApproves ? (
+              <label>{owner?.display_name ?? 'Owner'} PIN (owner approval)<input inputMode="numeric" autoComplete="off" pattern="[0-9]*" maxLength={8} value={ownerPin} onChange={event => setOwnerPin(event.target.value.replace(/\D/g, ''))} placeholder="4-8 digits" /></label>
+            ) : (
+              <label>Invite code<input autoComplete="off" autoCapitalize="characters" maxLength={16} value={inviteCode} onChange={event => setInviteCode(event.target.value.toUpperCase())} placeholder="From the owner, e.g. K7QM-2XPF" /></label>
+            )}
+            {owner && (
+              <button type="button" className="family-back" style={{ alignSelf: 'center' }} onClick={() => { setOwnerApproves(!ownerApproves); setOwnerPin(''); setError(null) }}>
+                {ownerApproves ? 'Use an invite code instead' : `${owner.display_name} is here? Approve with the owner PIN`}
+              </button>
+            )}
+            <button className="family-primary" type="submit" disabled={busy || !name.trim() || pin.length < 4 || confirmPin.length < 4 || (ownerApproves && ownerPin.length < 4)}>{busy ? <LoaderCircle size={16} className="animate-spin" /> : <Plus size={16} />} Create private profile</button>
           </form>
         )}
 
