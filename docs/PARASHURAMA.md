@@ -203,7 +203,7 @@ omens. He referred his students to the appropriate teachers for those.
 
 ## Architecture Reference
 
-**Model:** `xai/grok-4.6` priority (default when Grok is connected; override via `PARASHURAMA_MODEL` env)
+**Model:** `deepseek/deepseek-flash` (default chain: DeepSeek, then another connected provider, then local Gemma; override via `PARASHURAMA_MODEL` env)
 **Context window:** 128K tokens  
 **Prompt layers (injection order, innermost → outermost):**
 
