@@ -48,6 +48,12 @@ class CulturalCoreTests(unittest.TestCase):
         self.swapna = importlib.reload(swapna)
 
     def tearDown(self) -> None:
+        # Smriti refreshes its index on a background thread; deleting the temp
+        # home under it makes this suite (and later ones) flaky, and the full
+        # suite is a blocking CI step.
+        indexer = sys.modules.get("smriti_indexer")
+        if indexer is not None:
+            indexer.wait_for_index_refresh(timeout_s=5.0)
         self.tmp.cleanup()
         if self._prev_home is None:
             os.environ.pop("NARAD_HOME", None)
