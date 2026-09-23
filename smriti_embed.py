@@ -22,8 +22,10 @@ import logging
 import math
 import os
 import re
+import threading
 import time
 from datetime import datetime, timezone
+from typing import Any
 
 log = logging.getLogger("narad.smriti")
 
@@ -103,6 +105,32 @@ def _local_embed(text: str, dim: int = _LOCAL_DIM) -> list[float]:
     return _l2_normalize(buckets)
 
 
+_client_lock = threading.Lock()
+_clients: dict[str, tuple[tuple[str, str | None], Any]] = {}
+
+
+def _embed_client(provider: str, api_key: str, base_url: str | None = None) -> Any:
+    """One lazily-built SDK client per provider, shared across calls and threads.
+
+    Building a client per call redid connection setup on every embedding
+    (up to three per turn). Both SDK clients are safe to share across
+    threads; a changed key or base URL builds a fresh one.
+    """
+    fingerprint = (_sha(api_key), base_url)
+    with _client_lock:
+        cached = _clients.get(provider)
+        if cached is not None and cached[0] == fingerprint:
+            return cached[1]
+        if provider == "gemini":
+            from google import genai as _genai
+            client = _genai.Client(api_key=api_key)
+        else:
+            import openai as _openai
+            client = _openai.OpenAI(api_key=api_key, base_url=base_url)
+        _clients[provider] = (fingerprint, client)
+        return client
+
+
 def _embed_many(texts: list[str]) -> list[list[float]]:
     """Embed a batch via the selected provider — ONE API call per batch.
 
@@ -125,12 +153,11 @@ def _embed_many(texts: list[str]) -> list[list[float]]:
 
     if provider == "gemini":
         try:
-            from google import genai as _genai
             from google.genai import types as _gtypes
             api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY", "")
             if not api_key:
                 raise RuntimeError("SMRITI_EMBEDDING_MODEL=gemini but GEMINI_API_KEY is not set")
-            client = _genai.Client(api_key=api_key)
+            client = _embed_client("gemini", api_key)
             resp = client.models.embed_content(
                 model="gemini-embedding-001",
                 contents=clipped,
@@ -153,7 +180,6 @@ def _embed_many(texts: list[str]) -> list[list[float]]:
 
     # OpenAI-compatible path: Mimo when configured, otherwise plain OpenAI.
     try:
-        import openai as _openai
         if provider == "mimo":
             api_key = os.environ.get("MIMO_API_KEY", "")
             base_url = os.environ.get("MIMO_BASE_URL")
@@ -162,7 +188,7 @@ def _embed_many(texts: list[str]) -> list[list[float]]:
             base_url = None
         if not api_key:
             raise RuntimeError(f"SMRITI_EMBEDDING_MODEL={provider} but no API key is set")
-        client = _openai.OpenAI(api_key=api_key, base_url=base_url)
+        client = _embed_client(provider, api_key, base_url)
         resp = client.embeddings.create(model="text-embedding-3-small", input=clipped)
         # The API may return out of order — index field is authoritative.
         ordered = sorted(resp.data, key=lambda item: item.index)

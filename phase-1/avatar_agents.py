@@ -18,12 +18,15 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
+import functools
+import inspect
 import json
+import logging
 import os
 import re
 import time
 import uuid
-from typing import Any
+from typing import Any, get_type_hints
 
 from google.adk.agents import LlmAgent
 from google.adk.runners import Runner
@@ -33,7 +36,7 @@ from google.genai import types as genai_types
 from model_config import AVATAR_MODELS
 from narad_litellm import NaradLiteLlm as LiteLlm
 from runtime_contract import (
-    agent_runtime_status as _agent_runtime_status,
+    cached_agent_runtime_status as _cached_agent_runtime_status,
 )
 from runtime_contract import (
     canonical_tool_name_map as _canonical_tool_name_map,
@@ -258,6 +261,72 @@ def _clone_agent_with_model(agent: LlmAgent, model: LiteLlm) -> LlmAgent:
     )
 
 
+def _run_off_loop(func: Any) -> Any:
+    """Wrap a sync tool so ADK awaits it on a worker thread, not the event loop.
+
+    ADK 1.32 calls sync FunctionTools inline on the one uvicorn loop, so a
+    single computer_use/phone_use call (up to 180 s / 600 s) froze every chat.
+    RunConfig.tool_thread_pool_config is not the fix: it also moves async
+    tools (the avatars, which stream through the loop's SSE queue) onto a
+    private loop. asyncio.to_thread copies contextvars, so profile_scope and
+    the request context stay visible inside the tool.
+    """
+
+    @functools.wraps(func)
+    async def _offloaded(*args: Any, **kwargs: Any) -> Any:
+        return await asyncio.to_thread(func, *args, **kwargs)
+
+    # wraps() carries name, docstring and __wrapped__ (ADK reads the signature
+    # through it). Resolve string annotations now: ADK re-evaluates them
+    # against the wrapper's module when it strips a tool_context parameter.
+    try:
+        _offloaded.__annotations__ = get_type_hints(func, include_extras=True)
+    except Exception:
+        pass
+    return _offloaded
+
+
+def _offload_sync_tools(tools: list[Any]) -> list[Any]:
+    """Re-register every sync FunctionTool so it runs off the event loop."""
+    offloaded: list[Any] = []
+    for tool in tools:
+        func = getattr(tool, "func", None)
+        if isinstance(tool, FunctionTool) and callable(func) and not (
+            inspect.iscoroutinefunction(func)
+            or inspect.isasyncgenfunction(func)
+            or inspect.iscoroutinefunction(func.__call__)
+        ):
+            tool = FunctionTool(
+                _run_off_loop(func),
+                require_confirmation=getattr(tool, "_require_confirmation", False),
+            )
+        offloaded.append(tool)
+    return offloaded
+
+
+_RUNTIME_STATUS_WAIT_S = 2.0
+
+
+async def _avatar_runtime_status(
+    agent_name: str, *, wait_s: float = _RUNTIME_STATUS_WAIT_S
+) -> dict[str, Any] | None:
+    """This avatar's runtime status row (trace metadata), probed off the loop.
+
+    Never holds an avatar run for long: a slow probe keeps going on its worker
+    thread and lands in the cache for the next run; this one goes without.
+    """
+    try:
+        rows = await asyncio.wait_for(asyncio.to_thread(_cached_agent_runtime_status), wait_s)
+    except asyncio.TimeoutError:
+        return None
+    except Exception as exc:
+        logging.getLogger("narad.avatar").warning(
+            "%s: runtime status probe failed: %s", agent_name, exc
+        )
+        return None
+    return next((item for item in rows if item["name"] == agent_name), None)
+
+
 def _make_avatar_tool(agent: LlmAgent, user_id: str = "default") -> FunctionTool:
     """Wrap an LlmAgent as a FunctionTool so LiteLlm function-calling works.
 
@@ -331,6 +400,9 @@ def _make_avatar_tool(agent: LlmAgent, user_id: str = "default") -> FunctionTool
             )
 
         _q = _step_queue_ctx.get(None)  # SSE queue from request context (may be None)
+        # Runtime status is trace metadata only: probe it (cached, off the loop)
+        # while recall and session setup run, and collect it before the span.
+        _runtime_status_task = asyncio.ensure_future(_avatar_runtime_status(agent.name))
         _model_id = getattr(run_agent.model, "model", str(run_agent.model))
         _profile = get_model_profile(_model_id, long_running=True)
         recall_budget = max(256, int(_profile.soft_target_tokens * 0.25))
@@ -513,10 +585,7 @@ def _make_avatar_tool(agent: LlmAgent, user_id: str = "default") -> FunctionTool
         _trace_session_id = _http_session_id_ctx.get("") or _session_id or sid
         tracer = Tracer(session_id=_trace_session_id, user_id=user_id)
         result_text = ""
-        _agent_runtime = next(
-            (item for item in _agent_runtime_status() if item["name"] == agent.name),
-            None,
-        )
+        _agent_runtime = await _runtime_status_task
         _discipline = _primary_discipline(agent.name)
         _degraded_tool_families = (
             list(_agent_runtime.get("degraded_tool_families", []))
@@ -914,7 +983,9 @@ def _make_avatar_tool(agent: LlmAgent, user_id: str = "default") -> FunctionTool
                 "last_result_preview": result_text[:220],
             }
 
-        capture_episode(
+        # Indexing the episode embeds it over HTTP — keep that off the loop.
+        await asyncio.to_thread(
+            capture_episode,
             session_id=external_session_id or sid,
             task=task,
             avatar=agent.name,
@@ -1013,10 +1084,14 @@ async def _run_tapas(session_id: str, task: str, avatar: str, result: str,
         return
     try:
         from smriti_core import promote_sutra
-        promote_sutra(session_id=session_id, query=task, avatar=avatar, result=result,
-                      applied_sutra_ids=applied_sutra_ids or [])
-    except Exception:
-        pass
+        # Judge/distill/critique call litellm.completion synchronously (with
+        # time.sleep backoff) — run them on a worker thread, not the loop.
+        await asyncio.to_thread(
+            promote_sutra, session_id=session_id, query=task, avatar=avatar, result=result,
+            applied_sutra_ids=applied_sutra_ids or [],
+        )
+    except Exception as exc:
+        logging.getLogger("narad.tapas").warning("Tapas skipped for %s: %s", avatar, exc)
 
 
 async def _run_sankalpa_observe(user_id: str, avatar: str, task: str, result: str) -> None:
@@ -1024,9 +1099,12 @@ async def _run_sankalpa_observe(user_id: str, avatar: str, task: str, result: st
         return
     try:
         from smriti_core import update_sankalpa
-        update_sankalpa(user_id=user_id, avatar=avatar, task=task, result=result)
-    except Exception:
-        pass
+        # Pattern extraction calls litellm.completion synchronously.
+        await asyncio.to_thread(
+            update_sankalpa, user_id=user_id, avatar=avatar, task=task, result=result,
+        )
+    except Exception as exc:
+        logging.getLogger("narad.sankalpa").warning("Sankalpa skipped for %s: %s", avatar, exc)
 
 
 
@@ -2502,6 +2580,12 @@ parashurama = LlmAgent(
         FunctionTool(_fetch_shadcn_component),
     ],
 )
+
+
+# ── Sync tools run off the event loop (one person's task never freezes all) ──
+
+for _avatar in (matsya, rama, krishna, parashurama):
+    _avatar.tools = _offload_sync_tools(list(_avatar.tools or []))
 
 
 # ── FunctionTool wrappers (what Narad sees) ───────────────────────────────────
