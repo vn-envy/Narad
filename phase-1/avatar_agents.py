@@ -922,10 +922,13 @@ def _make_avatar_tool(agent: LlmAgent, user_id: str = "default") -> FunctionTool
             if _fired:
                 _log_andon(agent.name, _reason, _trace_session_id,
                            task[:200], result_text[:200])
-                # M3.3 — unrecovered andon reaches the user via Vahana.
+                # M3.3 — unrecovered andon reaches the user via Vahana. The
+                # delivery does file I/O and a blocking ntfy POST (5 s timeout),
+                # so it runs on a worker thread, not the shared event loop.
                 try:
                     from vahana import deliver as _vahana_deliver
-                    _vahana_deliver(
+                    await asyncio.to_thread(
+                        _vahana_deliver,
                         kind="andon",
                         title=f"{agent.name} blocked: {_reason.replace('_', ' ').lower()}",
                         body=(

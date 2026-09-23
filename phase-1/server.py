@@ -1295,6 +1295,25 @@ async def chat_attach(session_id: str, request: Request):
     return EventSourceResponse(_drain_queue(session_id, entry[1]))
 
 
+def _workflow_context_for_turn(req: ChatRequest, session_id: str) -> str:
+    """The durable path's context for this turn, or "" if the path lives elsewhere.
+
+    A stale client can still send the workflow_run_id of a path bound to
+    another chat thread. That turn must neither see the path's context nor
+    advance its stage, so the id is dropped for the rest of the turn.
+    """
+    if not req.workflow_run_id:
+        return ""
+    from workflow_engine import WorkflowSessionMismatch, build_workflow_context
+
+    try:
+        return build_workflow_context(req.workflow_run_id, user_id=req.user_id, session_id=session_id)
+    except WorkflowSessionMismatch as exc:
+        logging.getLogger("narad.server").warning("Workflow context skipped: %s", exc)
+        req.workflow_run_id = None
+        return ""
+
+
 async def _run_agent_task(
     req: ChatRequest,
     session_id: str,
@@ -1386,13 +1405,8 @@ async def _run_agent_task(
             )
         )
         working_context = _working_state_context(restored_working_state)
-        if req.workflow_run_id:
-            from workflow_engine import build_workflow_context as _build_workflow_context
-
-            workflow_context = _build_workflow_context(
-                req.workflow_run_id,
-                user_id=req.user_id,
-            )
+        workflow_context = _workflow_context_for_turn(req, session_id)
+        if workflow_context:
             working_context = "\n\n".join(
                 block for block in [workflow_context, working_context] if block.strip()
             )

@@ -875,12 +875,32 @@ def set_workflow_status(run_id: str, status: str) -> WorkflowRun:
     return run
 
 
-def build_workflow_context(run_id: str, *, user_id: str | None = None, max_chars: int = 7000) -> str:
+class WorkflowSessionMismatch(PermissionError):
+    """A chat turn arrived from a thread other than the one the run is bound to."""
+
+
+def _assert_bound_session(run: WorkflowRun, session_id: str | None) -> None:
+    # A run is bound to the chat thread it was continued in; unbound runs
+    # accept any thread (and bind on their first recorded result).
+    if session_id is not None and run.session_id and run.session_id != session_id:
+        raise WorkflowSessionMismatch(
+            f"Workflow run {run.run_id} is bound to another chat session; ignoring this turn"
+        )
+
+
+def build_workflow_context(
+    run_id: str,
+    *,
+    user_id: str | None = None,
+    session_id: str | None = None,
+    max_chars: int = 7000,
+) -> str:
     run = get_workflow_run(run_id)
     if not run:
         raise KeyError(f"Unknown workflow run: {run_id}")
     if user_id is not None and run.user_id != user_id:
         raise PermissionError("Workflow belongs to another user")
+    _assert_bound_session(run, session_id)
     pack = get_pack(run.workflow_id)
     if not pack:
         raise ValueError(f"Unknown workflow: {run.workflow_id}")
@@ -942,10 +962,8 @@ def record_chat_stage_result(
         raise KeyError(f"Unknown workflow run: {run_id}")
     if run.user_id != user_id:
         raise PermissionError("Workflow belongs to another user")
-    if run.session_id and run.session_id != session_id:
-        # A run is bound to the chat thread it was continued in; a turn from any
-        # other thread must never complete its stage. Unbound runs bind below.
-        raise PermissionError(f"Workflow run {run_id} is bound to another chat session; ignoring this turn")
+    # A turn from any other thread must never complete its stage. Unbound runs bind below.
+    _assert_bound_session(run, session_id)
     summary = response_text.strip()
     if not summary:
         raise ValueError("Cannot complete a workflow stage from an empty response")
