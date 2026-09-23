@@ -435,16 +435,18 @@ except Exception as _voice_err:
 # ── Security floor: bearer auth + pinned CORS ─────────────────────────────────
 #
 # Auth modes (NARAD_AUTH env):
-#   local  (default) — requests from 127.0.0.1/::1 pass; anything else needs
-#                      "Authorization: Bearer <token>". Pairs with the default
-#                      127.0.0.1 bind: remote access requires BOTH a rebind and
-#                      the token.
+#   local  (default) — direct requests from 127.0.0.1/::1 pass; anything else
+#                      needs "Authorization: Bearer <token>". Pairs with the
+#                      default 127.0.0.1 bind: remote access requires BOTH a
+#                      rebind and the token. Proxied loopback traffic
+#                      (cloudflared, tailscale serve) is NOT local.
 #   strict           — every request needs the bearer token (except exempt paths)
 #   off              — no auth (tests / trusted networks only)
 #
 # The token is auto-generated on first startup at ~/.narad/config/api_token
-# (chmod 600). Exempt: /health (probes), /media/* (<video>/<img> tags cannot
-# send Authorization headers).
+# (chmod 600). Exempt: /health (probes), the gate's /profiles, /profiles/login
+# and /profiles/bootstrap. GET /media/* also accepts the HttpOnly media cookie
+# because <video>/<img> tags cannot send Authorization headers.
 
 from fastapi.responses import JSONResponse as _AuthJSONResponse
 
@@ -453,6 +455,14 @@ from narad_config import CONFIG_DIR as _CONFIG_DIR
 _AUTH_MODE = os.environ.get("NARAD_AUTH", "local").strip().lower()
 _API_TOKEN_PATH = _CONFIG_DIR / "api_token"
 _LOCAL_CLIENTS = {"127.0.0.1", "::1", "localhost", "testclient"}
+# A tunnel or reverse proxy on this host connects from loopback too; any of
+# these headers means the real client is elsewhere.
+_FORWARDING_HEADERS = (
+    "cf-connecting-ip", "cf-ray", "x-forwarded-for", "forwarded", "x-real-ip",
+    "x-forwarded-host", "x-forwarded-proto",
+)
+_MEDIA_COOKIE = "narad_media_session"
+_PROFILE_MEDIA_ROOTS = ("computer-use", "phone-use")
 
 
 def _load_or_create_api_token() -> str:
@@ -481,14 +491,135 @@ def _profile_from_request(request: Request) -> str:
     return str(getattr(request.state, "profile_id", "default") or "default")
 
 
-def _assert_profile_match(request: Request, claimed_user_id: str) -> str:
+def _assert_profile_match(request: Request, claimed_user_id: str | None) -> str:
+    """Resolve a body/form user_id. Omitted means the caller's own profile."""
     from profile_context import validate_profile_id
 
-    claimed = validate_profile_id(claimed_user_id)
     authenticated = _profile_from_request(request)
+    if not str(claimed_user_id or "").strip():
+        return authenticated
+    claimed = validate_profile_id(claimed_user_id)
     if getattr(request.state, "profile_authenticated", False) and claimed != authenticated:
         raise HTTPException(status_code=403, detail="Profile identity does not match this session")
     return claimed
+
+
+def _is_local_request(request: Request) -> bool:
+    """Loopback AND not relayed: cloudflared also connects from 127.0.0.1."""
+    client_host = request.client.host if request.client else ""
+    return client_host in _LOCAL_CLIENTS and not any(
+        name in request.headers for name in _FORWARDING_HEADERS
+    )
+
+
+def _client_ip(request: Request) -> str:
+    """Throttle key: trust relay headers only when a local proxy delivered them."""
+    client_host = request.client.host if request.client else ""
+    if client_host in _LOCAL_CLIENTS:
+        relayed = (
+            request.headers.get("cf-connecting-ip")
+            or request.headers.get("x-forwarded-for", "").split(",")[0]
+        ).strip()
+        if relayed:
+            return relayed[:64]
+    return client_host or "unknown"
+
+
+def _is_https_request(request: Request) -> bool:
+    forwarded = request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
+    return request.url.scheme == "https" or forwarded == "https"
+
+
+def _is_owner_request(request: Request) -> bool:
+    """The owner's profile session, or a host credential acting as the owner."""
+    from family_profiles import get_profile
+
+    if not (
+        getattr(request.state, "profile_authenticated", False)
+        or getattr(request.state, "host_authority", False)
+    ):
+        return False
+    try:
+        return bool((get_profile(_profile_from_request(request)) or {}).get("is_owner"))
+    except ValueError:
+        return False
+
+
+def _require_owner(request: Request) -> None:
+    """Host-wide settings belong to the owner in strict (pilot) mode.
+
+    local/off keep their trusted-host behaviour."""
+    if _AUTH_MODE == "strict" and not _is_owner_request(request):
+        raise HTTPException(status_code=403, detail="Only the Narad owner can change this")
+
+
+def _media_owner(path: str) -> str | None:
+    """Profile that owns a per-profile /media path (computer/phone-use captures)."""
+    import posixpath
+
+    # Mirror StaticFiles normalisation, and compare case-insensitively
+    # because the host Mac's filesystem is.
+    parts = posixpath.normpath(path.removeprefix("/media/")).lower().split("/")
+    if len(parts) >= 2 and parts[0] in _PROFILE_MEDIA_ROOTS:
+        return parts[1]
+    return None
+
+
+def _force_query_user_id(request: Request, profile_id: str) -> None:
+    """Pin ?user_id to the session's profile so omitted ids never mean "default"."""
+    from urllib.parse import unquote_plus
+
+    kept = [
+        part
+        for part in request.scope.get("query_string", b"").split(b"&")
+        if part and unquote_plus(part.split(b"=", 1)[0].decode("latin-1")) != "user_id"
+    ]
+    kept.append(b"user_id=" + profile_id.encode())
+    request.scope["query_string"] = b"&".join(kept)
+
+
+# ── Login throttling ──────────────────────────────────────────────────────────
+# Consecutive failures per profile and per client IP. Past the threshold each
+# further failure doubles the lockout (30 s … 15 min); success resets both.
+_LOGIN_PROFILE_THRESHOLD = 5
+_LOGIN_IP_THRESHOLD = 10
+_LOGIN_BACKOFF_BASE_S = 30.0
+_LOGIN_BACKOFF_CAP_S = 900.0
+_LOGIN_TABLE_LIMIT = 4096
+_login_failures: dict[str, tuple[int, float]] = {}  # key → (failures, locked_until)
+
+
+def _login_retry_after(*keys: str) -> int:
+    import math
+    import time as _time
+
+    now = _time.monotonic()
+    remaining = max((_login_failures.get(key, (0, 0.0))[1] - now for key in keys), default=0.0)
+    return math.ceil(remaining) if remaining > 0 else 0
+
+
+def _record_login_failure(key: str, threshold: int) -> None:
+    import time as _time
+
+    now = _time.monotonic()
+    if len(_login_failures) > _LOGIN_TABLE_LIMIT:
+        # Bound memory against IP churn; profile counters are never dropped.
+        for stale in [k for k, (_, until) in _login_failures.items() if k.startswith("ip:") and until <= now]:
+            del _login_failures[stale]
+    failures = _login_failures.get(key, (0, 0.0))[0] + 1
+    locked_until = 0.0
+    if failures >= threshold:
+        delay = _LOGIN_BACKOFF_BASE_S * 2 ** min(failures - threshold, 16)
+        locked_until = now + min(delay, _LOGIN_BACKOFF_CAP_S)
+    _login_failures[key] = (failures, locked_until)
+
+
+def _throttled(retry_after: int) -> HTTPException:
+    return HTTPException(
+        status_code=429,
+        detail="Too many attempts. Try again later.",
+        headers={"Retry-After": str(retry_after)},
+    )
 
 
 def _is_public_shell_path(path: str) -> bool:
@@ -504,27 +635,32 @@ async def _bearer_auth(request, call_next):
     if request.method == "OPTIONS":
         return await call_next(request)
     path = request.url.path
-    public_profile_path = (
-        path == "/profiles"
-        or path == "/profiles/login"
-        or path == "/profiles/bootstrap"
-    )
     # OAuth redirects cannot carry Narad's bearer header. Codes are protected
     # by short-lived in-process state and PKCE verifiers.
     if (
         path == "/health"
-        or public_profile_path
         or path == "/callback"
         or path == "/google/callback"
-        or path.startswith("/media/")
         or _is_public_shell_path(path)
     ):
         return await call_next(request)
+    # The profile gate needs these before anyone is signed in. They still run
+    # through identity resolution so the routes can tell owner from anonymous.
+    public_profile_path = (
+        path == "/profiles"
+        or path == "/profiles/login"
+        or path == "/profiles/bootstrap"
+        or (path == "/profiles/media-session" and request.method == "DELETE")
+    )
     from family_profiles import verify_session
     from profile_context import profile_scope, validate_profile_id
 
     supplied = request.headers.get("authorization", "")
     bearer = supplied.removeprefix("Bearer ").strip() if supplied.startswith("Bearer ") else ""
+    media_read = path.startswith("/media/") and request.method in ("GET", "HEAD")
+    if not bearer and media_read:
+        # Only media reads accept the ambient cookie, so it cannot drive writes.
+        bearer = request.cookies.get(_MEDIA_COOKIE, "")
     profile = verify_session(bearer) if bearer else None
     if profile:
         profile_id = str(profile["user_id"])
@@ -534,22 +670,18 @@ async def _bearer_auth(request, call_next):
             return _AuthJSONResponse({"detail": "Profile identity mismatch"}, status_code=403)
         if claimed_query and validate_profile_id(claimed_query) != profile_id:
             return _AuthJSONResponse({"detail": "Profile identity mismatch"}, status_code=403)
+        if media_read and _media_owner(path) not in (None, profile_id):
+            return _AuthJSONResponse({"detail": "Not Found"}, status_code=404)
+        _force_query_user_id(request, profile_id)
         request.state.profile_id = profile_id
         request.state.profile_authenticated = True
         with profile_scope(profile_id):
             return await call_next(request)
-    if _AUTH_MODE == "off":
-        try:
-            request.state.profile_id = validate_profile_id(
-                request.headers.get("x-narad-profile-id", "default")
-            )
-        except ValueError:
-            return _AuthJSONResponse({"detail": "Invalid profile identity"}, status_code=400)
-        request.state.profile_authenticated = False
-        with profile_scope(request.state.profile_id):
-            return await call_next(request)
-    client_host = request.client.host if request.client else ""
-    if _AUTH_MODE == "local" and client_host in _LOCAL_CLIENTS:
+    if (
+        _AUTH_MODE == "off"
+        or (_AUTH_MODE == "local" and _is_local_request(request))
+        or (_API_TOKEN and supplied == f"Bearer {_API_TOKEN}")
+    ):
         profile_id = request.headers.get("x-narad-profile-id", "default")
         try:
             profile_id = validate_profile_id(profile_id)
@@ -557,18 +689,13 @@ async def _bearer_auth(request, call_next):
             return _AuthJSONResponse({"detail": "Invalid profile identity"}, status_code=400)
         request.state.profile_id = profile_id
         request.state.profile_authenticated = False
+        request.state.host_authority = True
         with profile_scope(profile_id):
             return await call_next(request)
-    if _API_TOKEN and supplied == f"Bearer {_API_TOKEN}":
-        profile_id = request.headers.get("x-narad-profile-id", "default")
-        try:
-            profile_id = validate_profile_id(profile_id)
-        except ValueError:
-            return _AuthJSONResponse({"detail": "Invalid profile identity"}, status_code=400)
-        request.state.profile_id = profile_id
+    if public_profile_path:
         request.state.profile_authenticated = False
-        with profile_scope(profile_id):
-            return await call_next(request)
+        request.state.host_authority = False
+        return await call_next(request)
     return _AuthJSONResponse({"detail": "Unauthorized"}, status_code=401)
 
 
@@ -888,7 +1015,7 @@ def _runtime_epoch_from_state(state: dict[str, Any] | None, fallback_model: str)
 class ChatRequest(BaseModel):
     query: str
     session_id: Optional[str] = None
-    user_id: str = "default"
+    user_id: str = ""  # omitted → the caller's own profile
     images: list[str] = Field(default_factory=list)
     attachment_ids: list[str] = Field(default_factory=list, max_length=256)
     active_artifact_id: Optional[str] = None
@@ -901,7 +1028,7 @@ class ChatRequest(BaseModel):
 async def upload_chat_attachments(
     request: Request,
     files: list[UploadFile] = File(...),
-    user_id: str = Form("default"),
+    user_id: str = Form(""),
     session_id: str = Form(""),
     source: str = Form("files"),
     relative_paths: str = Form("[]"),
@@ -990,13 +1117,33 @@ async def interaction_runtimes(request: Request):
     }
 
 
+def _grant_profile(request: Request, profile_id: str | None) -> str:
+    """Whose device grants to act on: the caller's own, or (owner) a named profile."""
+    from family_profiles import get_profile
+
+    caller = _profile_from_request(request)
+    if not profile_id or profile_id.strip().lower() == caller:
+        return caller
+    if not _is_owner_request(request):
+        raise HTTPException(status_code=403, detail="Only the Narad owner can manage another profile's devices")
+    try:
+        target = get_profile(profile_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not target:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    return str(target["user_id"])
+
+
 @app.get("/interaction-targets")
-async def get_interaction_targets(request: Request, kind: str | None = None):
+async def get_interaction_targets(
+    request: Request, kind: str | None = None, profile_id: str | None = None
+):
     from interaction_targets import list_interaction_targets
 
     try:
         targets = list_interaction_targets(
-            profile_id=_profile_from_request(request), kind=kind
+            profile_id=_grant_profile(request, profile_id), kind=kind
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -1005,16 +1152,17 @@ async def get_interaction_targets(request: Request, kind: str | None = None):
 
 @app.post("/interaction-targets")
 async def add_interaction_target(request: Request, payload: dict):
-    """Grant one local browser or Android target to the active family profile."""
+    """Owner grants a host browser, desktop, or Android target to a family profile."""
     from interaction_targets import register_interaction_target
 
+    _require_owner(request)
     try:
         target = register_interaction_target(
             str(payload.get("kind") or ""),
             str(payload.get("external_id") or ""),
             label=str(payload.get("label") or ""),
             metadata=payload.get("metadata") if isinstance(payload.get("metadata"), dict) else None,
-            profile_id=_profile_from_request(request),
+            profile_id=_grant_profile(request, str(payload.get("profile_id") or "")),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -1023,11 +1171,14 @@ async def add_interaction_target(request: Request, payload: dict):
 
 
 @app.delete("/interaction-targets/{target_id}")
-async def delete_interaction_target(request: Request, target_id: str):
+async def delete_interaction_target(
+    request: Request, target_id: str, profile_id: str | None = None
+):
     from interaction_targets import revoke_interaction_target
 
+    _require_owner(request)
     removed = revoke_interaction_target(
-        target_id, profile_id=_profile_from_request(request)
+        target_id, profile_id=_grant_profile(request, profile_id)
     )
     if not removed:
         raise HTTPException(status_code=404, detail="Interaction target not found")
@@ -2410,39 +2561,110 @@ async def get_family_profiles():
 
 
 @app.post("/profiles", status_code=201)
-async def create_family_profile(payload: dict):
-    from family_profiles import create_profile, issue_session
+async def create_family_profile(payload: dict, request: Request):
+    """Join the family: the owner adds people directly; anyone else needs an invite."""
+    from family_profiles import InviteError, create_profile, issue_session
     from onboarding import save_onboarding_state
 
+    invite_code: str | None = None
+    ip_key = f"ip:{_client_ip(request)}"
+    if not _is_owner_request(request):
+        invite_code = str(payload.get("invite_code") or "").strip()
+        if not invite_code:
+            raise HTTPException(status_code=403, detail="Ask the Narad owner for an invite code")
+        retry_after = _login_retry_after(ip_key)
+        if retry_after:
+            raise _throttled(retry_after)
     try:
         profile = create_profile(
             str(payload.get("display_name") or ""),
             str(payload.get("pin") or ""),
             str(payload.get("color") or ""),
+            invite_code=invite_code,
         )
         save_onboarding_state(profile["user_id"], display_name=profile["display_name"])
         return issue_session(profile["user_id"], str(payload.get("pin") or ""))
+    except InviteError as exc:
+        _record_login_failure(ip_key, _LOGIN_IP_THRESHOLD)
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@app.post("/profiles/invites", status_code=201)
+async def create_family_invite(request: Request):
+    """Owner-only: a single-use join code, shown once and valid for 72 hours."""
+    from family_profiles import create_invite
+
+    if not _is_owner_request(request):
+        raise HTTPException(status_code=403, detail="Only the Narad owner can invite people")
+    try:
+        return create_invite(_profile_from_request(request))
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 @app.post("/profiles/login")
-async def login_family_profile(payload: dict):
+async def login_family_profile(payload: dict, request: Request):
     from family_profiles import issue_session
 
+    user_id = str(payload.get("user_id") or "").strip().lower()[:64]
+    keys = (f"profile:{user_id}", f"ip:{_client_ip(request)}")
+    retry_after = _login_retry_after(*keys)
+    if retry_after:
+        raise _throttled(retry_after)
     try:
-        return issue_session(
-            str(payload.get("user_id") or ""),
-            str(payload.get("pin") or ""),
-        )
+        session = issue_session(user_id, str(payload.get("pin") or ""))
     except ValueError as exc:
+        _record_login_failure(keys[0], _LOGIN_PROFILE_THRESHOLD)
+        _record_login_failure(keys[1], _LOGIN_IP_THRESHOLD)
         raise HTTPException(status_code=401, detail=str(exc)) from exc
+    for key in keys:
+        _login_failures.pop(key, None)
+    return session
+
+
+@app.post("/profiles/media-session")
+async def open_media_session(request: Request):
+    """Mirror the bearer session into an HttpOnly cookie that only GET /media reads."""
+    from family_profiles import SESSION_TTL_SECONDS
+
+    if not getattr(request.state, "profile_authenticated", False):
+        raise HTTPException(status_code=401, detail="Profile session required")
+    token = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+    response = JSONResponse({"ok": True})
+    response.set_cookie(
+        _MEDIA_COOKIE,
+        token,
+        max_age=SESSION_TTL_SECONDS,
+        path="/media",
+        secure=_is_https_request(request),
+        httponly=True,
+        samesite="lax",
+    )
+    return response
+
+
+@app.delete("/profiles/media-session")
+async def close_media_session(request: Request):
+    response = JSONResponse({"ok": True})
+    response.delete_cookie(
+        _MEDIA_COOKIE,
+        path="/media",
+        secure=_is_https_request(request),
+        httponly=True,
+        samesite="lax",
+    )
+    return response
 
 
 @app.post("/profiles/bootstrap")
-async def bootstrap_family_owner(payload: dict):
+async def bootstrap_family_owner(payload: dict, request: Request):
     from family_profiles import bootstrap_owner_pin
 
+    # First-run owner PIN setup happens at the host itself, never via a tunnel.
+    if not _is_local_request(request):
+        raise HTTPException(status_code=403, detail="Secure the owner profile from the Narad host itself")
     try:
         return bootstrap_owner_pin(
             str(payload.get("user_id") or "default"),
@@ -2466,7 +2688,7 @@ async def get_family_profile_session(request: Request):
 
 @app.patch("/profiles/{user_id}")
 async def patch_family_profile(user_id: str, payload: dict, request: Request):
-    from family_profiles import update_profile
+    from family_profiles import issue_session, update_profile
     from onboarding import save_onboarding_state
 
     safe_id = _assert_profile_match(request, user_id)
@@ -2479,9 +2701,28 @@ async def patch_family_profile(user_id: str, payload: dict, request: Request):
         )
         if "display_name" in payload:
             save_onboarding_state(safe_id, display_name=profile["display_name"])
+        if payload.get("pin") is not None:
+            # The PIN change revoked every older token, this device's included.
+            return {"profile": profile, "session": issue_session(safe_id, str(payload["pin"]))}
         return {"profile": profile}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/profiles/{user_id}/revoke-sessions")
+async def revoke_family_profile_sessions(user_id: str, request: Request):
+    """Sign a profile out on every device (the profile itself or the owner)."""
+    from family_profiles import revoke_sessions
+    from profile_context import validate_profile_id
+
+    try:
+        safe_id = validate_profile_id(user_id)
+        if safe_id != _profile_from_request(request) and not _is_owner_request(request):
+            raise HTTPException(status_code=403, detail="Only this profile or the owner can do that")
+        epoch = revoke_sessions(safe_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"ok": True, "user_id": safe_id, "session_epoch": epoch}
 
 
 @app.get("/onboarding")
@@ -2500,7 +2741,7 @@ async def update_onboarding(payload: dict, request: Request):
     """Persist profile/completion state without touching keys or tier settings."""
     from onboarding import save_onboarding_state
 
-    user_id = _assert_profile_match(request, str(payload.get("user_id", "default")))
+    user_id = _assert_profile_match(request, str(payload.get("user_id") or ""))
     for field in ("completed", "skipped"):
         if field in payload and not isinstance(payload[field], bool):
             raise HTTPException(status_code=400, detail=f"{field} must be a boolean")
@@ -2557,8 +2798,9 @@ async def install_local_model():
 
 
 @app.post("/tiers/choice")
-async def set_tier_choice(payload: dict):
+async def set_tier_choice(payload: dict, request: Request):
     from tier_engine import save_tier_choice
+    _require_owner(request)
     tier = str(payload.get("tier", "")).strip()
     model = str(payload.get("model", "")).strip()
     try:
@@ -2583,9 +2825,10 @@ async def get_connections():
 
 
 @app.post("/connections")
-async def add_connection(payload: dict):
+async def add_connection(payload: dict, request: Request):
     """Paste-a-key flow: auto-detect provider from prefix, live-test, store in keychain."""
     from kunji import PROVIDERS, detect_provider_from_key, set_key, test_key
+    _require_owner(request)
     key = str(payload.get("key", "")).strip()
     if not key:
         raise HTTPException(status_code=400, detail="empty key")
@@ -2613,8 +2856,9 @@ async def test_connection(provider: str):
 
 
 @app.delete("/connections/{provider}")
-async def delete_connection(provider: str):
+async def delete_connection(provider: str, request: Request):
     from kunji import delete_key
+    _require_owner(request)
     existed = delete_key(provider)
     if not existed:
         raise HTTPException(status_code=404, detail="no stored key for that provider")
@@ -2624,9 +2868,10 @@ async def delete_connection(provider: str):
 
 
 @app.post("/connections/import-env")
-async def import_env_connections():
+async def import_env_connections(request: Request):
     """One-time .env → keychain migration (explicit, never silent)."""
     from kunji import import_env_keys
+    _require_owner(request)
     imported = import_env_keys()
     if imported:
         refresh_avatar_models()
@@ -2640,11 +2885,8 @@ async def import_env_connections():
 async def google_oauth_configure(request: Request, payload: dict):
     from google_workspace import configure_client
 
-    from family_profiles import get_profile
-
-    profile_id = _profile_from_request(request)
-    profile = get_profile(profile_id)
-    if not profile or not profile.get("is_owner"):
+    # The shared OAuth client is owner-only in every auth mode.
+    if not _is_owner_request(request):
         raise HTTPException(status_code=403, detail="Only the family pilot owner can configure Google OAuth")
     try:
         result = configure_client(
@@ -2733,6 +2975,7 @@ async def xai_oauth_start(request: Request):
     port is free. We reuse Narad's own port and serve /callback ourselves.
     """
     import xai_oauth
+    _require_owner(request)
     host = request.headers.get("host", "127.0.0.1:8000")
     port = host.rsplit(":", 1)[1] if ":" in host else "8000"
     redirect_uri = f"http://127.0.0.1:{port}/callback"
@@ -2762,11 +3005,12 @@ async def xai_oauth_callback(code: str = "", state: str = "", error: str = ""):
 
 
 @app.post("/connections/xai/oauth/finish")
-async def xai_oauth_finish(payload: dict):
+async def xai_oauth_finish(payload: dict, request: Request):
     """Manual fallback: xAI sometimes shows a "copy this code" page instead of
     redirecting to the loopback. The user pastes that code (or the full
     callback URL) into Kunji and we finish the exchange here."""
     import xai_oauth
+    _require_owner(request)
     raw = str(payload.get("code", "") or payload.get("code_or_url", ""))
     try:
         result = xai_oauth.finish_login_input(raw)
@@ -2784,8 +3028,9 @@ async def xai_oauth_status():
 
 
 @app.delete("/connections/xai/oauth")
-async def xai_oauth_disconnect():
+async def xai_oauth_disconnect(request: Request):
     import xai_oauth
+    _require_owner(request)
     existed = xai_oauth.disconnect()
     if not existed:
         raise HTTPException(status_code=404, detail="no Grok session to disconnect")
@@ -2866,7 +3111,7 @@ async def get_inbox(
 
 
 class InboxMarkReadRequest(BaseModel):
-    user_id: str = "default"
+    user_id: str = ""  # omitted → the caller's own profile
     ids: Optional[list[str]] = None  # None → mark all unread
 
 

@@ -54,6 +54,25 @@ export interface FamilyProfileSession {
   expires_at: number
 }
 
+export interface FamilyProfileInvite {
+  code: string
+  expires_at: number
+}
+
+// <img>/<video>/new-tab loads of /media cannot send the bearer header, so the
+// server mirrors the session into an HttpOnly cookie that only /media reads.
+// `undefined` = not synced yet this page load (an older cookie may linger).
+let mediaSessionToken: string | null | undefined
+
+function syncMediaSession(token: string | null): void {
+  if (token === mediaSessionToken) return
+  mediaSessionToken = token
+  fetch(apiPath('/profiles/media-session'), {
+    method: token ? 'POST' : 'DELETE',
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  }).catch(() => { mediaSessionToken = undefined })
+}
+
 export function getProfileSession(): FamilyProfileSession | null {
   try {
     const raw = localStorage.getItem(PROFILE_SESSION_KEY) || sessionStorage.getItem(PROFILE_SESSION_KEY)
@@ -62,8 +81,10 @@ export function getProfileSession(): FamilyProfileSession | null {
     if (!session?.token || !session.profile?.user_id || session.expires_at * 1000 <= Date.now()) {
       localStorage.removeItem(PROFILE_SESSION_KEY)
       sessionStorage.removeItem(PROFILE_SESSION_KEY)
+      syncMediaSession(null)
       return null
     }
+    syncMediaSession(session.token)
     return session
   } catch {
     return null
@@ -77,11 +98,13 @@ export function setProfileSession(session: FamilyProfileSession): void {
   } catch {
     sessionStorage.setItem(PROFILE_SESSION_KEY, value)
   }
+  syncMediaSession(session.token)
 }
 
 export function clearProfileSession(): void {
   try { localStorage.removeItem(PROFILE_SESSION_KEY) } catch { /* storage is optional */ }
   try { sessionStorage.removeItem(PROFILE_SESSION_KEY) } catch { /* storage is optional */ }
+  syncMediaSession(null)
 }
 
 export function apiFetch(path: string, init?: RequestInit): Promise<Response> {

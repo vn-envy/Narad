@@ -21,8 +21,15 @@ from profile_context import profile_root, validate_profile_id
 SCHEMA_VERSION = 1
 MAX_PROFILES = 12
 SESSION_TTL_SECONDS = 60 * 60 * 24 * 30
+INVITE_TTL_SECONDS = 60 * 60 * 72
 _LOCK = threading.RLock()
 _COLORS = ("sindoor", "matsya", "rama", "krishna", "parashurama", "nila", "gulab", "tulsi")
+# Unambiguous when read aloud or typed on a phone: no 0/O, 1/I/L, or U.
+_INVITE_ALPHABET = "ABCDEFGHJKMNPQRSTVWXYZ23456789"
+
+
+class InviteError(ValueError):
+    """Raised when a profile invite code is missing, expired, or already used."""
 
 
 def _now() -> str:
@@ -90,6 +97,28 @@ def _verify_pin(pin: str, profile: dict[str, Any]) -> bool:
     return hmac.compare_digest(actual, expected)
 
 
+def _session_epoch(profile: dict[str, Any]) -> int:
+    try:
+        return int(profile.get("session_epoch") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _invite_digest(code: str) -> str:
+    normalized = re.sub(r"[^A-Z0-9]", "", str(code or "").upper())
+    return hashlib.sha256(normalized.encode()).hexdigest()
+
+
+def _live_invites(payload: dict[str, Any]) -> dict[str, Any]:
+    now = int(time.time())
+    invites = payload.get("invites")
+    return {
+        digest: invite
+        for digest, invite in (invites.items() if isinstance(invites, dict) else [])
+        if isinstance(invite, dict) and int(invite.get("expires_at") or 0) > now
+    }
+
+
 def _public(profile: dict[str, Any]) -> dict[str, Any]:
     return {
         "user_id": str(profile.get("user_id", "")),
@@ -152,7 +181,14 @@ def get_profile(user_id: str) -> dict[str, Any] | None:
         return _public(profile) if isinstance(profile, dict) else None
 
 
-def create_profile(display_name: str, pin: str, color: str = "") -> dict[str, Any]:
+def create_profile(
+    display_name: str,
+    pin: str,
+    color: str = "",
+    *,
+    invite_code: str | None = None,
+) -> dict[str, Any]:
+    """Create a family profile; ``invite_code`` is consumed in the same write."""
     clean_name = _clean_name(display_name)
     salt, pin_hash = _hash_pin(pin)
     with _LOCK:
@@ -160,6 +196,11 @@ def create_profile(display_name: str, pin: str, color: str = "") -> dict[str, An
         profiles = payload.get("profiles") or {}
         if len(profiles) >= MAX_PROFILES:
             raise ValueError(f"This Narad pilot supports up to {MAX_PROFILES} profiles")
+        if invite_code is not None:
+            invites = _live_invites(payload)
+            if invites.pop(_invite_digest(invite_code), None) is None:
+                raise InviteError("That invite code is invalid, expired, or already used")
+            payload["invites"] = invites
         user_id = _profile_id_for(clean_name, set(profiles))
         now = _now()
         profile = {
@@ -179,6 +220,26 @@ def create_profile(display_name: str, pin: str, color: str = "") -> dict[str, An
         _write(payload)
     profile_root(user_id)
     return _public(profile)
+
+
+def create_invite(created_by: str) -> dict[str, Any]:
+    """Mint a single-use join code. Only its hash is stored; the code is shown once."""
+    raw = "".join(secrets.choice(_INVITE_ALPHABET) for _ in range(8))
+    code = f"{raw[:4]}-{raw[4:]}"
+    expires_at = int(time.time()) + INVITE_TTL_SECONDS
+    with _LOCK:
+        payload = _bootstrap_default(_load())
+        invites = _live_invites(payload)
+        if len(invites) >= MAX_PROFILES:
+            raise ValueError("Too many open invites; wait for one to be used or expire")
+        invites[_invite_digest(code)] = {
+            "created_by": validate_profile_id(created_by),
+            "created_at": _now(),
+            "expires_at": expires_at,
+        }
+        payload["invites"] = invites
+        _write(payload)
+    return {"code": code, "expires_at": expires_at}
 
 
 def _secret() -> bytes:
@@ -218,10 +279,12 @@ def issue_session(user_id: str, pin: str) -> dict[str, Any]:
         profile["updated_at"] = _now()
         _write(payload)
         public = _public(profile)
+        epoch = _session_epoch(profile)
     expires_at = int(time.time()) + SESSION_TTL_SECONDS
     body = _b64encode(json.dumps({
         "sub": safe_id,
         "exp": expires_at,
+        "epoch": epoch,
         "nonce": secrets.token_hex(8),
     }, separators=(",", ":")).encode())
     signature = _b64encode(hmac.new(_secret(), body.encode(), hashlib.sha256).digest())
@@ -235,12 +298,32 @@ def verify_session(token: str) -> dict[str, Any] | None:
         if not hmac.compare_digest(signature, expected):
             return None
         payload = json.loads(_b64decode(body))
-        if int(payload.get("exp") or 0) <= int(time.time()):
+        if int(payload.get("exp") or 0) <= int(time.time()) or not payload.get("sub"):
             return None
-        profile = get_profile(str(payload.get("sub") or ""))
-        return profile
+        safe_id = validate_profile_id(str(payload["sub"]))
+        with _LOCK:
+            profile = (_bootstrap_default(_load()).get("profiles") or {}).get(safe_id)
+            # A PIN change or "sign out everywhere" bumps the epoch, so every
+            # token minted before it stops verifying.
+            if not isinstance(profile, dict) or int(payload.get("epoch") or 0) != _session_epoch(profile):
+                return None
+            return _public(profile)
     except (ValueError, TypeError, json.JSONDecodeError):
         return None
+
+
+def revoke_sessions(user_id: str) -> int:
+    """Sign a profile out on every device; returns the new session epoch."""
+    safe_id = validate_profile_id(user_id)
+    with _LOCK:
+        payload = _bootstrap_default(_load())
+        profile = (payload.get("profiles") or {}).get(safe_id)
+        if not isinstance(profile, dict):
+            raise ValueError("Unknown profile")
+        profile["session_epoch"] = _session_epoch(profile) + 1
+        profile["updated_at"] = _now()
+        _write(payload)
+        return profile["session_epoch"]
 
 
 def update_profile(user_id: str, *, display_name: str | None = None, color: str | None = None, pin: str | None = None) -> dict[str, Any]:
@@ -259,6 +342,7 @@ def update_profile(user_id: str, *, display_name: str | None = None, color: str 
             profile["color"] = color
         if pin is not None:
             profile["pin_salt"], profile["pin_hash"] = _hash_pin(pin)
+            profile["session_epoch"] = _session_epoch(profile) + 1
         profile["updated_at"] = _now()
         _write(payload)
         return _public(profile)
