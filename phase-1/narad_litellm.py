@@ -1,16 +1,18 @@
 """Narad's provider-aware LiteLLM adapter.
 
-Keeps short-lived subscription OAuth credentials fresh at request time and
-applies provider options that the installed ADK/LiteLLM versions do not yet
-infer from model metadata.
+Applies provider options that the installed ADK/LiteLLM versions do not yet
+infer from model metadata, and fails a cloud call over to the installed local
+model before any output has escaped.
+
+Owner policy (2026-09-23): xAI/Grok is out. An `xai/*` model is never called:
+a stale session or explicit override naming one is served by the default
+chain (DeepSeek, other connected providers, local Gemma) instead.
 """
 from __future__ import annotations
 
 import copy
 import logging
 import os
-import threading
-import time
 from collections.abc import AsyncGenerator
 from typing import Any
 
@@ -18,8 +20,7 @@ from google.adk.models.lite_llm import LiteLlm
 from google.adk.models.llm_request import LlmRequest
 from google.adk.models.llm_response import LlmResponse
 
-_XAI_REASONING_EFFORTS = {"none", "low", "medium", "high", "xhigh"}
-_XAI_TRANSIENT_MARKERS = (
+_TRANSIENT_MARKERS = (
     "timeout",
     "readtimeout",
     "sockettimeouterror",
@@ -31,7 +32,7 @@ _XAI_TRANSIENT_MARKERS = (
     "temporarily unavailable",
     "too many requests",
 )
-_SAFE_FAILOVER_MARKERS = _XAI_TRANSIENT_MARKERS + (
+_SAFE_FAILOVER_MARKERS = _TRANSIENT_MARKERS + (
     "authenticationerror",
     "invalid api key",
     "incorrect api key",
@@ -40,9 +41,11 @@ _SAFE_FAILOVER_MARKERS = _XAI_TRANSIENT_MARKERS + (
     "insufficient_quota",
     "quota exceeded",
 )
-_CIRCUIT_LOCK = threading.Lock()
-_XAI_CIRCUIT_OPEN_UNTIL = 0.0
-_XAI_CIRCUIT_REASON = ""
+XAI_DISABLED_DETAIL = (
+    "xAI/Grok is disabled by owner policy. Connect DeepSeek, Gemini, OpenAI, "
+    "Claude or a custom endpoint, or install the local Gemma model."
+)
+_XAI_REROUTE_WARNED: set[str] = set()
 
 log = logging.getLogger("narad.models")
 
@@ -50,14 +53,6 @@ log = logging.getLogger("narad.models")
 def _is_xai_model(model: str) -> bool:
     lower = (model or "").lower()
     return "xai/" in lower or "grok" in lower
-
-
-def _float_env(name: str, default: float, *, minimum: float, maximum: float) -> float:
-    try:
-        value = float(os.environ.get(name, str(default)))
-    except (TypeError, ValueError):
-        value = default
-    return max(minimum, min(value, maximum))
 
 
 def _copy_request(llm_request: LlmRequest) -> LlmRequest:
@@ -81,7 +76,7 @@ def _exception_chain_text(exc: BaseException) -> str:
 def is_transient_provider_error(exc: BaseException) -> bool:
     """Recognize retryable provider failures even when LiteLLM wraps them."""
     error_text = _exception_chain_text(exc)
-    return any(marker in error_text for marker in _XAI_TRANSIENT_MARKERS)
+    return any(marker in error_text for marker in _TRANSIENT_MARKERS)
 
 
 def is_safe_provider_failover_error(exc: BaseException) -> bool:
@@ -104,112 +99,49 @@ def _offline_fallback_model(model: str) -> str:
         return ""
 
 
-def _fallback_model(model: str) -> str:
-    if not _is_xai_model(model):
-        return ""
-    configured = os.environ.get(
-        "NARAD_XAI_FALLBACK_MODEL", "deepseek/deepseek-flash"
-    ).strip()
-    candidates = [configured]
+def _policy_replacement_model() -> str:
+    """The default chain's live model for a request that named xAI — never xAI."""
     try:
-        from local_model_runtime import local_model_id
-
-        candidates.append(local_model_id())
-    except Exception:
-        pass
-    try:
+        from model_config import resolve_orchestrator_model
         from model_registry import provider_available_for_model
 
-        for fallback in candidates:
-            if (
-                fallback
-                and fallback.lower() != model.lower()
-                and not _is_xai_model(fallback)
-                and provider_available_for_model(fallback)
-            ):
-                return fallback
+        replacement = resolve_orchestrator_model()[0]
+        if not _is_xai_model(replacement) and provider_available_for_model(replacement):
+            return replacement
     except Exception:
-        if configured and "deepseek" not in configured.lower():
-            return configured
+        pass
     return ""
 
 
-def _open_xai_circuit(exc: BaseException) -> None:
-    global _XAI_CIRCUIT_OPEN_UNTIL, _XAI_CIRCUIT_REASON
-    cooldown = _float_env(
-        "NARAD_XAI_CIRCUIT_BREAKER_S", 90.0, minimum=5.0, maximum=900.0
-    )
-    with _CIRCUIT_LOCK:
-        _XAI_CIRCUIT_OPEN_UNTIL = time.monotonic() + cooldown
-        _XAI_CIRCUIT_REASON = type(exc).__name__
-
-
-def _close_xai_circuit() -> None:
-    global _XAI_CIRCUIT_OPEN_UNTIL, _XAI_CIRCUIT_REASON
-    with _CIRCUIT_LOCK:
-        _XAI_CIRCUIT_OPEN_UNTIL = 0.0
-        _XAI_CIRCUIT_REASON = ""
-
-
-def xai_resilience_status() -> dict[str, Any]:
-    """Return non-secret failover state for runtime capability reporting."""
-    with _CIRCUIT_LOCK:
-        remaining = max(0.0, _XAI_CIRCUIT_OPEN_UNTIL - time.monotonic())
-        reason = _XAI_CIRCUIT_REASON
-    return {
-        "request_timeout_s": _float_env(
-            "NARAD_XAI_TIMEOUT_S", 90.0, minimum=15.0, maximum=3_600.0
-        ),
-        "fallback_model": os.environ.get(
-            "NARAD_XAI_FALLBACK_MODEL", "deepseek/deepseek-flash"
-        ).strip(),
-        "circuit_open": remaining > 0,
-        "circuit_remaining_s": round(remaining, 1),
-        "last_transient_error": reason or None,
-    }
-
-
 def completion_options(model: str) -> dict[str, Any]:
-    """Return completion arguments for a model without embedding credentials."""
-    if not _is_xai_model(model):
+    """Return per-model completion arguments.
+
+    Only the connected custom OpenAI-compatible endpoint needs any: its base
+    URL and its own key (or a placeholder), so LiteLLM never forwards another
+    provider's key such as OPENAI_API_KEY to a third-party base URL.
+    """
+    try:
+        from model_registry import custom_endpoint_model
+
+        custom = custom_endpoint_model()
+    except Exception:
         return {}
-
-    options: dict[str, Any] = {
-        # Keep the interactive surface responsive. A no-byte xAI stall fails
-        # over to the configured larger harness lane instead of freezing Narad.
-        "timeout": _float_env(
-            "NARAD_XAI_TIMEOUT_S", 90.0, minimum=15.0, maximum=3_600.0
-        ),
-        "num_retries": 0,
+    if not model or model != custom:
+        return {}
+    return {
+        "api_base": os.environ.get("NARAD_ENDPOINT_URL", "").strip(),
+        "api_key": os.environ.get("NARAD_ENDPOINT_API_KEY", "").strip() or "not-needed",
     }
-    service_tier = os.environ.get("GROK_SERVICE_TIER", "priority").strip().lower()
-    if service_tier in {"default", "priority"}:
-        options["service_tier"] = service_tier
-        # LiteLLM 1.83 predates xAI's service-tier metadata but supports an
-        # explicit OpenAI-compatible passthrough for newly released params.
-        options["allowed_openai_params"] = ["service_tier"]
-
-    reasoning_effort = os.environ.get("GROK_REASONING_EFFORT", "").strip().lower()
-    if reasoning_effort in _XAI_REASONING_EFFORTS:
-        options["reasoning_effort"] = reasoning_effort
-    return options
 
 
 def ensure_model_credentials(model: str) -> None:
-    """Refresh an OAuth-backed xAI credential immediately before inference."""
-    if not _is_xai_model(model):
-        return
-    from xai_oauth import ensure_runtime_token
-
-    if not ensure_runtime_token():
-        raise RuntimeError(
-            "Grok is selected but xAI is not connected. "
-            "Use Settings > Connections > Sign in with Grok."
-        )
+    """Refuse a model owner policy keeps out of routing, before any request."""
+    if _is_xai_model(model):
+        raise RuntimeError(XAI_DISABLED_DETAIL)
 
 
 class NaradLiteLlm(LiteLlm):
-    """LiteLlm with xAI OAuth refresh and no-byte transient failover."""
+    """LiteLlm with provider options, the xAI policy gate and no-byte failover."""
 
     def __init__(self, model: str, **kwargs: Any) -> None:
         try:
@@ -227,40 +159,38 @@ class NaradLiteLlm(LiteLlm):
         llm_request: LlmRequest,
         stream: bool = False,
     ) -> AsyncGenerator[LlmResponse, None]:
-        ensure_model_credentials(self.model)
-        fallback = _fallback_model(self.model) or _offline_fallback_model(self.model)
-        circuit = xai_resilience_status()
-        if _is_xai_model(self.model) and fallback and circuit["circuit_open"]:
-            log.warning(
-                "xAI circuit open for %.1fs; routing %s to %s",
-                circuit["circuit_remaining_s"],
-                self.model,
-                fallback,
-            )
-            fallback_request = _copy_request(llm_request)
-            fallback_request.model = fallback
-            fallback_llm = NaradLiteLlm(model=fallback)
-            async for response in fallback_llm.generate_content_async(fallback_request, stream):
+        if _is_xai_model(self.model):
+            replacement = _policy_replacement_model()
+            if not replacement:
+                raise RuntimeError(XAI_DISABLED_DETAIL)
+            if self.model not in _XAI_REROUTE_WARNED:
+                _XAI_REROUTE_WARNED.add(self.model)
+                log.warning(
+                    "xAI/Grok is disabled by owner policy; routing %s to %s",
+                    self.model,
+                    replacement,
+                )
+            replacement_request = _copy_request(llm_request)
+            replacement_request.model = replacement
+            replacement_llm = NaradLiteLlm(model=replacement)
+            async for response in replacement_llm.generate_content_async(replacement_request, stream):
                 yield response
             return
 
+        fallback = _offline_fallback_model(self.model)
         primary_request = _copy_request(llm_request)
         emitted = False
         try:
             async for response in super().generate_content_async(primary_request, stream):
                 emitted = True
-                if _is_xai_model(self.model):
-                    _close_xai_circuit()
                 yield response
         except Exception as exc:
-            if _is_xai_model(self.model) and is_transient_provider_error(exc):
-                _open_xai_circuit(exc)
             # Once any content or tool-call response has escaped, replaying the
             # request on another provider could duplicate user-visible effects.
             if emitted or not fallback or not is_safe_provider_failover_error(exc):
                 raise
             log.warning(
-                "Grok call failed before first response (%s); failing over %s -> %s",
+                "Model call failed before first response (%s); failing over %s -> %s",
                 type(exc).__name__,
                 self.model,
                 fallback,

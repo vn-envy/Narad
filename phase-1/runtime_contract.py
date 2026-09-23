@@ -138,29 +138,11 @@ def primary_discipline(agent_name: str) -> str:
 
 def provider_status() -> dict[str, dict[str, Any]]:
     try:
-        import xai_oauth
+        from subscription_providers import get_adapter
 
-        xai_available = xai_oauth.ensure_runtime_token()
-        xai_auth_mode = "oauth" if xai_oauth.signed_in() else (
-            "api_key" if _env_present("XAI_API_KEY") else None
-        )
+        xai_credential_present = bool(get_adapter("xai-oauth").signed_in())
     except Exception:
-        xai_available = _env_present("XAI_API_KEY")
-        xai_auth_mode = "api_key" if xai_available else None
-    try:
-        from narad_litellm import xai_resilience_status
-
-        xai_resilience = xai_resilience_status()
-    except Exception:
-        xai_resilience = {
-            "request_timeout_s": 90.0,
-            "fallback_model": os.environ.get(
-                "NARAD_XAI_FALLBACK_MODEL", "deepseek/deepseek-flash"
-            ),
-            "circuit_open": False,
-            "circuit_remaining_s": 0.0,
-            "last_transient_error": None,
-        }
+        xai_credential_present = _env_present("XAI_API_KEY")
     try:
         from local_model_runtime import local_runtime_status
 
@@ -218,13 +200,12 @@ def provider_status() -> dict[str, dict[str, Any]]:
             "reason": None if _env_present("MIMO_API_KEY") else "MIMO_API_KEY not set",
         },
         "xai": {
-            "available": xai_available,
+            # Owner policy (2026-09-23): never routable, whatever is stored.
+            "available": False,
             "kind": "cloud_oauth_or_key",
-            "reason": None if xai_available else "Sign in with Grok or set XAI_API_KEY",
-            "auth_mode": xai_auth_mode,
-            "model": "xai/grok-4.6",
-            "service_tier": os.environ.get("GROK_SERVICE_TIER", "priority"),
-            "resilience": xai_resilience,
+            "disabled_by_policy": True,
+            "credential_present": xai_credential_present,
+            "reason": "Disabled by owner policy: Narad does not route to xAI/Grok",
         },
         "exa": {
             "available": _env_present("EXA_API_KEY"),
@@ -497,7 +478,7 @@ def collect_runtime_contract() -> dict[str, Any]:
 
     model_endpoint_ready = any(
         bool(providers[name].get("available"))
-        for name in ("deepseek", "google", "openai", "mimo", "xai")
+        for name in ("deepseek", "google", "openai", "mimo")
     ) or bool(providers["local-model-runtime"].get("ready"))
     if not model_endpoint_ready:
         issues.append(RuntimeIssue(
@@ -576,7 +557,6 @@ def collect_runtime_contract() -> dict[str, Any]:
                 name: AVATAR_MODELS.get(name, "unknown")
                 for name in ("matsya", "rama", "krishna", "parashurama")
             },
-            "worker_service_tier": os.environ.get("GROK_SERVICE_TIER", "priority"),
             "multimodal": multimodal,
         },
         "providers": providers,

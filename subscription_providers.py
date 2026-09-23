@@ -43,6 +43,7 @@ class SubscriptionStatus:
     plan: str | None = None
     remaining_credit: float | None = None  # SDK does not expose this yet — stays None, never guessed
     models: list[str] = field(default_factory=list)
+    disabled_by_policy: bool = False  # owner policy: never routable, whatever is stored
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -142,19 +143,19 @@ class ClaudeAgentSDKAdapter:
 
 
 class XaiOAuthAdapter:
-    """Grok via xAI OAuth — a SuperGrok / X Premium+ subscription sign-in.
+    """Grok via xAI OAuth — disabled by owner policy (2026-09-23).
 
-    Unlike the Claude adapter there is no SDK to install: the OAuth bearer
-    token works directly against the OpenAI-compatible api.x.ai endpoint,
-    so `installed` is always True and `signed_in` is the only real gate.
-    Models route through LiteLLM's `xai/` prefix once XAI_API_KEY is
-    exported by xai_oauth.apply_to_env().
+    xAI/Grok is out of every routing chain, so this adapter is never
+    `available` and never offers a sign-in. It remains only to report a
+    stored Grok credential (OAuth token or XAI_API_KEY) so Settings can show
+    it as disabled and disconnect it. Removing it together with xai_oauth.py
+    and the /connections/xai routes is a Phase 3 cleanup.
     """
 
     name = "xai-oauth"
-    label = "Grok (SuperGrok / X Premium+)"
+    label = "Grok (xAI)"
     model_prefix = "xai/"
-    default_models = ["xai/grok-4.6"]
+    default_models: list[str] = []
 
     @staticmethod
     def _oauth_signed_in() -> bool:
@@ -170,29 +171,27 @@ class XaiOAuthAdapter:
         return self._oauth_signed_in()
 
     def available(self) -> bool:
-        try:
-            import xai_oauth
-            return xai_oauth.ensure_runtime_token()
-        except Exception:
-            return bool(os.environ.get("XAI_API_KEY", "").strip())
+        return False  # owner policy: a stored credential never makes xAI routable
 
     def status(self) -> SubscriptionStatus:
         signed_in = self.signed_in()
-        available = self.available()
-        if available:
-            detail = "ready — Grok 4.6 priority is Narad's default worker model"
+        if self._oauth_signed_in():
+            detail = (
+                "disabled by owner policy — Narad no longer uses Grok; "
+                "disconnect to remove the stored sign-in"
+            )
         elif signed_in:
-            detail = "Grok sign-in expired and could not refresh — connect it again"
+            detail = "disabled by owner policy — XAI_API_KEY is set but ignored; remove it from .env"
         else:
-            detail = "not signed in — use Sign in with Grok (needs SuperGrok or X Premium+)"
+            detail = "disabled by owner policy — Narad does not use Grok"
         return SubscriptionStatus(
             provider=self.name,
             label=self.label,
             installed=True,  # no local runtime needed — pure HTTPS
             signed_in=signed_in,
-            available=available,
+            available=False,
             detail=detail,
-            models=self.default_models if available else [],
+            disabled_by_policy=True,
         )
 
 
