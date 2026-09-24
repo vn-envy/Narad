@@ -283,6 +283,19 @@ def _target_label(action: dict[str, Any]) -> str:
     return " ".join(words) or action_target_text(action)
 
 
+def _has_label_words(action: dict[str, Any]) -> bool:
+    target = action.get("target") if isinstance(action.get("target"), dict) else {}
+    return any(target.get(key) or action.get(key) for key in _LABEL_KEYS)
+
+
+def _is_button(element: dict[str, Any]) -> bool:
+    return (
+        str(element.get("tag") or "").lower() == "button"
+        or str(element.get("role") or "").lower() == "button"
+        or str(element.get("type") or "").lower() in {"button", "submit", "image"}
+    )
+
+
 # Enter in a message or comment box sends it.
 _COMPOSE_FIELD = _phrases(
     "message", r"write (?:a )?(?:message|reply|comment)", "reply", "comment", "chat", r"type a message",
@@ -360,6 +373,9 @@ def classify_browser_action(
             verdict = classify_label(candidate, context=context)
             if verdict is not None:
                 return verdict
+        if element and _is_button(element) and not _element_text(element) and not _has_label_words(action):
+            # An icon-only button (a paper plane, a tick) could be "Send" or "Pay".
+            return Verdict(COMMIT, "unclassified", "A button with no label cannot be classified")
         if kind == "submit" or str((element or {}).get("type") or "").lower() == "submit":
             if (element or {}).get("in_search_form"):
                 return Verdict(BENIGN, "search", "Submits a search form")

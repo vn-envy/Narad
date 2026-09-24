@@ -596,6 +596,9 @@ def test_a_consent_banner_never_hides_a_payment() -> None:
     ({"action": "fill", "ref": "e3"}, {"type": "password"}, True),
     ({"action": "click", "ref": "e9"}, {"type": "submit", "text": "→"}, True),
     ({"action": "click", "ref": "e9"}, {"type": "submit", "text": "→", "in_search_form": True}, False),
+    ({"action": "click", "ref": "e9"}, {"tag": "button", "type": "button", "text": ""}, True),  # icon only
+    ({"action": "click", "target": {"role": "button", "name": "Menu"}}, {"tag": "button", "text": ""}, False),
+    ({"action": "click", "ref": "e9"}, {"tag": "a", "type": "", "text": ""}, False),
     ({"action": "click", "x": 10, "y": 20}, None, True),
     ({"action": "upload", "path": "/tmp/x.pdf"}, None, True),
     ({"action": "navigate", "url": "https://example.com"}, None, False),
