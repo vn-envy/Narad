@@ -18,9 +18,14 @@ import narad_paths  # noqa: E402, F401
 
 
 @pytest.fixture(autouse=True)
-def _no_custom_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+def _no_custom_endpoint(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     for var in ("NARAD_ENDPOINT_URL", "NARAD_ENDPOINT_MODEL", "NARAD_ENDPOINT_API_KEY"):
         monkeypatch.delenv(var, raising=False)
+    # Transport and failover tests: redaction runs rules-only, ledger in tmp.
+    import privacy_gateway
+
+    monkeypatch.setenv("NARAD_PII_DETECTOR", "rules")
+    monkeypatch.setattr(privacy_gateway, "_privacy_dir", lambda profile_id=None: tmp_path / "privacy")
 
 
 def _forbid_xai_oauth(monkeypatch: pytest.MonkeyPatch) -> None:

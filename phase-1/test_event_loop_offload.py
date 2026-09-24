@@ -351,7 +351,26 @@ def _fake_litellm(content: str, calls: list[str], delay_s: float = 0.8) -> types
     return fake
 
 
+def _rules_only_privacy(test: unittest.TestCase) -> None:
+    """These tests exercise offloading, not redaction: allow the redact tier
+    with the rules detector and keep the egress ledger out of the real home."""
+    import tempfile
+
+    import privacy_gateway
+
+    home = tempfile.mkdtemp(prefix="narad-privacy-")
+    for patcher in (
+        patch.dict(os.environ, {"NARAD_PII_DETECTOR": "rules"}),
+        patch.object(privacy_gateway, "_privacy_dir", lambda profile_id=None: Path(home) / (profile_id or "p")),
+    ):
+        patcher.start()
+        test.addCleanup(patcher.stop)
+
+
 class LearningLoopOffloadTests(unittest.TestCase):
+    def setUp(self) -> None:
+        _rules_only_privacy(self)
+
     def test_tapas_judge_runs_off_the_loop(self) -> None:
         smriti_core = importlib.import_module("smriti_core")
         tapas = importlib.import_module("tapas")
@@ -411,6 +430,7 @@ class SmritiEmbeddingOffloadTests(unittest.TestCase):
             patcher = patch.object(self.embed, name, value)
             patcher.start()
             self.addCleanup(patcher.stop)
+        _rules_only_privacy(self)
 
     def test_gemini_client_is_built_once_and_shared_across_threads(self) -> None:
         built: list[str] = []

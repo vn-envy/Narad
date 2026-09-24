@@ -823,6 +823,13 @@ async def _startup_runtime_contract() -> None:
         apply_keys_to_env()
     except Exception:
         pass
+    # Load the local PII model in the background so the first redacted turn
+    # does not pay its load time.
+    import threading
+
+    import privacy_gateway
+
+    threading.Thread(target=privacy_gateway.warm_up, name="narad-pii-warmup", daemon=True).start()
     # A stored Grok sign-in is never refreshed or exported: xAI is out of
     # routing by policy, and xai_oauth only backs status and disconnect.
     try:
@@ -3262,6 +3269,20 @@ async def get_andon_log(limit: int = 50):
 async def get_andon_stats(days: int = 7):
     from andon import andon_stats
     return andon_stats(days=days)
+
+
+@app.get("/privacy/egress")
+async def get_privacy_egress(request: Request, limit: int = 50):
+    """The caller's own egress ledger: every cloud call, its tier, and what was replaced."""
+    import privacy_gateway
+
+    profile_id = _profile_from_request(request)
+    return {
+        "profile": profile_id,
+        "detector": privacy_gateway.detector_mode(),
+        "redactor_ready": await asyncio.to_thread(privacy_gateway.redactor_ready),
+        "calls": await asyncio.to_thread(privacy_gateway.recent_egress, limit, profile_id),
+    }
 
 
 # ── Vahana inbox endpoints (M3.1) ─────────────────────────────────────────────

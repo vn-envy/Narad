@@ -136,7 +136,7 @@ Reply with ONLY a JSON array. Return [] if no strong patterns are visible:
 
 def _extract_via_llm(user_id: str, avatar: str) -> list[dict]:
     try:
-        import litellm
+        import privacy_gateway
         sessions = _load_recent_sessions(user_id, avatar, n=EXTRACT_EVERY * 2)
         if len(sessions) < 3:
             return []
@@ -157,7 +157,8 @@ def _extract_via_llm(user_id: str, avatar: str) -> list[dict]:
             existing_text=existing_text,
         )
 
-        response = litellm.completion(
+        response = privacy_gateway.completion(
+            narad_source="sankalpa",
             model=os.environ.get("DS_CHAT_MODEL", "deepseek/deepseek-flash"),
             messages=[{"role": "user", "content": prompt}],
             temperature=0.15,

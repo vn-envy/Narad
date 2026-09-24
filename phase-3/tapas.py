@@ -269,7 +269,7 @@ def _score_session_llm(
     output_tokens = 0
     estimated_cost = 0.0
     try:
-        import litellm
+        import privacy_gateway as litellm_gateway
         avatar_rubric = _AVATAR_RUBRIC.get(avatar, "")
         prompt = _SCORE_PROMPT_BASE.format(
             avatar_rubric=avatar_rubric,
@@ -295,7 +295,7 @@ def _score_session_llm(
         if _JUDGE_API_KEY:
             kwargs["api_key"] = _JUDGE_API_KEY
 
-        response = _litellm_with_retry(litellm, kwargs)
+        response = _litellm_with_retry(litellm_gateway, {**kwargs, "narad_source": "tapas"})
         _record_judge_cost(response, "tapas_judge")
         usage = getattr(response, "usage", None)
         input_tokens = int(getattr(usage, "prompt_tokens", 0) or 0) if usage else 0
@@ -574,7 +574,7 @@ def _distill_rule(query: str, avatar: str, result: str) -> tuple[str | None, str
     a verbatim replay is never written as a fallback.
     """
     try:
-        import litellm
+        import privacy_gateway as litellm_gateway
         prompt = _DISTILL_PROMPT.format(
             avatar=avatar,
             query=query[:600],
@@ -590,7 +590,7 @@ def _distill_rule(query: str, avatar: str, result: str) -> tuple[str | None, str
             kwargs["api_base"] = _JUDGE_API_BASE
         if _JUDGE_API_KEY:
             kwargs["api_key"] = _JUDGE_API_KEY
-        response = _litellm_with_retry(litellm, kwargs)
+        response = _litellm_with_retry(litellm_gateway, {**kwargs, "narad_source": "tapas"})
         _record_judge_cost(response, "tapas_distill")
         raw = response.choices[0].message.content.strip()
         data = _extract_judge_json(raw)
@@ -633,7 +633,7 @@ def _cai_critique(avatar: str, task: str, result: str) -> tuple[bool, str]:
     promotion on a future run when the judge is reachable.
     """
     try:
-        import litellm
+        import privacy_gateway as litellm_gateway
         prompt = _CRITIQUE_PROMPT.format(
             avatar=avatar,
             task=task[:300],
@@ -649,7 +649,7 @@ def _cai_critique(avatar: str, task: str, result: str) -> tuple[bool, str]:
             kwargs["api_base"] = _JUDGE_API_BASE
         if _JUDGE_API_KEY:
             kwargs["api_key"] = _JUDGE_API_KEY
-        response = _litellm_with_retry(litellm, kwargs)
+        response = _litellm_with_retry(litellm_gateway, {**kwargs, "narad_source": "tapas"})
         _record_judge_cost(response, "tapas_critique")
         raw  = response.choices[0].message.content.strip()
         data = _extract_judge_json(raw)
@@ -662,10 +662,7 @@ def _cai_critique(avatar: str, task: str, result: str) -> tuple[bool, str]:
 
 def _embed_local(text: str) -> list[float]:
     """Embed using OpenAI (same model as Smriti for consistency)."""
-    import openai
-    client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY", ""))
-    resp = client.embeddings.create(model="text-embedding-3-small", input=text[:4000])
-    return resp.data[0].embedding
+    return _batch_embed([text])[0]
 
 
 def _cosine(a: list[float], b: list[float]) -> float:
@@ -679,8 +676,9 @@ def _cosine(a: list[float], b: list[float]) -> float:
 
 def _batch_embed(texts: list[str]) -> list[list[float]]:
     """Embed a batch of texts in a single API call."""
-    import litellm
-    resp = litellm.embedding(
+    import privacy_gateway
+    resp = privacy_gateway.embedding(
+        narad_source="tapas",
         model=os.environ.get("EMBED_MODEL", "text-embedding-3-small"),
         input=[t[:4000] for t in texts],
     )

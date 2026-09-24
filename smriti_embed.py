@@ -27,6 +27,8 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
+import privacy_gateway
+
 log = logging.getLogger("narad.smriti")
 
 _LOCAL_DIM = 256
@@ -149,7 +151,10 @@ def _embed_many(texts: list[str]) -> list[list[float]]:
             f"{datetime.fromtimestamp(_embed_unavailable_until, tz=timezone.utc).isoformat()}"
         )
 
-    clipped = [text[:4000] for text in texts]
+    try:
+        clipped = privacy_gateway.guard_texts(provider, [text[:4000] for text in texts], source="memory")
+    except privacy_gateway.PrivacyGatewayError as exc:
+        raise EmbeddingUnavailableError(str(exc)) from exc
 
     if provider == "gemini":
         try:

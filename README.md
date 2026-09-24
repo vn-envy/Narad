@@ -158,7 +158,7 @@ The included maintainer launcher publishes the loopback server through an outbou
 Start Family Pilot.command
 ```
 
-It expects a configured Cloudflare tunnel token at `~/.cloudflared/narad-token`. Override `NARAD_PUBLIC_URL` and `NARAD_CLOUDFLARE_TOKEN_FILE` for another deployment. The launcher enables strict profile authentication, keeps Narad bound to `127.0.0.1`, starts optional CUA and Artemis runtimes when installed, and keeps the host awake while the pilot is running.
+It expects a configured Cloudflare tunnel token at `~/.cloudflared/narad-token`. Set `NARAD_PUBLIC_URL` in the untracked `.env`, so the family's address never enters git. You can override `NARAD_CLOUDFLARE_TOKEN_FILE` the same way. The launcher enables strict profile authentication, keeps Narad bound to `127.0.0.1`, starts optional CUA and Artemis runtimes when installed, and keeps the host awake while the pilot is running.
 
 Phones need only a modern browser and the HTTPS URL. Android ADB pairing is required only when Narad should operate the phone itself.
 
@@ -215,6 +215,31 @@ Live user data belongs under `~/.narad/`, not inside the Git repository.
 | `health.db` / `finance.db` | Profile-scoped health and finance records |
 
 Smriti uses dependency-light local indexing with optional TurboVec acceleration. Exact artifacts are referenced and reread instead of copied into every model request.
+
+## Privacy Gateway
+
+Every outbound model, embedding and background-learning call passes through one chokepoint, `privacy_gateway.py`. It sorts each destination into a trust tier:
+
+| Tier | Providers (defaults) | What leaves the Mac |
+|---|---|---|
+| `local` | Ollama, bundled llama-server | Nothing |
+| `trusted` | Anthropic, OpenAI, Gemini API, Azure, Bedrock | The request as-is, logged |
+| `redact` | DeepSeek, hosted open-weight providers, custom and unknown endpoints | Only pseudonymised text |
+| `blocked` | xAI | Nothing, ever |
+
+For `redact` destinations:
+
+- **What gets replaced.** Names, phone numbers, emails and Indian identifiers become stable placeholders such as `<PERSON_1>`, for example Aadhaar (checksum-verified), PAN, UPI, IFSC, passport and card numbers. The detectors are fast rules, the family name list, and the local OpenMed PII model. Replies are restored on the Mac before anyone sees them. Search and HTTP tool arguments keep their placeholders.
+- **What blocks a call.** A leak check re-scans every payload before it is sent. If the OpenMed model is missing, or a payload can't be pseudonymised (for example an image), the call is refused. The turn then runs on the local model if one is installed; otherwise the call fails.
+- **Where calls are logged.** Each cloud call is appended to the caller's ledger at `GET /privacy/egress`.
+
+Install the local PII model on the host before routing family traffic to a `redact`-tier provider:
+
+```bash
+pip install -e ".[privacy]"
+```
+
+To change a provider's tier, use `NARAD_PROVIDER_TIERS` (for example `nebius=trusted`) or `~/.narad/config/provider_tiers.json`; xAI cannot be unblocked. Extra names and addresses to always pseudonymise go in `~/.narad/config/privacy_terms.json`, which stays out of git.
 
 ## Security Defaults
 

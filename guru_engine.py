@@ -154,8 +154,9 @@ def llm_json(
     max_retries: int = 2,
 ) -> dict:
     """One JSON-returning LLM call with backoff. Raises on total failure."""
-    import litellm
     from narad_litellm import completion_options, ensure_model_credentials
+
+    import privacy_gateway
 
     delay = 1.0
     budget = max_tokens
@@ -171,9 +172,7 @@ def llm_json(
                 "timeout": _LLM_TIMEOUT_S,
                 **completion_options(model),
             }
-            response = litellm.completion(
-                **completion_kwargs,
-            )
+            response = privacy_gateway.completion(**completion_kwargs, narad_source=source)
             _record_cost(response, source, model)
             content = (response.choices[0].message.content or "").strip()
             return _extract_json(content)

@@ -209,6 +209,17 @@ collection, and crisis phrases (with resources) before any avatar runs. Side eff
 actions are denied by default; every verdict lands in Karma. Policy file:
 `~/.narad/config/dharma_policy.json`.
 
+### Privacy Gateway
+`privacy_gateway.py` is the single egress chokepoint:
+- Every agent call (`NaradLiteLlm`), background learner (Tapas, Sankalpa, guru engine) and embedding goes through it.
+- Destinations are tiered `local` / `trusted` / `redact` / `blocked`. DeepSeek and unknown hosts are `redact`; xAI is `blocked`.
+- For `redact` destinations:
+  - rules, the family name list and the local OpenMed model replace personal details with per-profile placeholders;
+  - a leak check fails closed;
+  - replies are restored on the Mac.
+- Each cloud call is logged to `profiles/<id>/privacy/egress.jsonl`, served at `GET /privacy/egress`.
+- Direct `litellm.completion`/`embedding` calls outside the gateway fail CI (`phase-1/test_privacy_gateway.py`).
+
 ### Runtime Quality
 **AndonGate** (`andon.py`): fires on `EMPTY_RESULT` (<80 chars), `TIMEOUT` (>120s),
 `CONNECTION`, `TOOL_ERROR`; logs to `~/.narad/config/andon_log.jsonl` + SSE alert.

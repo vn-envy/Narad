@@ -1,12 +1,20 @@
 #!/bin/bash
-# Start Narad securely at https://narad.chaipecharcha.ai through Cloudflare Tunnel.
+# Start Narad securely at your NARAD_PUBLIC_URL through Cloudflare Tunnel.
+# The family's public address lives only in .env (untracked), never in git.
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT"
 
-PUBLIC_URL="${NARAD_PUBLIC_URL:-https://narad.chaipecharcha.ai}"
+if [ -f "$ROOT/.env" ]; then
+    set -a
+    # shellcheck disable=SC1091
+    source "$ROOT/.env"
+    set +a
+fi
+
+PUBLIC_URL="${NARAD_PUBLIC_URL:-}"
 BACKEND_HOST="127.0.0.1"
 BACKEND_PORT="${NARAD_PORT:-8000}"
 TOKEN_FILE="${NARAD_CLOUDFLARE_TOKEN_FILE:-$HOME/.cloudflared/narad-token}"
@@ -22,12 +30,7 @@ command -v cloudflared >/dev/null 2>&1 || die "cloudflared is not installed. Run
 [ -s "$TOKEN_FILE" ] || die "Cloudflare tunnel credential is missing: $TOKEN_FILE"
 [ -x "$ROOT/.venv/bin/python" ] || die "Run Start Narad.command once to install Narad first."
 
-if [ -f "$ROOT/.env" ]; then
-    set -a
-    # shellcheck disable=SC1091
-    source "$ROOT/.env"
-    set +a
-fi
+[ -n "$PUBLIC_URL" ] || die "Set NARAD_PUBLIC_URL=https://<your-narad-host> in $ROOT/.env (kept out of git)."
 
 export PATH="$HOME/.local/bin:$PATH"
 

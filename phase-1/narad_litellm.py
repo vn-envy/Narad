@@ -4,6 +4,10 @@ Applies provider options that the installed ADK/LiteLLM versions do not yet
 infer from model metadata, and fails a cloud call over to the installed local
 model before any output has escaped.
 
+Every request passes through privacy_gateway first: `redact`-tier providers
+(DeepSeek and unknown hosts) only ever see pseudonymised text, and their replies
+are restored on the Mac.
+
 Owner policy (2026-09-23): xAI/Grok is out. An `xai/*` model is never called:
 a stale session or explicit override naming one is served by the default
 chain (DeepSeek, other connected providers, local Gemma) instead.
@@ -19,6 +23,8 @@ from typing import Any
 from google.adk.models.lite_llm import LiteLlm
 from google.adk.models.llm_request import LlmRequest
 from google.adk.models.llm_response import LlmResponse
+
+import privacy_gateway
 
 _TRANSIENT_MARKERS = (
     "timeout",
@@ -179,10 +185,25 @@ class NaradLiteLlm(LiteLlm):
 
         fallback = _offline_fallback_model(self.model)
         primary_request = _copy_request(llm_request)
+        try:
+            # Pseudonymise the copy for `redact`-tier providers; the session
+            # history keeps real values and the reply is restored below.
+            tier = privacy_gateway.prepare_llm_request(primary_request, self.model)
+        except privacy_gateway.PrivacyGatewayError as exc:
+            if not fallback or isinstance(exc, privacy_gateway.PolicyBlocked):
+                raise
+            log.warning("%s; serving this turn on %s instead of %s", exc, fallback, self.model)
+            fallback_request = _copy_request(llm_request)
+            fallback_request.model = fallback
+            async for response in NaradLiteLlm(model=fallback).generate_content_async(fallback_request, stream):
+                yield response
+            return
         emitted = False
         try:
             async for response in super().generate_content_async(primary_request, stream):
                 emitted = True
+                if tier == privacy_gateway.REDACT:
+                    response = privacy_gateway.restore_llm_response(response)
                 yield response
         except Exception as exc:
             # Once any content or tool-call response has escaped, replaying the
