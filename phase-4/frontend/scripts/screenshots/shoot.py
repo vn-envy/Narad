@@ -100,6 +100,49 @@ CROPS = {
     "sugar.svg": crop_svg("GLUCOSE FASTING", "96", "mg/dL"),
 }
 
+# ── A real stream ────────────────────────────────────────────────────────────
+# Route interception answers in one piece, so a turn that must arrive word by
+# word (to check that the chat follows it, and stops following when the
+# person scrolls up) is streamed by a small stand-in for fetch inside the page.
+
+
+def slow_sse(text: str, source: str = "Krishna") -> list[tuple[int, str]]:
+    """(delay in ms before, SSE line) pairs: an avatar starts, then a few words at a time."""
+    def line(kind: str, data: dict[str, Any]) -> str:
+        return "data: " + json.dumps({"type": kind, "data": data}, ensure_ascii=False) + "\n\n"
+
+    words = text.split(" ")
+    events = [(0, line("avatar_start", {"avatar": source, "task": "Explain it in plain words", "discipline": "education"}))]
+    for start in range(0, len(words), 4):
+        chunk = " ".join(words[start:start + 4]) + " "
+        events.append((140, line("text_delta", {"source": source, "handoff": True, "text": chunk})))
+    events.append((200, line("narad_synthesis", {"text": text})))
+    events.append((0, line("done", {"session_id": "sess_demo_thread", "turn_id": "turn_slow"})))
+    return events
+
+
+STREAM_STUB = r"""
+(events) => {
+  const original = window.fetch.bind(window);
+  window.fetch = (input, init) => {
+    const url = typeof input === 'string' ? input : input.url;
+    if (!/\/chat$/.test(new URL(url, location.href).pathname)) return original(input, init);
+    const encoder = new TextEncoder();
+    const body = new ReadableStream({
+      async start(controller) {
+        for (const [delay, chunk] of events) {
+          await new Promise(resolve => setTimeout(resolve, delay));
+          controller.enqueue(encoder.encode(chunk));
+        }
+        controller.close();
+      },
+    });
+    return Promise.resolve(new Response(body, { status: 200, headers: { 'Content-Type': 'text/event-stream' } }));
+  };
+}
+"""
+
+
 # ── Scenes ───────────────────────────────────────────────────────────────────
 
 
@@ -122,6 +165,7 @@ class MockApi:
     scene: Scene
     frames: dict[str, bytes]
     stream: str | None = None
+    notes: list[str] = field(default_factory=list)
     host_down: bool = False
     unmatched: list[str] = field(default_factory=list)
     external: list[str] = field(default_factory=list)
@@ -417,14 +461,17 @@ AUDIT_SCRIPT = r"""
   const targets = document.querySelectorAll('button, a[href], [role=button], [role=tab], [role=switch], [role=checkbox], input:not([type=hidden]), select, textarea');
   for (const el of targets) {
     if (!visible(el) || el.disabled) continue;
-    const r = el.getBoundingClientRect();
+    // A checkbox or field inside a label is tapped through the whole label.
+    const hit = el.matches('input') && el.closest('label') ? el.closest('label') : el;
+    const r = hit.getBoundingClientRect();
     if (r.width < 44 || r.height < 44) small.push(`${describe(el)} ${Math.round(r.width)}x${Math.round(r.height)}`);
   }
   const sizes = {};
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
     if (!node.textContent.trim() || !node.parentElement || !visible(node.parentElement)) continue;
-    const size = Math.round(parseFloat(getComputedStyle(node.parentElement).fontSize) * 2) / 2;
+    const zoom = node.parentElement.currentCSSZoom || 1;
+    const size = Math.round(parseFloat(getComputedStyle(node.parentElement).fontSize) * zoom * 2) / 2;
     sizes[size] = (sizes[size] || 0) + node.textContent.trim().length;
   }
   const chars = Object.values(sizes).reduce((a, b) => a + b, 0) || 1;
@@ -508,12 +555,77 @@ def _noop(page: Page, api: MockApi) -> None:
     settle(page, 900)
 
 
+def scroll_to_top(page: Page) -> None:
+    """Scroll every scroller back to its start (the chat opens at its end)."""
+    page.evaluate("""() => document.querySelectorAll('*').forEach(el => {
+      if (el.scrollHeight > el.clientHeight + 1) el.scrollTop = 0
+    })""")
+    page.wait_for_timeout(400)
+
+
+def scroll_to_text(page: Page, text: str) -> None:
+    locator = page.get_by_text(text).first
+    if locator.count():
+        page.evaluate("el => el.scrollIntoView({ block: 'start' })", locator.element_handle())
+        page.wait_for_timeout(400)
+
+
 def _voice(page: Page, api: MockApi, settings: bool) -> None:
     page.get_by_role("button", name=re.compile("[Vv]oice")).first.click()
     settle(page, 1200)
     if settings:
         page.get_by_role("button", name="Voice settings").first.click()
         page.wait_for_timeout(400)
+
+
+def _open_from_activity(page: Page, name: str) -> None:
+    """Open Activity, then an item by (part of) its accessible name or title."""
+    click_nav(page, "activity")
+    target = page.get_by_role("button", name=re.compile(re.escape(name)))
+    if not target.count():
+        # An inbox item: its action button sits beside the title.
+        card = page.get_by_text(name).first.locator("xpath=ancestor::div[2]")
+        target = card.get_by_role("button", name=re.compile("^(Open|Review)"))
+    target.first.click()
+    settle(page, 900)
+
+
+LONG_ANSWER = (
+    "TSH is a message your brain sends to the thyroid gland in the neck. When the thyroid is slow, "
+    "the brain sends more TSH to wake it up, so a high TSH usually means the thyroid is working a "
+    "little slowly. Kamla's report shows 4.8, just above the range printed on it, 0.4 to 4.2. "
+    "A value like this is common and is often checked again after a few weeks, because it moves "
+    "with sleep, illness and the time of day the blood was taken. Her doctor is the right person "
+    "to say whether the Thyroxine dose should change. Until then, keep taking it at the same time "
+    "each morning, on an empty stomach, half an hour before tea or breakfast. Would you like me to "
+    "add a question about TSH to the list for her next visit, and a reminder to book the test?"
+)
+
+
+def _scroll_up_while_streaming(page: Page, api: MockApi) -> None:
+    """Scroll up mid-answer: the chat must stay put and offer "Latest"."""
+    page.evaluate(STREAM_STUB, slow_sse(LONG_ANSWER))
+    box = page.get_by_placeholder(re.compile("Ask Narad"))
+    box.click()
+    box.fill("Can you explain what TSH means on Kamla's report?")
+    box.press("Enter")
+    page.wait_for_timeout(1500)
+    log = page.locator('[role="log"]')
+    following = log.evaluate("el => el.scrollHeight - el.scrollTop - el.clientHeight")
+    # A person's swipe: the list moves up, and the scroll event says so.
+    log.evaluate("el => { el.scrollTop = Math.max(0, el.scrollTop - 320) }")
+    page.wait_for_timeout(120)
+    before = log.evaluate("el => el.scrollTop")
+    grew_from = log.evaluate("el => el.scrollHeight")
+    page.wait_for_timeout(1300)
+    after = log.evaluate("el => el.scrollTop")
+    grew = log.evaluate("el => el.scrollHeight") - grew_from
+    latest = page.get_by_role("button", name="Latest").count()
+    api.notes.append(
+        f"following before scrolling: {following <= 48} (gap {following}px); the answer grew {grew}px; "
+        f"the view {'stayed' if abs(after - before) <= 2 else f'moved {after - before}px'}; "
+        f"Latest button {'shown' if latest else 'missing'}"
+    )
 
 
 def _offline_banner(page: Page, api: MockApi) -> None:
@@ -531,22 +643,29 @@ SCENES: list[Scene] = [
     Scene("chat-history", "Chat restored from the Mac: Hindi and English answers with receipts", _noop, thread=True),
     Scene("chat-streaming", "An answer streaming in", lambda p, a: send(p, a, "partial", wait_done=False), thread=True),
     Scene("chat-answer", "A finished answer with its receipt and feedback", lambda p, a: send(p, a, "answer"), thread=True),
+    Scene("chat-scroll-up", "Scrolled up while an answer streams: no jumping, a Latest button", _scroll_up_while_streaming, thread=True),
     Scene("chat-cards", "Task, approval and document-review cards in the chat", lambda p, a: send(p, a, "errand")),
     Scene("chat-card-task", "The task card", lambda p, a: (send(p, a, "errand"), scroll_chat_to(p, '[aria-label^="Task:"]'))),
     Scene("chat-card-approval", "The approval card", lambda p, a: (send(p, a, "errand"), scroll_chat_to(p, '[aria-label^="Approval:"]'))),
     Scene("receipt-sheet", "Privacy receipt sheet", lambda p, a: (settle(p), p.get_by_role("button", name=re.compile("DeepSeek saw this")).first.click(), p.wait_for_timeout(500)), thread=True),
-    Scene("egress", "What left my Mac", lambda p, a: (settle(p), open_egress(p)), thread=True),
+    Scene("chat-hindi", "The Hindi answer at the top of the restored thread", lambda p, a: (settle(p), scroll_to_top(p)), thread=True),
+    Scene("egress", "What left my Mac, from an answer's receipt", lambda p, a: (settle(p), open_egress(p)), thread=True),
     Scene("approval-sheet", "Approval opened from a notification", _noop, path="/?approval=apr_1a2b3c4d5e6f7a8b"),
     Scene("task-screen", "Task screen with the live view", _noop, path="/?task=tsk_0123456789abcdef"),
     Scene("task-help", "Task waiting for help: takeover", _noop, path="/?task=tsk_fedcba9876543210"),
     Scene("task-approval", "Task waiting for an OK", _noop, path="/?task=tsk_00aa11bb22cc33dd"),
     Scene("review", "Document review with crops", _noop, path="/?review=rev_0f1e2d3c4b5a6978"),
     Scene("activity", "Activity inbox", lambda p, a: click_nav(p, "activity")),
+    Scene("activity-running", "Activity: running errands and paths", lambda p, a: (click_nav(p, "activity"), scroll_to_text(p, "Running"))),
+    Scene("activity-open-task", "A running errand tapped in Activity opens its task screen", lambda p, a: _open_from_activity(p, "Open the task")),
+    Scene("activity-open-review", "A document review opened from Activity", lambda p, a: _open_from_activity(p, "Lab report ready to check")),
     Scene("activity-deeplink", "Activity opened from a notification", _noop, path="/?activity=evt_med_1"),
     Scene("paths", "Paths", lambda p, a: click_nav(p, "paths")),
     Scene("path-deeplink", "One path opened from a link", _noop, path="/?path=wfr_placeholder"),
     Scene("you", "You: profile, notifications, sign out", lambda p, a: click_nav(p, "you"), push_on=True),
     Scene("you-member", "You, for a family member", lambda p, a: click_nav(p, "you"), profile="member"),
+    Scene("you-voice", "You: voice settings and privacy", lambda p, a: (click_nav(p, "you"), scroll_to_text(p, "Narad replies in"))),
+    Scene("you-egress", "What left my Mac, from You", lambda p, a: (click_nav(p, "you"), open_egress(p))),
     Scene("voice", "Voice mode", lambda p, a: _voice(p, a, settings=False)),
     Scene("voice-settings", "Voice settings", lambda p, a: _voice(p, a, settings=True)),
     Scene("offline", "The Mac is asleep", _noop, host_down=True),
@@ -682,6 +801,7 @@ def main() -> int:
                     shots.append({
                         "scene": scene.name, "size": size, "theme": theme, "file": file,
                         "audit": audit, "errors": errors,
+                        "notes": api.notes,
                         "unmatched_api": sorted(set(api.unmatched)),
                         "external_requests": sorted(set(api.external)),
                     })
@@ -693,6 +813,8 @@ def main() -> int:
                     if errors:
                         flag.append(f"errors {len(errors)}")
                     print(f"{file:48} {' · '.join(flag) or 'ok'}")
+                    for note in api.notes:
+                        print(f"    {note}")
                     for route in api.pending:
                         try:
                             route.abort()
