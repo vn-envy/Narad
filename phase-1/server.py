@@ -1430,8 +1430,9 @@ async def chat(req: ChatRequest, request: Request):
             return EventSourceResponse(_drain_queue(session_id, queue))
 
     # Start a new background task and return a stream that drains its queue.
-    queue: asyncio.Queue = asyncio.Queue()
+    queue: asyncio.Queue = _pilot_turn_queue(req, session_id)
     task = asyncio.create_task(_run_agent_task(req, session_id, queue))
+    _watch_pilot_turn(queue, task)
     _active_tasks[task_key] = (task, queue)
     return EventSourceResponse(_drain_queue(session_id, queue))
 
@@ -3770,6 +3771,144 @@ async def expand_sandbox(doc_id: str):
         raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ── Pilot metrics, feedback and consent (counts and outcomes, never text) ────
+# Records live under profiles/<id>/metrics and profiles/<id>/consent.json; see
+# pilot_metrics.py and docs/PILOT_CONSENT_AND_METRICS.md.
+
+def _pilot_turn_queue(req: ChatRequest, session_id: str) -> asyncio.Queue:
+    """The chat task's SSE queue, observed for pilot metrics (a plain queue on failure)."""
+    try:
+        import pilot_metrics
+
+        return pilot_metrics.start_turn(
+            profile_id=req.user_id,
+            session_id=session_id,
+            workflow_run_id=req.workflow_run_id,
+            attachments=len(req.attachment_ids),
+            images=len(req.images),
+        )
+    except Exception as exc:  # metrics must never block a turn
+        logging.getLogger("narad.server").warning("Pilot metrics off for this turn: %s", exc)
+        return asyncio.Queue()
+
+
+def _watch_pilot_turn(queue: asyncio.Queue, task: asyncio.Task) -> None:
+    """Write the turn's metrics record when its task ends."""
+    try:
+        watch = getattr(queue, "watch", None)
+        if callable(watch):
+            watch(task)
+    except Exception as exc:
+        logging.getLogger("narad.server").warning("Pilot metrics watch failed: %s", exc)
+
+
+class FeedbackRequest(BaseModel):
+    session_id: str
+    rating: str  # "up" | "down"
+    turn_id: Optional[str] = None  # from the chat stream's done event
+    message_index: Optional[int] = None  # or: the session's n-th answer, from 0
+    reason: Optional[str] = None  # pilot_metrics.FEEDBACK_REASONS
+
+
+@app.post("/feedback", status_code=201)
+async def post_feedback(req: FeedbackRequest, request: Request):
+    """Thumbs up/down on one answer, stored in the caller's own profile."""
+    import pilot_metrics
+
+    profile_id = _assert_profile_match(request, None)
+    try:
+        record = await asyncio.to_thread(
+            pilot_metrics.record_feedback,
+            profile_id,
+            session_id=req.session_id,
+            rating=req.rating,
+            turn_id=req.turn_id,
+            message_index=req.message_index,
+            reason=req.reason,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"ok": True, "feedback": record}
+
+
+@app.get("/pilot/metrics")
+async def get_pilot_metrics(
+    request: Request, days: int = 7, scope: Optional[str] = None, format: str = "json"
+):
+    """Pilot aggregates: counts and outcomes only.
+
+    Everyone gets their own (scope=self). The owner gets every profile's
+    aggregates by default (scope=profiles) and the weekly scorecard with
+    uptime, backups and Stage gates with scope=all (format=markdown for text).
+    """
+    import pilot_metrics
+
+    profile_id = _assert_profile_match(request, None)
+    owner = _is_owner_request(request)
+    scope = (scope or ("profiles" if owner else "self")).strip().lower()
+    days = max(1, min(int(days), 90))
+    if scope not in ("self", "profiles", "all"):
+        raise HTTPException(status_code=400, detail="scope must be self, profiles, or all")
+    if scope != "self" and not owner:
+        raise HTTPException(status_code=403, detail="Only the Narad owner can see other profiles")
+    if scope == "self":
+        summary = await asyncio.to_thread(pilot_metrics.profile_summary, profile_id, days=days)
+        return {"scope": "self", "summary": summary}
+    if scope == "profiles":
+        return {"scope": "profiles", **await asyncio.to_thread(pilot_metrics.household_summary, days=days)}
+    import pilot_scorecard
+
+    card = await asyncio.to_thread(pilot_scorecard.weekly_scorecard, days=days)
+    if format == "markdown":
+        from fastapi.responses import PlainTextResponse
+
+        return PlainTextResponse(pilot_scorecard.scorecard_markdown(card), media_type="text/markdown")
+    return {"scope": "all", "scorecard": card}
+
+
+class ConsentRequest(BaseModel):
+    version: str
+    accepted: bool = True
+
+
+@app.get("/consent")
+async def get_consent(request: Request, scope: Optional[str] = None, document: bool = False):
+    """The caller's consent state; the owner may ask for every profile (scope=all)."""
+    import pilot_metrics
+
+    profile_id = _assert_profile_match(request, None)
+    if scope == "all":
+        _require_owner(request)
+        profiles = await asyncio.to_thread(pilot_metrics.known_profiles)
+        return {
+            "current_version": pilot_metrics.CONSENT_VERSION,
+            "profiles": {p: pilot_metrics.consent_status(p) for p in profiles},
+        }
+    status = await asyncio.to_thread(pilot_metrics.consent_status, profile_id)
+    if document:
+        try:
+            status["document_markdown"] = (
+                narad_paths.ROOT / "docs" / "PILOT_CONSENT_AND_METRICS.md"
+            ).read_text(encoding="utf-8")
+        except OSError:
+            status["document_markdown"] = ""
+    return status
+
+
+@app.post("/consent")
+async def post_consent(req: ConsentRequest, request: Request):
+    """Record the caller's decision on the current consent sheet (accept or withdraw)."""
+    import pilot_metrics
+
+    profile_id = _assert_profile_match(request, None)
+    try:
+        return await asyncio.to_thread(
+            pilot_metrics.record_consent, profile_id, version=req.version, accepted=req.accepted
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
 
 
 @app.on_event("startup")

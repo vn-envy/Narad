@@ -24,11 +24,17 @@ The phases further down are still the backlog. The stages above set the order an
 - The pilot hostname is out of the code.
 - Browser-step and turn-routing Jev are off by default. They added 0.5–2 s per step for advisory output only.
 - Logs and generated artifacts are scoped per profile, and the other Phase 0 carryovers are closed (see Phase 0 below).
+- Pilot operations are built:
+  - **Supervision.** `scripts/install_launchd.sh` installs launchd jobs for the backend, the tunnel, a 2-minute watchdog and `caffeinate -s`. The jobs share `scripts/pilot_env.sh` with `Start Family Pilot.command`.
+  - **Backups.** Nightly AES-256-GCM backups of `~/.narad`; SQLite is copied through the online-backup API. The key is kept outside `~/.narad`. Retention is 14 daily plus 8 weekly, and a weekly restore drill checks the latest backup.
+  - **Uptime.** A 5-minute check separates app-down from tunnel-down, with an optional healthchecks ping and a waking-hours report.
+  - **Pilot metrics.** Local metrics hold counts only: per-turn records hooked in `/chat`, plus `POST /feedback`, `GET /pilot/metrics`, `GET/POST /consent`, voice use and the weekly scorecard.
+  - **Consent and metric definitions.** They are in `docs/PILOT_CONSENT_AND_METRICS.md`.
+- Cloudflare Access is verified at the origin (`phase-1/cf_access.py`); only the owner's Zero Trust setup remains.
 
 Still open in Stage A:
-- Cloudflare Access;
-- `launchd` supervision and backups;
-- consent and metric definitions.
+- the Cloudflare Access application and `.env` values on the owner's side;
+- the first green week on the Mac: jobs installed, 99% uptime in waking hours, a passing restore drill and signed consent sheets.
 
 **Stage B progress (2026-09-24), the fast path core:**
 - **Token streaming.** Narad and every avatar run with `StreamingMode.SSE`. Text reaches the phone as `text_delta` events, each source through its own `<think>` filter. Thought parts are never sent. `text_reset` drops routing chatter that came before a tool call. `narad_synthesis` still carries the complete reply, so persistence, workflow stages, learning records and Tapas are unchanged.
@@ -505,6 +511,14 @@ Each phase is one reviewable PR (or a small stack). Exit gates are hard: a phase
 - 0 false stage completions.
 
 ### Phase 7: Pilot operations and rollout
+
+> **Status (2026-09-24): operations and metrics backend built.**
+> - **Built:** supervision (backend, tunnel, watchdog, the `pmset` advice), encrypted nightly backups with a weekly restore drill, the uptime check and report, and private pilot metrics with feedback, consent and the weekly scorecard. See README, "Running the pilot day to day", and `docs/PILOT_CONSENT_AND_METRICS.md`.
+> - **Still open:**
+>   - the feedback control and the consent screen in the app;
+>   - launchd units for cua-driver and Artemis;
+>   - a self-service export and delete for each person;
+>   - the first 7-day window on the Mac.
 
 - **Supervision:** launchd KeepAlive units for the backend, tunnel, cua-driver, and Artemis, plus a watchdog and `pmset` sleep policy.
 - **Backups:** encrypted nightly backups of `~/.narad`, with a restore drill.

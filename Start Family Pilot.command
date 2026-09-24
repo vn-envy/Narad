@@ -1,30 +1,29 @@
 #!/bin/bash
 # Start Narad securely at your NARAD_PUBLIC_URL through Cloudflare Tunnel.
 # The family's public address lives only in .env (untracked), never in git.
+# For an always-on host, let launchd supervise it instead:
+#   scripts/install_launchd.sh install
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT"
 
-if [ -f "$ROOT/.env" ]; then
-    set -a
-    # shellcheck disable=SC1091
-    source "$ROOT/.env"
-    set +a
-fi
-
-PUBLIC_URL="${NARAD_PUBLIC_URL:-}"
-BACKEND_HOST="127.0.0.1"
-BACKEND_PORT="${NARAD_PORT:-8000}"
-TOKEN_FILE="${NARAD_CLOUDFLARE_TOKEN_FILE:-$HOME/.cloudflared/narad-token}"
-FRONTEND_DIR="$ROOT/phase-4/frontend"
-ARTEMIS_DIR="${NARAD_ARTEMIS_DIR:-$HOME/.narad/integrations/artemis}"
-ARTEMIS_PORT="${NARAD_ARTEMIS_PORT:-8124}"
+# .env, the pilot defaults and shared helpers. The launchd jobs load the same
+# file, so a double-click start and a supervised start behave the same.
+# shellcheck source=scripts/pilot_env.sh
+source "$ROOT/scripts/pilot_env.sh"
 
 log()  { printf '\033[1;36m[family-pilot]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[family-pilot]\033[0m %s\n' "$*"; }
 die()  { printf '\033[1;31m[family-pilot]\033[0m %s\n' "$*" >&2; exit 1; }
+
+if narad_job_loaded backend; then
+    OPEN_URL="${PUBLIC_URL:-http://$BACKEND_HOST:$BACKEND_PORT}"
+    log "launchd already runs Narad (scripts/install_launchd.sh status). Opening $OPEN_URL"
+    open "$OPEN_URL" 2>/dev/null || true
+    exit 0
+fi
 
 command -v cloudflared >/dev/null 2>&1 || die "cloudflared is not installed. Run: brew install cloudflared"
 [ -s "$TOKEN_FILE" ] || die "Cloudflare tunnel credential is missing: $TOKEN_FILE"
@@ -36,49 +35,11 @@ if [ -z "${NARAD_CF_ACCESS_TEAM_DOMAIN:-}" ] || [ -z "${NARAD_CF_ACCESS_AUD:-}" 
     warn "Cloudflare Access verification is off: set NARAD_CF_ACCESS_TEAM_DOMAIN and NARAD_CF_ACCESS_AUD in $ROOT/.env (see README, Family access with Cloudflare Access)."
 fi
 
-export PATH="$HOME/.local/bin:$PATH"
-
-if [ ! -d "$FRONTEND_DIR/node_modules" ]; then
-    log "Installing frontend dependencies..."
-    (cd "$FRONTEND_DIR" && npm ci)
-fi
-
-NEEDS_BUILD=0
-[ -f "$FRONTEND_DIR/dist/index.html" ] || NEEDS_BUILD=1
-if [ "$NEEDS_BUILD" -eq 0 ] && find "$FRONTEND_DIR/src" "$FRONTEND_DIR/public" \
-    -type f -newer "$FRONTEND_DIR/dist/index.html" -print -quit 2>/dev/null | grep -q .; then
-    NEEDS_BUILD=1
-fi
-if [ "$NEEDS_BUILD" -eq 1 ]; then
-    log "Building the latest Narad interface..."
-    (cd "$FRONTEND_DIR" && npm run build)
-fi
+narad_build_frontend || die "The Narad interface did not build; see the npm output above."
 
 if lsof -nP -iTCP:"$BACKEND_PORT" -sTCP:LISTEN >/dev/null 2>&1; then
     die "Port $BACKEND_PORT is already in use. Stop the existing Narad server and retry."
 fi
-
-export NARAD_AUTH=strict
-export NARAD_PUBLIC_URL="$PUBLIC_URL"
-export MEDIA_URL_BASE="$PUBLIC_URL/media"
-export NARAD_ALLOWED_ORIGINS="${NARAD_ALLOWED_ORIGINS:-$PUBLIC_URL,http://localhost:5174,http://127.0.0.1:5174}"
-export NARAD_ENABLE_DESKTOP_CONTROL="${NARAD_ENABLE_DESKTOP_CONTROL:-1}"
-export NARAD_DESKTOP_PROVIDER="${NARAD_DESKTOP_PROVIDER:-cua}"
-# Cloud Jev on every browser step costs 0.5-2 s and only adds an advisory
-# warning; turn-routing Jev is shadow-only. Both stay off unless asked for.
-export NARAD_JEV_COMPUTER_MODE="${NARAD_JEV_COMPUTER_MODE:-off}"
-export NARAD_JEV_ROUTE_MODE="${NARAD_JEV_ROUTE_MODE:-off}"
-# Owner decision (2026-09-24): Sarvam is trusted for this household (training
-# opted out, minimum retention). Speech goes to local or trusted providers only.
-export NARAD_PROVIDER_TIERS="${NARAD_PROVIDER_TIERS:-sarvam=trusted}"
-export NARAD_JEV_PHONE_MODE="${NARAD_JEV_PHONE_MODE:-active}"
-export NARAD_ARTEMIS_URL="${NARAD_ARTEMIS_URL:-http://127.0.0.1:$ARTEMIS_PORT}"
-export ARTEMIS_KEEP_DEVICE_AWAKE="${ARTEMIS_KEEP_DEVICE_AWAKE:-false}"
-export ARTEMIS_HELPER_AUTO_INSTALL="${ARTEMIS_HELPER_AUTO_INSTALL:-false}"
-# Vendor CLIs must not self-update or send telemetry from the pilot host.
-export BSK_AUTO_UPDATE="${BSK_AUTO_UPDATE:-off}"
-export CUA_DRIVER_RS_TELEMETRY_ENABLED="${CUA_DRIVER_RS_TELEMETRY_ENABLED:-false}"
-export CUA_TELEMETRY_ENABLED="${CUA_TELEMETRY_ENABLED:-false}"
 
 BACKEND_PID=""
 TUNNEL_PID=""
@@ -134,8 +95,7 @@ if [ "${NARAD_DISABLE_ARTEMIS:-0}" != "1" ]; then
 fi
 
 log "Starting Narad in strict family-profile mode..."
-"$ROOT/.venv/bin/python" narad_server_entry.py \
-    --host "$BACKEND_HOST" --port "$BACKEND_PORT" &
+"$ROOT/scripts/run_backend.sh" &
 BACKEND_PID=$!
 
 for i in $(seq 1 90); do
@@ -150,9 +110,7 @@ for i in $(seq 1 90); do
 done
 
 log "Publishing $PUBLIC_URL through the outbound Cloudflare tunnel..."
-cloudflared tunnel run \
-    --url "http://$BACKEND_HOST:$BACKEND_PORT" \
-    --token-file "$TOKEN_FILE" &
+"$ROOT/scripts/run_tunnel.sh" &
 TUNNEL_PID=$!
 
 # An always-on family pilot must not disappear when the Mac idles.

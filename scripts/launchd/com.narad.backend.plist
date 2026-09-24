@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Narad backend (API and web app), kept alive by launchd. Template: scripts/install_launchd.sh fills in the paths and installs a copy in ~/Library/LaunchAgents. ThrottleInterval spaces restarts 60 s apart so a crash loop cannot keep a fanless Mac busy. -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.narad.backend</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>@ROOT@/scripts/run_backend.sh</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>@ROOT@</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>@HOME@/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>60</integer>
+    <key>ExitTimeOut</key>
+    <integer>20</integer>
+    <key>SoftResourceLimits</key>
+    <dict>
+        <key>NumberOfFiles</key>
+        <integer>4096</integer>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>@LOG_DIR@/backend.log</string>
+    <key>StandardErrorPath</key>
+    <string>@LOG_DIR@/backend.log</string>
+</dict>
+</plist>
