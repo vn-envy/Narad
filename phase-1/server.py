@@ -3,6 +3,7 @@ Phase 1 FastAPI SSE server (+ Smriti memory + Yantra observability).
 
 SSE event taxonomy (locked):
   avatar_start | avatar_done | narad_synthesis | done | error
+Streaming (fast path): text_delta {source, text} | text_reset {source} | route
 
 New endpoints:
   GET /trace/{session_id}  — structured trace for a completed session
@@ -224,13 +225,15 @@ from sse_starlette.sse import EventSourceResponse
 
 _ADK_IMPORT_ERROR: str | None = None
 try:
-    from google.adk.events import Event
+    from google.adk.agents.run_config import RunConfig, StreamingMode
+    from google.adk.events import Event, EventActions
     from google.adk.runners import Runner
     from google.adk.sessions import InMemorySessionService
 except Exception as _adk_exc:
     Runner = Any  # type: ignore[assignment]
     InMemorySessionService = None  # type: ignore[assignment]
     Event = Any  # type: ignore[assignment]
+    EventActions = RunConfig = StreamingMode = None  # type: ignore[assignment,misc]
     _ADK_IMPORT_ERROR = f"google.adk unavailable: {_adk_exc}"
 
 # ── LLM latency floor ─────────────────────────────────────────────────────────
@@ -272,6 +275,9 @@ from chat_attachments import (
 )
 from context_governor import RuntimeEpoch, choose_model_and_plan, should_rollover_epoch
 from model_config import AVATAR_MODELS, refresh_avatar_models
+from prerouter import PreRoute, TurnFacts
+from prerouter import enabled as _prerouter_enabled
+from prerouter import route_turn as _preroute_turn
 from runtime_contract import (
     agent_contract_map as _agent_contract_map,
 )
@@ -285,6 +291,7 @@ from runtime_contract import (
 from runtime_contract import (
     primary_discipline as _primary_discipline,
 )
+from text_stream import DeltaStream, ThinkingFilter, visible_text
 from yantra import Tracer
 
 from conversation_memory import (
@@ -1880,6 +1887,27 @@ async def _run_agent_task(
             if recent_context:
                 candidate_query = recent_context
 
+        # Deterministic pre-router: an unambiguous turn skips the supervisor's
+        # routing call and goes straight to the owning avatar (NARAD_PREROUTER).
+        preroute: PreRoute | None = None
+        if _prerouter_enabled():
+            stage_owner = ""
+            if workflow_context and req.workflow_run_id:
+                try:
+                    from workflow_engine import current_stage_owner
+
+                    stage_owner = current_stage_owner(
+                        req.workflow_run_id, user_id=req.user_id, session_id=session_id
+                    )
+                except Exception:
+                    stage_owner = ""
+            preroute = _preroute_turn(TurnFacts(
+                query=req.query,
+                attachments=attachment_history,
+                stage_owner=stage_owner,
+                check_answer=guru_verdict is not None,
+            ))
+
         # Jev shadows the existing supervisor concurrently. It records what a
         # fast typed router would have chosen without delaying or overriding
         # the production route; confidence thresholds can be calibrated from
@@ -2108,7 +2136,8 @@ async def _run_agent_task(
             )
         except ValueError:
             supervisor_recall_budget = 384
-        if supervisor_recall_budget > 0:
+        # A pre-routed turn has no supervisor call to inform; the avatar recalls.
+        if supervisor_recall_budget > 0 and preroute is None:
             try:
                 from smriti_core import recall_context as _supervisor_recall
                 recall_packet = await _supervisor_recall(
@@ -2136,9 +2165,15 @@ async def _run_agent_task(
                     "Narad supervisor recall skipped this turn: %s", exc
                 )
 
+        # A pre-routed avatar gets the request with the same context blocks,
+        # not the supervisor's rehydrated thread: its own session already
+        # holds its earlier turns in this chat.
+        avatar_task = req.query
+
         # A workflow run is a compact durable state packet, not replayed chat.
         if workflow_context:
             effective_query = f"{workflow_context}\n\nUser request for this stage:\n{effective_query}"
+            avatar_task = f"{workflow_context}\n\nUser request for this stage:\n{avatar_task}"
 
         # ── G6.2: deliver the Gurukul packet to the model ─────────────────────
         # working_context only informs token budgeting (choose_model_and_plan);
@@ -2162,15 +2197,18 @@ async def _run_agent_task(
                     gurukul_lines.append(f"- Remediation hint: {guru_verdict['remediation']}")
             gurukul_lines += ["", _TEACHING_RULES, "[END GURUKUL TEACHING CONTEXT]"]
             effective_query = "\n".join(gurukul_lines) + f"\n\n{effective_query}"
+            avatar_task = "\n".join(gurukul_lines) + f"\n\n{avatar_task}"
 
         # Keep the user's actual request at the end while giving the router a
         # bounded, exact-reread-capable view of uploaded inputs and live URLs.
         if attachment_context:
             effective_query = f"{attachment_context}\n\n{effective_query}"
+            avatar_task = f"{attachment_context}\n\n{avatar_task}"
 
         reply_language_line = _reply_language_instruction(req.reply_language)
         if reply_language_line:
             effective_query = f"{reply_language_line}\n\n{effective_query}"
+            avatar_task = f"{reply_language_line}\n\n{avatar_task}"
 
         user_message = genai_types.Content(
             role="user", parts=[genai_types.Part(text=effective_query)]
@@ -2242,10 +2280,34 @@ async def _run_agent_task(
             }))
 
         think_filter = ThinkingFilter()
-        async for event in runner.run_async(
-            user_id=req.user_id, session_id=runtime_session_id, new_message=user_message
-        ):
-            sse_payloads = _event_to_sse(event, think_filter)
+        narad_stream = DeltaStream("narad")
+        turn_usage = _TurnUsage()
+        if preroute is not None:
+            tracer.log_event("route", avatar=preroute.avatar, reason=preroute.reason, via="prerouter")
+            await queue.put(json.dumps({
+                "type": "route",
+                "data": {"avatar": preroute.avatar, "reason": preroute.reason, "via": "prerouter"},
+            }))
+            run_events = _prerouted_events(
+                runner,
+                preroute,
+                avatar_task,
+                user_id=req.user_id,
+                session_id=runtime_session_id,
+                user_message=user_message,
+            )
+        else:
+            run_events = runner.run_async(
+                user_id=req.user_id,
+                session_id=runtime_session_id,
+                new_message=user_message,
+                # Token streaming. No tool_thread_pool_config: it would move
+                # the async avatar tools onto a private loop (see
+                # avatar_agents._run_off_loop); sync tools are offloaded already.
+                run_config=RunConfig(streaming_mode=StreamingMode.SSE),
+            )
+        async for event in run_events:
+            sse_payloads = _event_to_sse(event, think_filter, stream=narad_stream)
             for sse_payload in sse_payloads:
                 await queue.put(sse_payload)
                 try:
@@ -2287,11 +2349,13 @@ async def _run_agent_task(
                                 )
                 except Exception:
                     pass
+            turn_usage.add(event)
             usage_payload = _usage_to_sse(
                 event,
                 model=selected_model,
                 user_id=req.user_id,
                 session_id=session_id,
+                turn=turn_usage,
             )
             if usage_payload:
                 await queue.put(usage_payload)
@@ -3625,78 +3689,25 @@ async def _start_background_tasks():
             logging.getLogger("narad.server").warning("Kala scheduler not started: %s", exc)
 
 
-class ThinkingFilter:
-    """Per-request stateful filter — strips chain-of-thought tag blocks across
-    streaming chunks: <think>, <thinking>, <reasoning>, <reflection> (any case).
-
-    DeepSeek streams chain-of-thought across many small SSE chunks; a single-pass
-    regex can only match complete tags inside one chunk and silently passes partial
-    tags through. This class buffers across calls so the tag boundaries are always
-    found regardless of how the model slices its output.
-    """
-    _PAIRS = {
-        "<think>":      "</think>",
-        "<thinking>":   "</thinking>",
-        "<reasoning>":  "</reasoning>",
-        "<reflection>": "</reflection>",
-    }
-    _MAX_OPEN = max(len(t) for t in _PAIRS)
-
-    def __init__(self) -> None:
-        self._buf   = ""
-        self._close = None  # closing tag we're inside of, or None
-
-    def feed(self, chunk: str) -> str:
-        """Feed one streaming chunk; return text that should reach the client."""
-        self._buf += chunk
-        out: list[str] = []
-
-        while self._buf:
-            low = self._buf.lower()
-            if self._close is not None:
-                idx = low.find(self._close)
-                if idx == -1:
-                    # Closing tag may be split — keep last N chars safe
-                    safe = max(0, len(self._buf) - len(self._close))
-                    self._buf = self._buf[safe:]
-                    break
-                self._buf   = self._buf[idx + len(self._close):]
-                self._close = None
-            else:
-                # Earliest opening tag of any known pair
-                first_idx: int = -1
-                first_tag: str | None = None
-                for tag in self._PAIRS:
-                    i = low.find(tag)
-                    if i != -1 and (first_idx == -1 or i < first_idx):
-                        first_idx, first_tag = i, tag
-                if first_tag is None:
-                    # No opening tag — tail might be a partial "<think…" etc.
-                    for tail in range(min(self._MAX_OPEN - 1, len(self._buf)), 0, -1):
-                        frag = low[-tail:]
-                        if any(t.startswith(frag) for t in self._PAIRS):
-                            out.append(self._buf[:-tail])
-                            self._buf = self._buf[-tail:]
-                            return "".join(out)
-                    out.append(self._buf)
-                    self._buf = ""
-                    break
-                out.append(self._buf[:first_idx])
-                self._buf   = self._buf[first_idx + len(first_tag):]
-                self._close = self._PAIRS[first_tag]
-
-        return "".join(out)
-
-    def flush(self) -> str:
-        """Return any buffered text after the stream ends (empty if mid-block)."""
-        if self._close is not None:
-            return ""
-        result    = self._buf
-        self._buf = ""
-        return result
+def _avatar_done_payload(fr: Any) -> str:
+    avatar = _resolve_avatar(fr.name)
+    return json.dumps({
+        "type": "avatar_done",
+        "data": {
+            "avatar": avatar,
+            "discipline": _primary_discipline(avatar),
+            "disciplines": _agent_contract_map().get(avatar, {}).get("disciplines", []),
+            "result": fr.response,
+        },
+    })
 
 
-def _event_to_sse(event: Event, think: "ThinkingFilter | None" = None) -> list[str]:
+def _event_to_sse(
+    event: Event,
+    think: "ThinkingFilter | None" = None,
+    *,
+    stream: DeltaStream | None = None,
+) -> list[str]:
     """Convert one ADK event to one or more SSE JSON strings.
 
     Narad can emit multiple function_call parts in a single event when routing
@@ -3704,32 +3715,52 @@ def _event_to_sse(event: Event, think: "ThinkingFilter | None" = None) -> list[s
 
     *think* is a per-request ThinkingFilter that strips <think>…</think> blocks
     correctly across streaming chunk boundaries.
+
+    *stream* is the supervisor's DeltaStream in a streaming run: partial chunks
+    become text_delta events, and a tool call after streamed text (routing
+    chatter such as "Let me ask Matsya") becomes a text_reset. The aggregated
+    event after the chunks alone drives narad_synthesis, so no text is sent twice.
     """
     def _filt(text: str) -> str:
         return think.feed(text) if think is not None else text
 
+    if getattr(event, "partial", False):
+        delta = stream.feed(visible_text(event)) if stream is not None else None
+        return [delta] if delta else []
+
+    parts = list(event.content.parts or []) if event.content else []
     if event.is_final_response():
-        text = ""
-        if event.content and event.content.parts:
-            # Skip Part.thought=True — ADK's LiteLLM adapter converts provider
-            # reasoning payloads (reasoning_content / thinking_blocks) into
-            # thought parts; joining them blindly leaks chain-of-thought.
-            text = "".join(
-                p.text or "" for p in event.content.parts
-                if not getattr(p, "thought", False)
-            )
-        text = _filt(text).strip()
+        responses = [p.function_response for p in parts if getattr(p, "function_response", None)]
+        if responses and getattr(getattr(event, "actions", None), "skip_summarization", False):
+            # Hand-off: one avatar's answer is the reply; the supervisor makes
+            # no rewrite call. Its deltas streamed with the avatar as source;
+            # the synthesis carries the complete text so thread persistence,
+            # workflow stages and learning records see a normal reply.
+            payloads = [_avatar_done_payload(fr) for fr in responses]
+            text = _filt(_handoff_text(responses[0].response)).strip() if len(responses) == 1 else ""
+            if text:
+                payloads.append(json.dumps({"type": "narad_synthesis", "data": {"text": text}}))
+            return payloads
+        # visible_text skips Part.thought=True — ADK's LiteLLM adapter converts
+        # provider reasoning payloads (reasoning_content / thinking_blocks) into
+        # thought parts; joining them blindly leaks chain-of-thought.
+        text = _filt(visible_text(event)).strip()
         if not text:
             return []
         return [json.dumps({"type": "narad_synthesis", "data": {"text": text}})]
 
-    if not (event.content and event.content.parts):
+    if not parts:
         return [json.dumps({"type": "unknown", "data": {}})]
 
     payloads: list[str] = []
-    for part in event.content.parts:
+    if stream is not None and any(getattr(p, "function_call", None) for p in parts):
+        reset = stream.reset()
+        if reset:
+            payloads.append(reset)
+    for part in parts:
         if part.function_call:
             fc = part.function_call
+            args = fc.args or {}
             avatar = _resolve_avatar(fc.name)
             discipline = _primary_discipline(avatar)
             payloads.append(json.dumps({
@@ -3738,22 +3769,11 @@ def _event_to_sse(event: Event, think: "ThinkingFilter | None" = None) -> list[s
                     "avatar": avatar,
                     "discipline": discipline,
                     "disciplines": _agent_contract_map().get(avatar, {}).get("disciplines", []),
-                    "task": (fc.args or {}).get("request", ""),
+                    "task": args.get("task") or args.get("request", ""),
                 },
             }))
         elif part.function_response:
-            fr = part.function_response
-            avatar = _resolve_avatar(fr.name)
-            discipline = _primary_discipline(avatar)
-            payloads.append(json.dumps({
-                "type": "avatar_done",
-                "data": {
-                    "avatar": avatar,
-                    "discipline": discipline,
-                    "disciplines": _agent_contract_map().get(avatar, {}).get("disciplines", []),
-                    "result": fr.response,
-                },
-            }))
+            payloads.append(_avatar_done_payload(part.function_response))
         elif part.text:
             # Non-final text events are always Narad's internal routing thoughts or
             # pre-emission tokens — never user-facing content. Suppress them entirely.
@@ -3763,57 +3783,104 @@ def _event_to_sse(event: Event, think: "ThinkingFilter | None" = None) -> list[s
     return payloads or [json.dumps({"type": "unknown", "data": {}})]
 
 
+class _TurnUsage:
+    """Token usage for one chat turn, reported once on its final event.
+
+    Each model call's usage rides on exactly one non-partial event (streaming
+    attaches it to the aggregated response, never to chunks), so summing
+    non-partial events counts every supervisor call once, the routing call
+    included. A hand-off turn's final event is the avatar's function response,
+    which carries no usage itself; the avatar reports its tokens in its result.
+    """
+
+    def __init__(self) -> None:
+        self.prompt = self.completion = self.thoughts = self.total = 0
+        self.handoff: dict[str, Any] = {}
+        self.reported = False
+
+    def add(self, event: Any) -> None:
+        if getattr(event, "partial", False):
+            return
+        um = getattr(event, "usage_metadata", None)
+        if um:
+            self.prompt += um.prompt_token_count or 0
+            self.completion += um.candidates_token_count or 0
+            self.thoughts += um.thoughts_token_count or 0
+            self.total += um.total_token_count or 0
+        if getattr(getattr(event, "actions", None), "skip_summarization", False):
+            for part in getattr(getattr(event, "content", None), "parts", None) or []:
+                response = getattr(getattr(part, "function_response", None), "response", None)
+                if isinstance(response, dict) and isinstance(response.get("usage"), dict):
+                    self.handoff = dict(response["usage"])
+
+
 def _usage_to_sse(
     event: Event,
     *,
     model: str = "",
     user_id: str = "default",
     session_id: str = "",
+    turn: _TurnUsage | None = None,
 ) -> str | None:
     """Emit a usage event for the final response event only.
 
-    ADK attaches usage_metadata to many intermediate events (tool calls, etc.)
-    with cumulative but partial counts. Only the final response event carries
-    the complete turn total — gating here means exactly one usage event per turn,
-    always after narad_synthesis has fired so client timing is correct.
+    *turn* holds the supervisor's usage summed over the turn (the caller adds
+    every event to it); without it, the final event's own usage is used.
+    Gating on the final event means exactly one usage event per turn, always
+    after narad_synthesis has fired so client timing is correct.
 
-    M4.1: the same gate is the cost-ledger write path — one ledger entry per
-    turn, priced from the model that served it, and cost_usd rides along on
-    the SSE payload so the client never needs its own price table.
+    M4.1: the same gate is the cost-ledger write path — one "turn" entry for
+    the supervisor's tokens, priced from the model that served it, and
+    cost_usd rides along on the SSE payload so the client never needs its own
+    price table. A handed-off avatar's tokens and cost join the SSE payload
+    only: the avatar wrote its own ledger entry.
     """
     if not event.is_final_response():
         return None
-    um = event.usage_metadata
-    if not um:
+    if turn is None:
+        turn = _TurnUsage()
+        turn.add(event)
+    if turn.reported:
         return None
-    prompt_toks      = um.prompt_token_count      or 0
-    completion_toks  = um.candidates_token_count  or 0
-    thoughts_toks    = um.thoughts_token_count    or 0
-    total_toks       = um.total_token_count        or 0
+    handoff = turn.handoff
+
+    def _handoff_int(key: str) -> int:
+        try:
+            return int(handoff.get(key) or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    total_toks = turn.total + _handoff_int("total_tokens")
     if total_toks == 0:
         return None
+    turn.reported = True
     cost_usd = 0.0
+    if turn.total:
+        try:
+            from cost_ledger import record as _record_cost
+            cost_usd = _record_cost(
+                source="turn",
+                model=model,
+                prompt_tokens=turn.prompt,
+                completion_tokens=turn.completion,
+                thoughts_tokens=turn.thoughts,
+                user_id=user_id,
+                session_id=session_id,
+            )["cost_usd"]
+        except Exception as exc:  # ledger failure must never break the stream
+            logging.getLogger("narad.server").warning("cost ledger write failed: %s", exc)
     try:
-        from cost_ledger import record as _record_cost
-        cost_usd = _record_cost(
-            source="turn",
-            model=model,
-            prompt_tokens=prompt_toks,
-            completion_tokens=completion_toks,
-            thoughts_tokens=thoughts_toks,
-            user_id=user_id,
-            session_id=session_id,
-        )["cost_usd"]
-    except Exception as exc:  # ledger failure must never break the stream
-        logging.getLogger("narad.server").warning("cost ledger write failed: %s", exc)
+        cost_usd += float(handoff.get("cost_usd") or 0.0)
+    except (TypeError, ValueError):
+        pass
     return json.dumps({
         "type": "usage",
         "data": {
-            "prompt_tokens":     prompt_toks,
-            "completion_tokens": completion_toks,
-            "thoughts_tokens":   thoughts_toks,
+            "prompt_tokens":     turn.prompt + _handoff_int("prompt_tokens"),
+            "completion_tokens": turn.completion + _handoff_int("completion_tokens"),
+            "thoughts_tokens":   turn.thoughts,
             "total_tokens":      total_toks,
-            "model":             model,
+            "model":             model if turn.total else str(handoff.get("model") or model),
             "cost_usd":          cost_usd,
         },
     })
@@ -3827,6 +3894,73 @@ def _resolve_avatar(tool_name: str) -> str:
 
 
 import re as _re
+
+# A handed-off answer skips the supervisor, which turns a skill's trailing
+# CURRENT_PHASE marker into the "[Continuing: phase]" chip the chat renders
+# and drops the closing DONE. Do the same here, deterministically.
+_HANDOFF_PHASE_RE = _re.compile(r"\n?[ \t]*CURRENT_PHASE:[ \t]*(\S+)[ \t]*\Z", _re.IGNORECASE)
+_HANDOFF_DONE_RE = _re.compile(r"\n[ \t]*DONE[ \t.]*\Z")
+
+
+def _handoff_text(response: Any) -> str:
+    """The reply text of a handed-off avatar's function response."""
+    if not isinstance(response, dict):
+        return ""
+    text = str(response.get("full_result") or response.get("result") or "").rstrip()
+    match = _HANDOFF_PHASE_RE.search(text)
+    if match:
+        phase = match.group(1).rstrip(".")
+        text = text[:match.start()].rstrip()
+        if phase.upper() != "DONE":
+            text = f"{text}\n\n[Continuing: {phase}]"
+    return _HANDOFF_DONE_RE.sub("", text).rstrip()
+
+
+async def _prerouted_events(
+    runner: Any,
+    route: PreRoute,
+    task: str,
+    *,
+    user_id: str,
+    session_id: str,
+    user_message: Any,
+) -> AsyncGenerator[Any, None]:
+    """The events of a supervisor hand-off to route.avatar, minus the routing call.
+
+    Runs the same avatar tool function the supervisor would call (Smriti,
+    sutras, tracing, Andon and the privacy gateway all apply) and records the
+    exchange in the supervisor's session, so its next turn sees this one.
+    """
+    from google.genai import types as genai_types
+
+    tool_name = f"invoke_{route.avatar.lower()}"
+    tool = next(t for t in runner.agent.tools if getattr(t, "name", "") == tool_name)
+    session = await runner.session_service.get_session(
+        app_name=runner.app_name, user_id=user_id, session_id=session_id
+    )
+    invocation_id = f"e-{uuid.uuid4()}"
+
+    async def _recorded(event: Any) -> Any:
+        if session is not None:
+            await runner.session_service.append_event(session=session, event=event)
+        return event
+
+    call = genai_types.FunctionCall(id=f"preroute-{uuid.uuid4().hex[:12]}", name=tool_name, args={"task": task})
+    await _recorded(Event(invocation_id=invocation_id, author="user", content=user_message))
+    yield await _recorded(Event(
+        invocation_id=invocation_id,
+        author=runner.agent.name,
+        content=genai_types.Content(role="model", parts=[genai_types.Part(function_call=call)]),
+    ))
+    result = await tool.func(task=task, hand_off=True)
+    yield await _recorded(Event(
+        invocation_id=invocation_id,
+        author=runner.agent.name,
+        content=genai_types.Content(role="user", parts=[genai_types.Part(
+            function_response=genai_types.FunctionResponse(id=call.id, name=tool_name, response=result),
+        )]),
+        actions=EventActions(skip_summarization=True),
+    ))
 
 
 def _extract_artifact_meta(task: str) -> tuple[str, str]:

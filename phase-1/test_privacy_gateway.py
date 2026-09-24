@@ -250,6 +250,144 @@ def test_xai_is_blocked_before_any_request() -> None:
         gw.prepare_llm_request(_request(), "xai/grok-4.6")
 
 
+# ── Streamed replies ──────────────────────────────────────────────────────────
+
+REPLY = "Call <PERSON_1> on <PHONE_1> today."
+RESTORED = "Call Asha Sharma on 9876543210 today."
+
+
+def _known_placeholders() -> None:
+    assert gw.redact_text("Asha Sharma, phone 9876543210") == "<PERSON_1>, phone <PHONE_1>"
+
+
+def test_stream_restorer_holds_a_placeholder_split_across_chunks() -> None:
+    _known_placeholders()
+    restorer = gw.StreamRestorer()
+    assert restorer.feed("Reminder for <PER") == "Reminder for "
+    assert restorer.feed("SON_1> is set") == "Asha Sharma is set"
+    assert restorer.flush() == ""
+
+
+def test_stream_restorer_is_exact_at_every_split_point() -> None:
+    _known_placeholders()
+    for cut in range(len(REPLY) + 1):
+        restorer = gw.StreamRestorer()
+        pieces = [restorer.feed(REPLY[:cut]), restorer.feed(REPLY[cut:]), restorer.flush()]
+        assert "".join(pieces) == RESTORED, cut
+        assert not any("<" in piece for piece in pieces), cut
+    restorer = gw.StreamRestorer()
+    one_char_chunks = [restorer.feed(char) for char in REPLY] + [restorer.flush()]
+    assert "".join(one_char_chunks) == RESTORED
+    assert not any("<" in piece or "_" in piece for piece in one_char_chunks)
+
+
+def test_stream_restorer_handles_several_placeholders_in_one_chunk() -> None:
+    _known_placeholders()
+    restorer = gw.StreamRestorer()
+    assert restorer.feed("<PERSON_1> and <PHONE_1>, again <PER") == "Asha Sharma and 9876543210, again "
+    assert restorer.feed("SON_1>.") == "Asha Sharma."
+
+
+def test_stream_restorer_releases_a_less_than_that_is_not_a_placeholder() -> None:
+    restorer = gw.StreamRestorer()
+    assert restorer.feed("if a < b then") == "if a < b then"
+    assert restorer.feed("so a <") == "so a "  # could still be a placeholder...
+    assert restorer.feed(" b") == "< b"  # ...until the next chunk says otherwise
+    assert restorer.feed("<3 and <b>bold</b>") == "<3 and <b>bold</b>"
+    long_caps = "<" + "A" * 40
+    assert restorer.feed(long_caps) == long_caps
+
+
+def test_stream_restorer_flushes_what_it_holds_when_the_stream_ends() -> None:
+    _known_placeholders()
+    restorer = gw.StreamRestorer()
+    assert restorer.feed("Ends with <PHONE_") == "Ends with "
+    assert restorer.flush() == "<PHONE_"  # a cut-off placeholder is shown as is
+    assert restorer.flush() == ""
+    restorer.feed("then <PERSON_1")
+    assert restorer.feed(">") == "Asha Sharma"
+
+
+def _streamed(chunks: list[str], final: str) -> list[LlmResponse]:
+    """What LiteLlm yields when streaming: text chunks, then the aggregated reply."""
+    partials = [
+        LlmResponse(content=types.Content(role="model", parts=[types.Part(text=chunk)]), partial=True)
+        for chunk in chunks
+    ]
+    return partials + [LlmResponse(content=types.Content(role="model", parts=[types.Part(text=final)]))]
+
+
+def test_deepseek_stream_is_restored_chunk_by_chunk_and_the_final_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    chunks = ["Call <PER", "SON_1> on <PHO", "NE_1> today", " and <"]
+    final = "".join(chunks)
+
+    async def fake_generate(self, llm_request, stream=False):
+        for response in _streamed(chunks, final):
+            yield response
+
+    restored: list[str] = []
+    original_restore = gw.restore_llm_response
+
+    def counting_restore(response):
+        restored.append(response.content.parts[0].text)
+        return original_restore(response)
+
+    monkeypatch.setattr(gw, "restore_llm_response", counting_restore)
+    monkeypatch.setattr(LiteLlm, "generate_content_async", fake_generate)
+    responses = _run(NaradLiteLlm(model="deepseek/deepseek-flash"), _request())
+
+    expected = gw.restore_text(final)  # the request seeded <PERSON_1> and <PHONE_1>
+    assert expected.startswith("Call Asha Sharma on ") and "_1>" not in expected
+    partial_text = [r.content.parts[0].text for r in responses if r.partial]
+    finals = [r for r in responses if not r.partial]
+    assert "".join(partial_text) == expected
+    assert not any("PER" in text or "PHO" in text for text in partial_text)
+    assert partial_text[-1] == "<"  # held until the stream settled, then flushed
+    assert len(finals) == 1 and finals[0].content.parts[0].text == expected
+    assert restored == [final]  # the aggregated reply is restored in full, exactly once
+
+
+def test_no_failover_after_the_first_chunk_even_while_it_is_held_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    async def fake_generate(self, llm_request, stream=False):
+        calls.append(self.model)
+        yield LlmResponse(content=types.Content(role="model", parts=[types.Part(text="<PER")]), partial=True)
+        raise TimeoutError("stream stalled")
+
+    monkeypatch.setattr(narad_litellm, "_offline_fallback_model", lambda _model: "ollama/gemma4:e2b-it-q4_K_M")
+    monkeypatch.setattr(LiteLlm, "generate_content_async", fake_generate)
+    with pytest.raises(TimeoutError):
+        _run(NaradLiteLlm(model="deepseek/deepseek-flash"), _request())
+    assert calls == ["deepseek/deepseek-flash"]
+
+
+def test_failover_before_the_first_byte_restores_on_the_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    async def fake_generate(self, llm_request, stream=False):
+        calls.append(self.model)
+        if self.model.startswith("deepseek/"):
+            raise TimeoutError("Connection timed out")
+        for response in _streamed(["Hello ", "there"], "Hello there"):
+            yield response
+
+    monkeypatch.setattr(
+        narad_litellm, "_offline_fallback_model",
+        lambda model: "" if model.startswith("ollama/") else "ollama/gemma4:e2b-it-q4_K_M",
+    )
+    monkeypatch.setattr(LiteLlm, "generate_content_async", fake_generate)
+    responses = _run(NaradLiteLlm(model="deepseek/deepseek-flash"), _request())
+    assert calls == ["deepseek/deepseek-flash", "ollama/gemma4:e2b-it-q4_K_M"]
+    assert [r.content.parts[0].text for r in responses] == ["Hello ", "there", "Hello there"]
+
+
 # ── OpenMed detector ──────────────────────────────────────────────────────────
 
 def test_openmed_names_are_redacted_and_cached_per_line(monkeypatch: pytest.MonkeyPatch) -> None:

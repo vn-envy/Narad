@@ -135,7 +135,7 @@ function NaradSession({ profile, onSwitchProfile }: { profile: FamilyProfile; on
   const userId = profile.user_id
   const activeWorkflowKey = `${ACTIVE_WORKFLOW_KEY}:${userId}`
   const {
-    messages, avatars, naradActive, streaming, error,
+    messages, avatars, naradActive, streaming, liveAnswer, error,
     currentSession, send, stop, stepEvents, sessionTotals,
     activeArtifactSession, clearArtifact,
     pendingToolUi, clearToolUi,
@@ -304,6 +304,7 @@ function NaradSession({ profile, onSwitchProfile }: { profile: FamilyProfile; on
               messages={messages}
               avatars={avatars}
               streaming={streaming}
+              liveAnswer={liveAnswer}
               error={error}
               onSend={sendInContext}
               stop={stop}

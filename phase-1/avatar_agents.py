@@ -30,9 +30,10 @@ import uuid
 from typing import Any, get_type_hints
 
 from google.adk.agents import LlmAgent
+from google.adk.agents.run_config import RunConfig, StreamingMode
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
-from google.adk.tools import FunctionTool
+from google.adk.tools import FunctionTool, ToolContext
 from google.genai import types as genai_types
 from model_config import AVATAR_MODELS
 from narad_litellm import NaradLiteLlm as LiteLlm
@@ -45,6 +46,7 @@ from runtime_contract import (
 from runtime_contract import (
     primary_discipline as _primary_discipline,
 )
+from text_stream import DeltaStream, visible_text
 
 # Context var holding the SSE queue for the current request. server.py sets this
 # before the outer agent runs; _make_avatar_tool reads it to emit step events live.
@@ -340,19 +342,65 @@ async def _avatar_runtime_status(
     return next((item for item in rows if item["name"] == agent_name), None)
 
 
+def _sole_function_call(tool_context: Any) -> bool:
+    """True when this tool call is the only one in the supervisor's response.
+
+    ADK merges the actions of parallel function responses, so one avatar's
+    skip_summarization would end a parallel turn before the other answers are
+    combined. Unknown means no: the supervisor then synthesises as before.
+    """
+    call_id = getattr(tool_context, "function_call_id", None)
+    try:
+        events = list(tool_context.session.events or [])
+    except Exception:
+        return False
+    if not call_id:
+        return False
+    for event in reversed(events):
+        calls = event.get_function_calls()
+        if any(call.id == call_id for call in calls):
+            return len(calls) == 1
+    return False
+
+
+def _flag(value: Any) -> bool:
+    """A model-supplied boolean: ADK passes JSON through, so "false" may be a string."""
+    if isinstance(value, str):
+        return value.strip().lower() not in {"", "false", "0", "no", "off", "none", "null"}
+    return bool(value)
+
+
+_HAND_OFF_DOC = (
+    "\n\nhand_off (default true): this avatar's answer goes to the user as the final "
+    "reply, with no rewrite. Pass false when you call another avatar in this turn "
+    "(in parallel or next) or must check or combine this result before replying."
+)
+
+
 def _make_avatar_tool(agent: LlmAgent, user_id: str = "default") -> FunctionTool:
     """Wrap an LlmAgent as a FunctionTool so LiteLlm function-calling works.
 
     Smriti integration:
       - Before running: relevant past memories are prepended to the task
       - After running: the result is stored for future recall
+
+    Hand-off: with hand_off, the avatar's streamed answer is the turn's reply.
+    The tool sets skip_summarization so the supervisor makes no rewrite call;
+    the server's pre-router calls this same function with no tool_context.
     """
     app_name = f"avatar_{agent.name.lower()}"
     description = agent.description
     from tool_result import is_tool_envelope as _is_tool_envelope
 
-    async def _run(task: str, _session_id: str = "") -> dict:
+    async def _run(
+        task: str,
+        _session_id: str = "",
+        hand_off: bool = True,
+        tool_context: ToolContext | None = None,
+    ) -> dict:
         import logging as _vlog
+
+        handoff = _flag(hand_off) and (tool_context is None or _sole_function_call(tool_context))
 
         # Model routing:
         #   1. Images use the active healthy multimodal endpoint (local included)
@@ -631,13 +679,24 @@ def _make_avatar_tool(agent: LlmAgent, user_id: str = "default") -> FunctionTool
             "InternalServerError", "APIConnectionError",
             "ServiceUnavailableError", "RateLimitError",
         )
+        # Streamed text reaches the client as text_delta events with this
+        # avatar as the source; `handoff` says whether it is the reply itself.
+        _deltas = DeltaStream(agent.name, handoff=handoff)
 
         async def _run_with_retry():
             nonlocal result_text, _retry_attempt
             import logging as _rlog
             while True:
                 try:
-                    async for event in runner.run_async(user_id="narad", session_id=sid, new_message=msg):
+                    async for event in runner.run_async(
+                        user_id="narad",
+                        session_id=sid,
+                        new_message=msg,
+                        # No tool_thread_pool_config: it would move this
+                        # avatar's async tools onto a private loop (see
+                        # _run_off_loop); sync tools are offloaded already.
+                        run_config=RunConfig(streaming_mode=StreamingMode.SSE),
+                    ):
                         yield event
                     return
                 except Exception as _exc:
@@ -649,6 +708,9 @@ def _make_avatar_tool(agent: LlmAgent, user_id: str = "default") -> FunctionTool
                             "%s: %s on attempt %d — retrying in %ds",
                             agent.name, _exc_name, _retry_attempt, _wait,
                         )
+                        _reset = _deltas.reset()
+                        if _reset and _q is not None:
+                            await _q.put(_reset)  # the retry streams its answer afresh
                         await asyncio.sleep(_wait)
                     else:
                         raise
@@ -660,6 +722,19 @@ def _make_avatar_tool(agent: LlmAgent, user_id: str = "default") -> FunctionTool
             degraded_capabilities=_degraded_tool_families,
         ) as span:
             async for event in _run_with_retry():
+                # Streamed chunks only carry text: forward what the user may see.
+                if event.partial:
+                    if _q is not None:
+                        _delta = _deltas.feed(visible_text(event))
+                        if _delta:
+                            await _q.put(_delta)
+                    continue
+                # A tool call turns the text streamed so far into chatter the
+                # client drops; a finished text answer releases the held tail.
+                if _q is not None:
+                    _edge = _deltas.reset() if event.get_function_calls() else _deltas.flush()
+                    if _edge:
+                        await _q.put(_edge)
                 # Emit live step events to the SSE stream so the terminal shows them
                 if event.content and event.content.parts:
                     for part in event.content.parts:
@@ -788,17 +863,18 @@ def _make_avatar_tool(agent: LlmAgent, user_id: str = "default") -> FunctionTool
             # M4.1 gap-fix: avatar spans run on their own models — without this,
             # only supervisor turns + Tapas judges hit the cost ledger and
             # delegated work (often the bulk of tokens) is invisible in /costs.
+            _cost_usd = 0.0
             if span.meter.total > 0:
                 try:
                     from cost_ledger import record as _record_cost
-                    _record_cost(
+                    _cost_usd = float(_record_cost(
                         source=f"avatar:{agent.name}",
                         model=_model_id,
                         prompt_tokens=span.meter.prompt,
                         completion_tokens=span.meter.completion,
                         user_id=user_id,
                         session_id=_trace_session_id,
-                    )
+                    ).get("cost_usd", 0.0))
                 except Exception:
                     pass  # ledger is observability — never breaks the span
 
@@ -850,6 +926,7 @@ def _make_avatar_tool(agent: LlmAgent, user_id: str = "default") -> FunctionTool
                 pass  # plan extraction is best-effort
 
         # Jaagruti Andon gate — check quality after span completes
+        _andon_blocked = False
         try:
             from andon import (
                 AndonGate as _AndonGate,
@@ -894,6 +971,9 @@ def _make_avatar_tool(agent: LlmAgent, user_id: str = "default") -> FunctionTool
                                 "preview": f"Quality gate ({_reason}) — retrying once",
                             },
                         }))
+                        _reset = _deltas.reset()  # the failed attempt's text is not the answer
+                        if _reset:
+                            await _q.put(_reset)
                     _retry_msg = genai_types.Content(role="user", parts=[genai_types.Part(text=(
                         "Your previous attempt failed the quality gate "
                         f"(reason: {_reason}). Try the task once more. "
@@ -932,6 +1012,7 @@ def _make_avatar_tool(agent: LlmAgent, user_id: str = "default") -> FunctionTool
                         "Andon corrective retry failed for %s: %s", agent.name, _retry_exc
                     )
 
+            _andon_blocked = bool(_fired)
             if _fired:
                 _log_andon(agent.name, _reason, _trace_session_id,
                            task[:200], result_text[:200])
@@ -1068,7 +1149,7 @@ def _make_avatar_tool(agent: LlmAgent, user_id: str = "default") -> FunctionTool
                 unique.append(item)
             return unique[:100]
 
-        return {
+        result = {
             "avatar":       agent.name,
             "status":       "complete",
             "result":       _result_for_narad,
@@ -1077,9 +1158,23 @@ def _make_avatar_tool(agent: LlmAgent, user_id: str = "default") -> FunctionTool
             "artifacts":    _unique_payloads(_collected_artifacts),
             "citations":    _unique_payloads(_collected_citations),
         }
+        # Hand off only an answer worth ending the turn on: an empty or
+        # Andon-blocked result goes back to the supervisor, who can recover.
+        if handoff and result_text and not _andon_blocked:
+            if tool_context is not None:
+                tool_context.actions.skip_summarization = True
+            # The turn's one usage event reports the tokens that wrote the reply.
+            result["usage"] = {
+                "model":             _model_id,
+                "prompt_tokens":     span.meter.prompt,
+                "completion_tokens": span.meter.completion,
+                "total_tokens":      span.meter.total,
+                "cost_usd":          _cost_usd,
+            }
+        return result
 
     _run.__name__ = f"invoke_{agent.name.lower()}"
-    _run.__doc__ = description
+    _run.__doc__ = f"{description}{_HAND_OFF_DOC}"
     return FunctionTool(_run)
 
 

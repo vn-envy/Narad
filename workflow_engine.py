@@ -893,6 +893,22 @@ def _assert_bound_session(run: WorkflowRun, session_id: str | None) -> None:
         )
 
 
+def current_stage_owner(run_id: str, *, user_id: str | None = None, session_id: str | None = None) -> str:
+    """The avatar declared as owner of the run's current stage ("" if none).
+
+    The chat pre-router sends a stage-bound turn straight to this avatar.
+    """
+    run = get_workflow_run(run_id)
+    if not run or (user_id is not None and run.user_id != user_id):
+        return ""
+    try:
+        _assert_bound_session(run, session_id)
+    except WorkflowSessionMismatch:
+        return ""
+    stage = _stage(get_pack(run.workflow_id) or {}, run.current_stage_id)
+    return str((stage or {}).get("owner") or "")
+
+
 def build_workflow_context(
     run_id: str,
     *,

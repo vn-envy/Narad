@@ -227,6 +227,41 @@ export interface AndonAlertPayload {
   task_preview?: string
 }
 
+/** The answer being written: streamed text_delta events, before narad_synthesis. */
+export interface LiveAnswer {
+  source: string
+  text: string
+  avatars: AvatarName[]
+}
+
+// Streamed text per source ('narad' or an avatar), in the order sources began.
+interface LiveStreams {
+  order: string[]
+  sources: Record<string, { text: string; handoff: boolean }>
+}
+
+// Floor between live re-renders: markdown re-parses on every one, and a phone
+// reads comfortably at 20 updates a second.
+const LIVE_MIN_INTERVAL_MS = 50
+
+function emptyLiveStreams(): LiveStreams {
+  return { order: [], sources: {} }
+}
+
+/** Narad's own text is the reply; otherwise a handed-off avatar's is. Drafts an
+ *  avatar writes for Narad to combine (handoff=false) never show as the answer. */
+function pickLiveAnswer(streams: LiveStreams, completedAvatars: AvatarName[]): LiveAnswer | null {
+  const narad = streams.sources.narad
+  if (narad?.text) return { source: 'narad', text: narad.text, avatars: [...completedAvatars] }
+  for (const source of streams.order) {
+    const entry = streams.sources[source]
+    if (source !== 'narad' && entry?.handoff && entry.text) {
+      return { source, text: entry.text, avatars: [source as AvatarName] }
+    }
+  }
+  return null
+}
+
 interface AvatararState {
   messages: Message[]
   avatars: Record<AvatarName, AvatarStatus>
@@ -240,6 +275,8 @@ interface AvatararState {
   pendingToolUi: PendingToolUi | null
   andonAlert: AndonAlertPayload | null
   guidedSession: GuidedSessionMeta | null
+  /** Streamed answer text; kept out of `messages` so it is never persisted mid-stream. */
+  liveAnswer: LiveAnswer | null
 }
 
 const AVATAR_NAMES: AvatarName[] = ['Matsya', 'Rama', 'Krishna', 'Parashurama']
@@ -411,11 +448,16 @@ export function useAvatara(userId = 'default') {
     pendingToolUi: null,
     andonAlert: null,
     guidedSession: loadGuidedSession(userId),
+    liveAnswer: null,
   })
 
-  // Set to Date.now() on the FIRST narad_synthesis chunk — intentionally excludes
-  // all avatar/tool call time so tok/sec reflects only LLM generation speed.
+  // Set to Date.now() when the answer's first text shows (the first visible
+  // text_delta, else the first narad_synthesis chunk) — intentionally excludes
+  // routing and tool time so tok/sec reflects only LLM generation speed.
   const synthStartRef = useRef<number | null>(null)
+  const liveStreamsRef = useRef<LiveStreams>(emptyLiveStreams())
+  const liveFrameRef = useRef<number | null>(null)
+  const liveRenderedAtRef = useRef(0)
   // Per-message token usage captured from the `usage` SSE event (fires before `done`)
   const msgUsageRef = useRef<TokenUsage | null>(null)
   const sessionAvatarsRef = useRef<AvatarName[]>([])
@@ -423,6 +465,36 @@ export function useAvatara(userId = 'default') {
   const msgIdRef = useRef('')
   const convoSessionId = useRef(fallbackSessionId ?? initialSessionId)
   const abortRef = useRef<AbortController | null>(null)
+
+  // Deltas land in a ref; the view catches up at most once per animation frame
+  // (and every LIVE_MIN_INTERVAL_MS), so a fast stream never janks a phone.
+  const scheduleLiveRender = useCallback(() => {
+    if (liveFrameRef.current !== null) return
+    const tick = () => {
+      if (performance.now() - liveRenderedAtRef.current < LIVE_MIN_INTERVAL_MS) {
+        liveFrameRef.current = requestAnimationFrame(tick)
+        return
+      }
+      liveFrameRef.current = null
+      liveRenderedAtRef.current = performance.now()
+      const live = pickLiveAnswer(liveStreamsRef.current, sessionAvatarsRef.current)
+      setState(s => (
+        s.liveAnswer?.text === live?.text && s.liveAnswer?.source === live?.source
+          ? s
+          : { ...s, liveAnswer: live }
+      ))
+    }
+    liveFrameRef.current = requestAnimationFrame(tick)
+  }, [])
+
+  /** Forget streamed text; the caller clears state.liveAnswer in its own update. */
+  const resetLiveStreams = useCallback(() => {
+    if (liveFrameRef.current !== null) cancelAnimationFrame(liveFrameRef.current)
+    liveFrameRef.current = null
+    liveStreamsRef.current = emptyLiveStreams()
+  }, [])
+
+  useEffect(() => resetLiveStreams, [resetLiveStreams])
 
   useEffect(() => {
     writeStorage(conversationStorageKey, convoSessionId.current)
@@ -736,8 +808,9 @@ export function useAvatara(userId = 'default') {
     sessionAvatarsRef.current = []
     synthRef.current = ''
     msgIdRef.current = crypto.randomUUID()
-    synthStartRef.current = null  // set on first narad_synthesis chunk, not send()
+    synthStartRef.current = null  // set when the answer's first text shows, not send()
     msgUsageRef.current = null
+    resetLiveStreams()
 
     setState(s => ({
       ...s,
@@ -749,6 +822,7 @@ export function useAvatara(userId = 'default') {
       currentSession: null,
       stepEvents: [],
       andonAlert: null,
+      liveAnswer: null,
     }))
 
     // Terminal-event flag shared by the initial stream and any re-attached
@@ -816,6 +890,49 @@ export function useAvatara(userId = 'default') {
                 },
                 stepEvents: [...s.stepEvents, routeStep].slice(-200),
               }))
+              break
+            }
+
+            case 'route': {
+              // The pre-router sent this turn straight to its owner (no routing call).
+              const avatar = String(evt.data.avatar ?? '')
+              const reason = String(evt.data.reason ?? '').replace(/_/g, ' ')
+              const routeStep: StepEvent = {
+                id: crypto.randomUUID(),
+                avatar: 'narad',
+                kind: 'text',
+                preview: `→ direct to ${avatar}${reason ? ` · ${reason}` : ''}`,
+                ts: Date.now(),
+              }
+              setState(s => ({ ...s, stepEvents: [...s.stepEvents, routeStep].slice(-200) }))
+              break
+            }
+
+            case 'text_delta': {
+              const source = String(evt.data.source ?? 'narad')
+              const streams = liveStreamsRef.current
+              let entry = streams.sources[source]
+              if (!entry) {
+                entry = { text: '', handoff: false }
+                streams.sources[source] = entry
+                streams.order.push(source)
+              }
+              entry.text += String(evt.data.text ?? '')
+              entry.handoff = source === 'narad' || Boolean(evt.data.handoff)
+              if (synthStartRef.current === null && pickLiveAnswer(streams, sessionAvatarsRef.current)) {
+                synthStartRef.current = Date.now()
+              }
+              scheduleLiveRender()
+              break
+            }
+
+            case 'text_reset': {
+              // Routing chatter or a retried attempt: drop that source's text.
+              const source = String(evt.data.source ?? 'narad')
+              const streams = liveStreamsRef.current
+              delete streams.sources[source]
+              streams.order = streams.order.filter(item => item !== source)
+              scheduleLiveRender()
               break
             }
 
@@ -963,8 +1080,10 @@ export function useAvatara(userId = 'default') {
             }
 
             case 'narad_synthesis': {
+              // The complete reply replaces the streamed text in the same render.
               const chunk = evt.data.text as string
               if (synthStartRef.current === null) synthStartRef.current = Date.now()
+              resetLiveStreams()
               synthRef.current += chunk
               const captured = synthRef.current
               const id = msgIdRef.current
@@ -973,6 +1092,7 @@ export function useAvatara(userId = 'default') {
                 if (existing) {
                   return {
                     ...s,
+                    liveAnswer: null,
                     messages: s.messages.map(m =>
                       m.id === id ? { ...m, text: captured } : m
                     ),
@@ -984,7 +1104,7 @@ export function useAvatara(userId = 'default') {
                   text: captured,
                   avatarsInvolved: sessionAvatarsRef.current,
                 }
-                return { ...s, messages: [...s.messages, assistantMsg] }
+                return { ...s, liveAnswer: null, messages: [...s.messages, assistantMsg] }
               })
               break
             }
@@ -1036,6 +1156,7 @@ export function useAvatara(userId = 'default') {
               const finalUsage: TokenUsage | undefined = turnUsage
                 ? { ...turnUsage, tokPerSec, synthDurationMs }
                 : undefined
+              resetLiveStreams()
 
               setState(s => {
                 // Snapshot avatar wall-clock latencies before avatars state resets next turn
@@ -1057,6 +1178,7 @@ export function useAvatara(userId = 'default') {
                   ...s,
                   streaming: false,
                   naradActive: false,
+                  liveAnswer: null,
                   currentSession: session,
                   messages: s.messages.map(m =>
                     m.id === msgIdRef.current
@@ -1157,10 +1279,12 @@ export function useAvatara(userId = 'default') {
               convoSessionId.current = rotateConvoSessionId(userId)
               const errMsg = evt.data.message as string
               toast.error('Error', { description: errMsg, duration: 6000 })
+              resetLiveStreams()
               setState(s => ({
                 ...s,
                 streaming: false,
                 naradActive: false,
+                liveAnswer: null,
                 error: errMsg,
                 avatars: initialAvatars(),
               }))
@@ -1231,7 +1355,7 @@ export function useAvatara(userId = 'default') {
       await consumeStream(res.body)
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') {
-        setState(s => ({ ...s, streaming: false, naradActive: false, avatars: initialAvatars() }))
+        setState(s => ({ ...s, streaming: false, naradActive: false, liveAnswer: null, avatars: initialAvatars() }))
         return
       }
       // fall through to the re-attach loop below
@@ -1245,7 +1369,7 @@ export function useAvatara(userId = 'default') {
     let lastErr: string | null = null
     for (let attempt = 0; attempt < 3 && !gotTerminal; attempt++) {
       if (abortRef.current?.signal.aborted) {
-        setState(s => ({ ...s, streaming: false, naradActive: false, avatars: initialAvatars() }))
+        setState(s => ({ ...s, streaming: false, naradActive: false, liveAnswer: null, avatars: initialAvatars() }))
         return
       }
       await sleep(800 * (attempt + 1))
@@ -1267,7 +1391,7 @@ export function useAvatara(userId = 'default') {
         lastErr = `Re-attach failed (HTTP ${attach.status})`
       } catch (err) {
         if (err instanceof Error && err.name === 'AbortError') {
-          setState(s => ({ ...s, streaming: false, naradActive: false, avatars: initialAvatars() }))
+          setState(s => ({ ...s, streaming: false, naradActive: false, liveAnswer: null, avatars: initialAvatars() }))
           return
         }
         lastErr = err instanceof Error ? err.message : 'Unknown error'
@@ -1283,7 +1407,7 @@ export function useAvatara(userId = 'default') {
         error: lastErr ?? 'Connection lost — check that the server is reachable.',
       }))
     }
-  }, [state.streaming, state.activeArtifactSession, userId, startGuided, exitGuided, appendMessages])
+  }, [state.streaming, state.activeArtifactSession, userId, startGuided, exitGuided, appendMessages, resetLiveStreams, scheduleLiveRender])
 
   const clearArtifact = useCallback(() => {
     setState(s => ({ ...s, activeArtifactSession: null }))
