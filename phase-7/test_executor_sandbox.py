@@ -32,9 +32,10 @@ import narad_paths  # noqa: F401  — registers all phase dirs; must precede pha
 for _name in ("executor", "dharma", "narad_config"):
     sys.modules.pop(_name, None)
 
-from executor import _check_safety, execute_code  # noqa: E402
+from executor import _OUTPUTS_DIR, _check_safety, execute_code  # noqa: E402
 
 from narad_config import DHARMA_POLICY_PATH  # noqa: E402
+from profile_context import profile_scope  # noqa: E402
 
 
 class AstSafetyTests(unittest.TestCase):
@@ -99,6 +100,13 @@ class ExecutionTests(unittest.TestCase):
         result = execute_code("print('x' * 100_000)")
         self.assertEqual(result["status"], "ok")
         self.assertLessEqual(len(result["stdout"]), 4000)
+
+    def test_output_is_filed_under_the_active_profile(self) -> None:
+        with profile_scope("asha"):
+            result = execute_code("open('page.html', 'w').write('<p>hello</p>')")
+        self.assertEqual(result["status"], "ok", result["stderr"])
+        self.assertEqual(result["media_path"], f"runs/asha/{result['run_id']}")
+        self.assertEqual(result["output_files"], [str(_OUTPUTS_DIR / result["media_path"] / "page.html")])
 
 
 class DharmaGateTests(unittest.TestCase):

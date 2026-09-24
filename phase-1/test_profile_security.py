@@ -346,7 +346,8 @@ class ProfileSecurityTests(unittest.TestCase):
 
         token = alice["Authorization"].removeprefix("Bearer ")
         media = TestClient(server.app, cookies={server._MEDIA_COOKIE: token})
-        self.assertEqual(media.get("/media/run-1/video.mp4").status_code, 200)
+        # A top-level run folder predates per-profile runs: the owner's alone.
+        self.assertEqual(media.get("/media/run-1/video.mp4").status_code, 404)
         self.assertEqual(media.get("/media/computer-use/alice/s1/shot.png").content, b"computer-use/alice/s1/shot.png")
         (self.media_root / "phone-use/bob/t1").mkdir(parents=True)
         (self.media_root / "phone-use/bob/t1/x.png").write_bytes(b"bob phone")
@@ -372,7 +373,7 @@ class ProfileSecurityTests(unittest.TestCase):
         self.assertIn(f'{server._MEDIA_COOKIE}=""', closed.headers["set-cookie"])
 
     def test_media_is_sandboxed_and_downloads_never_render(self) -> None:
-        page = self.media_root / "run-1" / "page.html"
+        page = self.media_root / "runs" / "alice" / "run-1" / "page.html"
         download = self.media_root / "computer-use" / "alice" / "s1" / "downloads" / "invoice.html"
         for target in (page, download):
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -380,7 +381,7 @@ class ProfileSecurityTests(unittest.TestCase):
         token = self._login("alice", "2468")["token"]
         media = TestClient(server.app, cookies={server._MEDIA_COOKIE: token})
 
-        rendered = media.get("/media/run-1/page.html")
+        rendered = media.get("/media/runs/alice/run-1/page.html")
         self.assertEqual(rendered.status_code, 200)
         # Scripts run only in an opaque origin: never with this app's storage.
         self.assertEqual(rendered.headers["content-security-policy"], "sandbox allow-scripts")

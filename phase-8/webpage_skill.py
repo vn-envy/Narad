@@ -88,8 +88,7 @@ def create_webpage(
     if result["status"] == "ok" and html_files:
         out_path = html_files[0]
         rel      = Path(out_path).name
-        run_id   = result["run_id"]
-        url      = f"{_SERVER_MEDIA_BASE}/{run_id}/{rel}"
+        url      = f"{_SERVER_MEDIA_BASE}/{result['media_path']}/{rel}"
         return {
             "status":    "ok",
             "url":       url,

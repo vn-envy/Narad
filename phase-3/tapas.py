@@ -22,7 +22,8 @@ Sutra schema (one JSON per line in sutras.jsonl):
     "result":      str  — short evidence snippet (300 chars; legacy: 1500),
     "score":       float 0.0–1.0,
     "score_reason":str,
-    "ttl_days":    int  (default 90 — sutras expire)
+    "ttl_days":    int  (default 90 — sutras expire),
+    "profile_id":  str  — whose session taught it (absent on older rows)
   }
 
 Thresholds (tunable via env vars):
@@ -56,7 +57,7 @@ from typing import Any
 from narad_config import SUTRA_DEMOTIONS_PATH as _DEMOTIONS_PATH
 from narad_config import SUTRAS_PATH as _SUTRAS_PATH
 from narad_config import WEAK_SESSIONS_PATH as _WEAK_PATH
-from profile_context import profile_data_path
+from profile_context import current_profile_id, profile_data_path
 
 PROMOTE_THRESHOLD = float(os.environ.get("TAPAS_PROMOTE_THRESHOLD", "0.80"))  # raised from 0.75
 FLAG_THRESHOLD    = float(os.environ.get("TAPAS_FLAG_THRESHOLD",    "0.45"))
@@ -944,6 +945,7 @@ def process_session(
             "score":        score,
             "score_reason": reason,
             "ttl_days":     SUTRA_TTL_DAYS,
+            "profile_id":   current_profile_id(),
         }
         _append(_sutras_path(), sutra)
         try:

@@ -13,8 +13,8 @@ from pathlib import Path
 from narad_config import ARTIFACTS_DIR, ATTACHMENTS_DIR, CONFIG_DIR, PROFILES_DIR
 from profile_context import current_profile_id
 
-# Per-profile media captures live under these ARTIFACTS_DIR folders.
-_PROFILE_ARTIFACT_ROOTS = ("computer-use", "phone-use")
+# Per-profile captures and generated runs live under these ARTIFACTS_DIR folders.
+_PROFILE_ARTIFACT_ROOTS = ("computer-use", "phone-use", "runs")
 
 
 def caller_is_owner() -> bool:

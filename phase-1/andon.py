@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from narad_config import CONFIG_DIR
-from profile_context import profile_data_path
+from profile_context import current_profile_id, profile_data_path
 
 ANDON_LOG_PATH: Path = CONFIG_DIR / "andon_log.jsonl"
 
@@ -80,6 +80,7 @@ def log_andon(
         "session_id":     session_id,
         "task_preview":   task_preview[:200],
         "result_preview": result_preview[:200],
+        "profile_id":     current_profile_id(),
     }
     path = _andon_log_path()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -104,11 +105,14 @@ def load_andon_log(limit: int = 50) -> list[dict]:
     return list(reversed(events[-limit:]))
 
 
-def andon_stats(days: int = 7) -> dict:
-    """Return counts by avatar and failure class for the last N days."""
+def andon_stats(days: int = 7, events: list[dict] | None = None) -> dict:
+    """Return counts by avatar and failure class for the last N days.
+
+    ``events`` defaults to this profile's recent log (newest 500)."""
     from datetime import timedelta
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-    events = [e for e in load_andon_log(limit=500) if e.get("ts", "") >= cutoff]
+    source = load_andon_log(limit=500) if events is None else events
+    events = [e for e in source if e.get("ts", "") >= cutoff]
 
     by_avatar: dict[str, int] = {}
     by_class:  dict[str, int] = {}

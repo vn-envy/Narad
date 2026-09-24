@@ -16,13 +16,24 @@ from pathlib import Path
 from typing import Any
 
 from narad_config import ARTIFACTS_DIR
+from profile_context import current_profile_id, validate_profile_id
 
 SERVER_MEDIA_BASE = os.environ.get("MEDIA_URL_BASE", "http://127.0.0.1:8000/media").rstrip("/")
+# Generated files (executor runs, images, clips, web captures) are filed under
+# ARTIFACTS_DIR/runs/<profile_id>/<run_id>/, so /media and the file tools can
+# tell whose they are. Top-level run folders predate this and are the owner's.
+PROFILE_RUNS_ROOT = "runs"
+
+
+def profile_run_path(run_id: str, *, profile_id: str | None = None) -> str:
+    """``runs/<profile_id>/<run_id>``: a run's folder under ARTIFACTS_DIR and /media."""
+    owner = validate_profile_id(profile_id or current_profile_id())
+    return f"{PROFILE_RUNS_ROOT}/{owner}/{run_id}"
 
 
 def ensure_artifact_dir(prefix: str) -> Path:
     run_id = f"{prefix}_{uuid.uuid4().hex[:8]}"
-    out_dir = ARTIFACTS_DIR / run_id
+    out_dir = ARTIFACTS_DIR / profile_run_path(run_id)
     out_dir.mkdir(parents=True, exist_ok=True)
     return out_dir
 

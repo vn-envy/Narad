@@ -89,3 +89,20 @@ def _write(record: dict) -> None:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
     except Exception:
         pass  # audit failure never blocks execution
+
+
+def read_audit_log() -> list[dict]:
+    """Every audit record, newest first. Each names its profile in ``user_id``."""
+    try:
+        lines = _AUDIT_PATH.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+    records: list[dict] = []
+    for raw in reversed(lines):
+        try:
+            entry = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(entry, dict):
+            records.append(entry)
+    return records

@@ -43,6 +43,7 @@ from narad_config import (
     SWAPNA_INBOX_DIR,
     TRACE_DIR,
 )
+from profile_context import current_profile_id, record_profile_id
 from smriti_indexer import index_episode_record
 from smriti_recall_ranker import build_semantic_memory_context
 from smriti_vector_store import memory_tier_diagnostics as _vector_memory_tier_diagnostics
@@ -145,7 +146,9 @@ def log_mutation(
     policy: str | None = None,
     provenance_ids: list[str] | None = None,
     metadata: dict[str, Any] | None = None,
+    profile_id: str | None = None,
 ) -> None:
+    """Append to the shared mutation ledger, naming the profile the row is about."""
     record: dict[str, Any] = {
         "id": str(uuid.uuid4()),
         "ts": datetime.now(timezone.utc).isoformat(),
@@ -154,6 +157,7 @@ def log_mutation(
         "entity_id": entity_id,
         "actor": actor,
         "detail": _truncate(detail, 220),
+        "profile_id": profile_id or current_profile_id(),
     }
     if policy:
         record["policy"] = policy
@@ -210,6 +214,7 @@ def capture_episode(
         actor=avatar,
         detail=task,
         provenance_ids=episode.provenance,
+        profile_id=user_id,
     )
 
     commitments = _record_commitments(
@@ -228,6 +233,7 @@ def capture_episode(
             actor=avatar,
             detail=commitment["content"],
             provenance_ids=commitment["provenance_ids"],
+            profile_id=user_id,
         )
 
     return {
@@ -493,8 +499,10 @@ def update_sankalpa(
     return {"status": "ok", "commitment_count": len(commitments)}
 
 
-def load_commitments(user_id: str = "default") -> list[dict[str, Any]]:
-    return [row for row in _load_jsonl(SANKALPA_COMMITMENTS_PATH) if row.get("user_id") == user_id]
+def load_commitments(user_id: str | None = "default") -> list[dict[str, Any]]:
+    """One profile's commitments; None returns every profile's (owner view)."""
+    rows = _load_jsonl(SANKALPA_COMMITMENTS_PATH)
+    return rows if user_id is None else [row for row in rows if row.get("user_id") == user_id]
 
 
 def _select_swapna_region(user_id: str, max_episodes: int) -> list[dict[str, Any]]:
@@ -590,6 +598,7 @@ def run_swapna_cycle(
             policy="dharma.swapna",
             provenance_ids=source_ids,
             metadata={"fact_count": len(suggestions["facts"]), "scenario_count": len(suggestions["scenarios"])},
+            profile_id=user_id,
         )
     else:
         log_mutation(
@@ -601,6 +610,7 @@ def run_swapna_cycle(
             policy="dharma.swapna",
             provenance_ids=source_ids,
             metadata={"fact_count": len(suggestions["facts"]), "scenario_count": len(suggestions["scenarios"])},
+            profile_id=user_id,
         )
     return {
         "status": "ok",
@@ -670,6 +680,7 @@ def forget(
         "entity_type": entity_type,
         "entity_id": entity_id,
         "actor": actor,
+        "profile_id": user_id,
     }
     if cascade:
         tombstone["metadata"] = cascade
@@ -677,22 +688,37 @@ def forget(
     return {"status": "ok", "tombstone_id": tombstone["id"], "cascade": cascade}
 
 
-def get_provenance(entity_id: str, *, user_id: str = "default") -> dict[str, Any]:
-    episodes = [row for row in _load_jsonl(_episode_path(user_id)) if row.get("id") == entity_id]
-    if episodes:
-        return {"kind": "episode", "record": episodes[0]}
+def get_provenance(entity_id: str, *, user_id: str | None = "default") -> dict[str, Any]:
+    """Look an entity up among one profile's records (None: every profile's)."""
 
-    mutations = [row for row in _load_jsonl(KARMA_MUTATIONS_PATH) if row.get("entity_id") == entity_id]
+    def _about(row: dict[str, Any]) -> bool:
+        return user_id is None or record_profile_id(row) == user_id
+
+    episode_paths = sorted(EPISODE_DIR.glob("*.jsonl")) if user_id is None else [_episode_path(user_id)]
+    for path in episode_paths:
+        episodes = [row for row in _load_jsonl(path) if row.get("id") == entity_id]
+        if episodes:
+            return {"kind": "episode", "record": episodes[0]}
+
+    mutations = [
+        row for row in _load_jsonl(KARMA_MUTATIONS_PATH)
+        if row.get("entity_id") == entity_id and _about(row)
+    ]
     if mutations:
         return {"kind": "mutation", "records": mutations}
 
-    commitments = [row for row in _load_jsonl(SANKALPA_COMMITMENTS_PATH) if row.get("id") == entity_id]
+    commitments = [
+        row for row in _load_jsonl(SANKALPA_COMMITMENTS_PATH)
+        if row.get("id") == entity_id and _about(row)
+    ]
     if commitments:
         return {"kind": "sankalpa_commitment", "record": commitments[0]}
 
     swapna_file = SWAPNA_INBOX_DIR / f"{entity_id}.json"
     if swapna_file.exists():
-        return {"kind": "swapna", "record": json.loads(swapna_file.read_text())}
+        record = json.loads(swapna_file.read_text())
+        if _about(record):
+            return {"kind": "swapna", "record": record}
     return {"kind": "unknown", "record": None}
 
 

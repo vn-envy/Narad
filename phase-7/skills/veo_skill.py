@@ -16,6 +16,7 @@ import uuid
 from pathlib import Path
 
 from narad_config import ARTIFACTS_DIR
+from tool_result import profile_run_path
 
 _SERVER_MEDIA_BASE = os.environ.get("MEDIA_URL_BASE", "http://localhost:8000/media")
 _VEO_MODEL = os.environ.get("VEO_MODEL", "veo-3.1-generate-preview")
@@ -103,15 +104,15 @@ def generate_video_clip(
             except Exception:
                 return {"status": "error", "error": "Could not extract video bytes from Veo response. Use create_video() as fallback."}
 
-        run_id = uuid.uuid4().hex[:8]
-        out_dir = ARTIFACTS_DIR / run_id
+        media_path = profile_run_path(uuid.uuid4().hex[:8])
+        out_dir = ARTIFACTS_DIR / media_path
         out_dir.mkdir(parents=True, exist_ok=True)
         clip_path = out_dir / "clip.mp4"
         clip_path.write_bytes(video_bytes)
 
         return {
             "status":           "ok",
-            "url":              f"{_SERVER_MEDIA_BASE}/{run_id}/clip.mp4",
+            "url":              f"{_SERVER_MEDIA_BASE}/{media_path}/clip.mp4",
             "path":             str(clip_path),
             "duration_seconds": duration,
             "model":            _VEO_MODEL,

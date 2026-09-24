@@ -25,6 +25,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from narad_config import COST_LEDGER_PATH
+from profile_context import current_profile_id, record_profile_id
 
 # ── Price table (USD per 1M tokens: input, output) ────────────────────────────
 
@@ -82,12 +83,13 @@ def record(
     prompt_tokens: int = 0,
     completion_tokens: int = 0,
     thoughts_tokens: int = 0,
-    user_id: str = "default",
+    user_id: str | None = None,
     session_id: str = "",
 ) -> dict[str, Any]:
     """Append one usage event to the ledger. Never raises past the caller's turn.
 
     source: "turn" (chat), "tapas_judge", "tapas_critique", "swapna", ...
+    user_id: whose turn this was; omitted means the active profile.
     """
     cost, priced = estimate_cost(model, prompt_tokens, completion_tokens + thoughts_tokens)
     entry = {
@@ -99,7 +101,7 @@ def record(
         "thoughts_tokens": int(thoughts_tokens),
         "cost_usd": cost,
         "priced": priced,
-        "user_id": user_id,
+        "user_id": user_id or current_profile_id(),
         "session_id": session_id,
     }
     with _write_lock:
@@ -112,7 +114,10 @@ def record(
 # ── Read path ─────────────────────────────────────────────────────────────────
 
 def summarize(days: int = 7, user_id: str | None = None) -> dict[str, Any]:
-    """Roll the ledger up over the trailing `days`: totals, by_day, by_source, by_model."""
+    """Roll the ledger up over the trailing `days`: totals, by_day, by_source, by_model.
+
+    ``user_id`` limits it to one profile (rows naming none are the owner's);
+    None covers every profile."""
     days = max(1, min(days, 365))
     cutoff = datetime.now() - timedelta(days=days)
     total_usd = 0.0
@@ -133,7 +138,7 @@ def summarize(days: int = 7, user_id: str | None = None) -> dict[str, Any]:
                     continue
                 if ts < cutoff:
                     continue
-                if user_id and e.get("user_id") != user_id:
+                if user_id and record_profile_id(e) != user_id:
                     continue
                 entries += 1
                 cost = float(e.get("cost_usd", 0.0))
