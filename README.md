@@ -288,21 +288,33 @@ To change a provider's tier, use `NARAD_PROVIDER_TIERS` (for example `nebius=tru
 With a Sarvam key connected in Kunji, voice mode speaks and listens in Indian languages:
 - **Voice out:** Bulbul v3, with a distinct voice for each avatar, in Hindi, 9 other Indian languages and Indian English.
 - **Voice in:** Saaras speech-to-text in `codemix` mode, so Hinglish arrives as it was spoken ("मेरा phone number बदल दो").
-- **Hindi replies:** turning on the हिन्दी toggle makes Narad *answer* in Hindi, not just read English aloud in a Hindi voice.
+- **Hindi replies:** the language button (English → हिन्दी → Auto) makes Narad *answer* in that language, not just read English aloud in a Hindi voice. Hindi can be written in Devanagari or in Roman script (Hinglish).
+- **Starts with the first sentence:** replies are read aloud while they stream. The PWA splits the answer into sentences as they arrive (`src/lib/speech-segments.ts`), synthesizes them in order two at a time, and plays them back to back without gaps. Code, tables and links are replaced by a short "it's on screen" note. Very long replies stop after about 3,000 characters with "the rest is on screen". Speaking, tapping the orb or asking something new stops playback at once.
 
 Speech can't be pseudonymised, so the privacy gateway sends it to Sarvam only when Sarvam is rated `trusted`: `NARAD_PROVIDER_TIERS=sarvam=trusted`, which the family pilot launcher sets. Do this only after opting out of training and setting minimum retention in the Sarvam dashboard.
+
+Each person picks their own settings in voice mode's settings sheet, stored in `profiles/<id>/voice.json` (`GET`/`PUT /voice/preferences`):
+- reply language (English, हिन्दी, or the same as they speak);
+- Hindi script;
+- **Keep my voice on this Mac:** transcription and read-aloud use only local engines for that person, whatever Sarvam's rating. It is off by default, because Sarvam is much better in Hindi.
 
 Voice can also stay fully local:
 
 ```bash
 source .venv/bin/activate
 pip install -e ".[voice]"
+pip install mlx-whisper      # Apple Silicon: whisper-large-v3-turbo on the GPU
 
 # macOS
 brew install espeak-ng ffmpeg
 ```
 
-Narad resolves an available engine and falls back gracefully: Sarvam, then VoxCPM/Kokoro for voice out, and Sarvam, then faster-whisper for voice in. When no transcription engine is available, voice input falls back to the browser's own speech recognition.
+Narad resolves an available engine and falls back gracefully:
+- **Voice out:** Sarvam, then VoxCPM/Kokoro. `/voice/tts` takes one sentence or two per call and keeps recent segments in an in-memory cache, per profile. Sarvam calls reuse one pooled connection with a 5 s timeout (`NARAD_SARVAM_TTS_TIMEOUT`). After a Sarvam failure, the local voice answers for 30 s.
+- **Voice in:** Sarvam, then mlx-whisper (`NARAD_MLX_WHISPER`, Apple Silicon only), then faster-whisper. The language hint is passed through. Local models load on first use and unload after 5 minutes idle (`NARAD_STT_IDLE_UNLOAD_S`). `NARAD_STT_ENGINE=sarvam|mlx|whisper` forces one.
+- **No transcription engine:** voice input falls back to the browser's own speech recognition, except for someone who keeps their voice on the Mac.
+
+Both endpoints return a `Server-Timing` header, and the settings sheet shows where the last reply's time to first audio went.
 
 ## Development
 
