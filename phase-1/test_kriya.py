@@ -317,9 +317,13 @@ def test_expired_approval_pauses_and_asks_again(home, monkeypatch) -> None:
     surface = FakeSurface()
     runtime = _runtime(lambda task: surface)
     task = runtime.submit(profile_id="asha", goal="Order the masala tea")
-    first = _wait(runtime, task.task_id, "waiting_approval").proposal_id
+    # A 0.3 s approval can expire before a busy test run sees the task waiting
+    # for it, so wait for the pause and read the expired proposal from the store.
     paused = _wait(runtime, task.task_id, "waiting_help")
     assert paused.help["kind"] == "approval_expired" and "expired" in paused.detail
+    expired = anumati.list_proposals(profile_id="asha", status="expired")
+    assert len(expired) == 1
+    first = expired[0].proposal_id
     monkeypatch.setenv("NARAD_APPROVAL_TTL_S", "600")
     runtime.resume(task.task_id, profile_id="asha")
     again = _wait(runtime, task.task_id, "waiting_approval")

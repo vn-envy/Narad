@@ -1036,9 +1036,11 @@ class TaskRuntime:
         }
         if usage is not None:
             changes["usage"] = usage
-        store.update_task(task.task_id, profile_id=task.profile_id, **changes)
+        # The closing event is written first: whoever sees the final status
+        # (the phone polling, a waiter) also sees the step that ended it.
         store.add_event(task.task_id, profile_id=task.profile_id, kind=status, summary=summary,
                         data={"answer": answer} if answer else None)
+        store.update_task(task.task_id, profile_id=task.profile_id, **changes)
         words = {"done": "Done", "failed": "Could not finish", "cancelled": "Stopped"}[status]
         body = f"{summary} {answer}".strip()
         if status in {"done", "failed"}:
