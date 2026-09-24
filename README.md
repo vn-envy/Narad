@@ -162,6 +162,37 @@ It expects a configured Cloudflare tunnel token at `~/.cloudflared/narad-token`.
 
 Phones need only a modern browser and the HTTPS URL. Android ADB pairing is required only when Narad should operate the phone itself.
 
+### Family access with Cloudflare Access
+
+Cloudflare Access puts an email sign-in in front of the tunnel, so only the people you list ever reach Narad's profile gate. Narad then checks the Access token on every tunnelled request itself, so a missing or mistyped policy fails closed instead of exposing the gate.
+
+1. In the Cloudflare dashboard open **Zero Trust → Access → Applications → Add an application → Self-hosted**.
+2. Name it Narad and add a public hostname matching the host in your `NARAD_PUBLIC_URL`. Set the session duration, for example 1 month, so phones are not asked to sign in every day.
+3. Under login methods keep **One-time PIN** (or add Google under Zero Trust → Settings → Authentication and select it).
+4. Add an **Allow** policy whose Include rule is **Emails**, listing each family member's address.
+5. Optional, for an uptime monitor: add a second self-hosted application for the same hostname with path `/health` and a **Bypass** policy that includes Everyone. Narad exempts only `GET /health`.
+6. Save, then copy the **Application Audience (AUD) Tag** from the application's overview. Your team domain, `<team>.cloudflareaccess.com`, is under Zero Trust → Settings.
+7. Add both to the untracked `.env` and restart `Start Family Pilot.command`:
+
+```bash
+NARAD_CF_ACCESS_TEAM_DOMAIN=<team>.cloudflareaccess.com
+NARAD_CF_ACCESS_AUD=<application-audience-tag>
+```
+
+With both set, a tunnelled request without a valid Access token gets `403`. Requests made directly on the Mac at `http://127.0.0.1:8000` are unaffected. The launcher warns when either value is missing.
+
+#### Adding someone new (at home or elsewhere)
+
+Where someone lives does not matter; their email and an invite do.
+
+1. Add their email to the Access application's Allow policy.
+2. As the owner, create a Narad invite code: on the profile gate choose **Add person → Owner: create an invite code**, or call `POST /profiles/invites` with the owner's session. Each code works once, for 72 hours.
+3. They open your `NARAD_PUBLIC_URL` on their Android phone, enter their email, and type the one-time PIN Cloudflare emails them.
+4. On Narad's gate they choose **Add person**, enter the invite code, and pick their own PIN.
+5. They install the app from Chrome's menu (**Install app** or **Add to Home screen**).
+
+One installation supports up to 12 profiles and holds one household's data on one Mac. Another household should run its own Narad on its own Mac rather than join yours.
+
 ### Google owner setup
 
 Create one Google OAuth web client and add the public callback URL:
@@ -245,6 +276,7 @@ To change a provider's tier, use `NARAD_PROVIDER_TIERS` (for example `nebius=tru
 
 - Narad binds to `127.0.0.1`; remote access requires an intentional authenticated tunnel or proxy.
 - Family mode uses strict auth and profile-scoped server checks, not only frontend hiding.
+- Behind Cloudflare Access, Narad also verifies the Access JWT's signature, audience, issuer, and expiry on every tunnelled request before its own profile auth runs.
 - Provider credentials are excluded from Git and stored through the OS keychain where supported.
 - Email sends, calendar writes, browser submissions, desktop actions, phone actions, and other consequential mutations are preview-first.
 - Dharma fails closed when required consent is missing; Karma records mutations and Yantra records provenance.

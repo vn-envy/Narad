@@ -736,6 +736,37 @@ async def _bearer_auth(request, call_next):
     return _AuthJSONResponse({"detail": "Unauthorized"}, status_code=401)
 
 
+# ── Cloudflare Access (defense in depth) ──────────────────────────────────────
+# With NARAD_CF_ACCESS_TEAM_DOMAIN and NARAD_CF_ACCESS_AUD set, every request
+# that is not a direct loopback one must carry the JWT Cloudflare Access signs
+# for this application, so a tunnel route or policy mistake cannot expose even
+# the profile gate. Registered after _bearer_auth, so it runs first. GET
+# /health stays open for an Access "Bypass" policy used by uptime probes.
+import cf_access as _cf_access
+
+_CF_ACCESS = _cf_access.load_config()
+
+
+@app.middleware("http")
+async def _cloudflare_access(request, call_next):
+    if (
+        _CF_ACCESS is None
+        or request.method == "OPTIONS"
+        or (request.method == "GET" and request.url.path == "/health")
+        or _is_local_request(request)
+    ):
+        return await call_next(request)
+    try:
+        claims = await _cf_access.verify_request(_CF_ACCESS, request.headers, request.cookies)
+    except Exception as exc:  # fail closed on anything unexpected too
+        logging.getLogger("narad.server").warning(
+            "Cloudflare Access rejected %s %s: %s", request.method, request.url.path, exc
+        )
+        return _AuthJSONResponse({"detail": "Cloudflare Access required"}, status_code=403)
+    request.state.access_email = str(claims.get("email") or "")
+    return await call_next(request)
+
+
 # CORS pinned to the frontend dev origins; extend via NARAD_ALLOWED_ORIGINS
 # (comma-separated). Added after the auth middleware so preflight OPTIONS is
 # answered by CORS before auth runs.

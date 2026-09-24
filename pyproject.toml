@@ -23,6 +23,8 @@ dependencies = [
     "litellm>=1.83.0,<1.84.0",
     "httpx>=0.27.0",
     "requests>=2.32.0",
+    # Cloudflare Access JWT verification (phase-1/cf_access.py).
+    "pyjwt[crypto]>=2.8",
     "pydantic>=2.6.0",
     "nest_asyncio>=1.6.0",
     "numpy>=1.26.0",

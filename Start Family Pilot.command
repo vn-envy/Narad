@@ -32,6 +32,10 @@ command -v cloudflared >/dev/null 2>&1 || die "cloudflared is not installed. Run
 
 [ -n "$PUBLIC_URL" ] || die "Set NARAD_PUBLIC_URL=https://<your-narad-host> in $ROOT/.env (kept out of git)."
 
+if [ -z "${NARAD_CF_ACCESS_TEAM_DOMAIN:-}" ] || [ -z "${NARAD_CF_ACCESS_AUD:-}" ]; then
+    warn "Cloudflare Access verification is off: set NARAD_CF_ACCESS_TEAM_DOMAIN and NARAD_CF_ACCESS_AUD in $ROOT/.env (see README, Family access with Cloudflare Access)."
+fi
+
 export PATH="$HOME/.local/bin:$PATH"
 
 if [ ! -d "$FRONTEND_DIR/node_modules" ]; then
