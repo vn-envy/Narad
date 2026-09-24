@@ -772,6 +772,7 @@ export function ChatPanel({
         role="log"
         aria-live="polite"
         aria-relevant="additions"
+        aria-busy={streaming}
         aria-label="Conversation"
       >
         {messages.length === 0 && (
