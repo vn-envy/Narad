@@ -17,6 +17,57 @@ from decision_engine import DecisionQuestion, JevDecisionProvider, jev_status
 
 
 class DecisionEngineTests(unittest.TestCase):
+    def setUp(self) -> None:
+        import tempfile
+
+        import privacy_gateway
+
+        home = Path(tempfile.mkdtemp(prefix="narad-jev-privacy-"))
+        for patcher in (
+            patch.dict(os.environ, {"NARAD_PII_DETECTOR": "rules"}),
+            patch.object(privacy_gateway, "_privacy_dir", lambda profile_id=None: home),
+            patch.object(privacy_gateway, "_family_terms", lambda: {"asha sharma": ("PERSON", "Asha Sharma")}),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        privacy_gateway._terms_cache.update(key=None, pattern=None, labels={}, checked=0.0)
+        self.addCleanup(privacy_gateway._terms_cache.update, checked=0.0)
+
+    def test_jev_state_goes_through_the_privacy_gateway(self) -> None:
+        captured: dict = {}
+        provider = JevDecisionProvider(api_key="test-key")
+
+        def fake_post(payload, headers):
+            captured["payload"] = payload
+            return httpx.Response(
+                200,
+                request=httpx.Request("POST", "https://api.typesafe.ai/v1/systemone"),
+                json={"model": "jev-latest", "answers": {"risky": {"type": "noul", "noul": 0.1}}},
+            )
+
+        with patch.object(provider, "_post", side_effect=fake_post):
+            result = provider.evaluate(
+                decision_id="gateway_v1",
+                state={"task": "Pay Asha Sharma via asha@okaxis"},
+                questions={"risky": DecisionQuestion("noul", "Risky?")},
+                record_cost=False,
+            )
+        self.assertTrue(result.available)
+        self.assertNotIn("Asha", str(captured["payload"]))
+        self.assertNotIn("okaxis", str(captured["payload"]))
+
+        with patch.dict(os.environ, {"NARAD_PII_DETECTOR": "openmed"}), \
+             patch("privacy_gateway.redactor_ready", return_value=False), \
+             patch.object(provider, "_post") as never_called:
+            blocked = provider.evaluate(
+                decision_id="gateway_v1",
+                state={"task": "Pay Asha Sharma"},
+                questions={"risky": DecisionQuestion("noul", "Risky?")},
+                record_cost=False,
+            )
+        self.assertEqual(blocked.status, "privacy_blocked")
+        never_called.assert_not_called()
+
     def test_jev_parses_typed_answers_and_redacts_state(self) -> None:
         captured: dict = {}
         provider = JevDecisionProvider(api_key="test-key")

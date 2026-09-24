@@ -67,6 +67,7 @@ _DEFAULT_TIERS: dict[str, str] = {
     "groq": REDACT,
     "cerebras": REDACT,
     "mimo": REDACT,
+    "typesafe": REDACT,  # Jev decision API; retention terms unverified
     "custom": REDACT,
     "unknown": REDACT,
     "xai": BLOCKED,
@@ -786,6 +787,28 @@ def completion(**kwargs: Any) -> Any:
         record_egress(model=model, source=source, tier=tier,
                       chars=len(json.dumps(messages, ensure_ascii=False, default=str)))
     return litellm.completion(**kwargs)
+
+
+def guard_payload(provider: str, payload: Any, *, source: str) -> Any:
+    """A JSON-like payload that may be sent to `provider` (pseudonymised if required)."""
+    tier = provider_tier(provider)
+    if tier == BLOCKED:
+        record_egress(model=provider, source=source, tier=tier, blocked="policy")
+        raise PolicyBlocked(f"{provider} is blocked by owner policy.")
+    if tier != REDACT:
+        if tier != LOCAL:
+            record_egress(model=provider, source=source, tier=tier,
+                          chars=len(json.dumps(payload, ensure_ascii=False, default=str)))
+        return payload
+    if not redactor_ready():
+        record_egress(model=provider, source=source, tier=tier, blocked="redactor_unavailable")
+        _openmed.require()
+    counts: dict[str, int] = {}
+    cleaned = _walk(copy.deepcopy(payload), lambda text: redact_text(text, counts=counts))
+    serialized = json.dumps(cleaned, ensure_ascii=False, default=str)
+    _check_outgoing(serialized, provider, source, counts)
+    record_egress(model=provider, source=source, tier=tier, entities=counts, chars=len(serialized))
+    return cleaned
 
 
 def guard_texts(provider_or_model: str, texts: Iterable[str], *, source: str = "embedding") -> list[str]:

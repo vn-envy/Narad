@@ -60,7 +60,10 @@ export MEDIA_URL_BASE="$PUBLIC_URL/media"
 export NARAD_ALLOWED_ORIGINS="${NARAD_ALLOWED_ORIGINS:-$PUBLIC_URL,http://localhost:5174,http://127.0.0.1:5174}"
 export NARAD_ENABLE_DESKTOP_CONTROL="${NARAD_ENABLE_DESKTOP_CONTROL:-1}"
 export NARAD_DESKTOP_PROVIDER="${NARAD_DESKTOP_PROVIDER:-cua}"
-export NARAD_JEV_COMPUTER_MODE="${NARAD_JEV_COMPUTER_MODE:-active}"
+# Cloud Jev on every browser step costs 0.5-2 s and only adds an advisory
+# warning; turn-routing Jev is shadow-only. Both stay off unless asked for.
+export NARAD_JEV_COMPUTER_MODE="${NARAD_JEV_COMPUTER_MODE:-off}"
+export NARAD_JEV_ROUTE_MODE="${NARAD_JEV_ROUTE_MODE:-off}"
 export NARAD_JEV_PHONE_MODE="${NARAD_JEV_PHONE_MODE:-active}"
 export NARAD_ARTEMIS_URL="${NARAD_ARTEMIS_URL:-http://127.0.0.1:$ARTEMIS_PORT}"
 export ARTEMIS_KEEP_DEVICE_AWAKE="${ARTEMIS_KEEP_DEVICE_AWAKE:-false}"

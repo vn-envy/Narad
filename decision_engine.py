@@ -253,6 +253,22 @@ class JevDecisionProvider:
         except ValueError:
             max_bytes = 32_768
         cleaned_state = _bounded_state(cleaned_state, max_bytes)
+        try:
+            # Same egress policy as every other cloud call: pseudonymised,
+            # leak-checked and logged, or not sent at all.
+            import privacy_gateway
+
+            cleaned_state = privacy_gateway.guard_payload("typesafe", cleaned_state, source=f"jev:{decision_id}")
+        except Exception as exc:
+            return DecisionResult(
+                decision_id=decision_id,
+                status="privacy_blocked",
+                provider="typesafe",
+                model=self.model,
+                latency_ms=int((time.perf_counter() - started) * 1000),
+                redactions=redactions,
+                error=str(exc),
+            )
         payload = {
             "state": cleaned_state,
             "model": self.model,
