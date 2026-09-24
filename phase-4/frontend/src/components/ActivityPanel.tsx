@@ -1,18 +1,23 @@
 /**
  * ActivityPanel — the profile's inbox: what needs you, what is running, and
- * what is done. Items come from Vahana (GET /inbox) and in-progress paths
- * (GET /workflow-runs). Opening the screen marks its items read.
+ * what is done. Items come from Vahana (GET /inbox), errands from Kriya
+ * (GET /tasks) and in-progress paths (GET /workflow-runs). Opening the screen
+ * marks its items read.
  *
- * Tapping an item deep-links: an approval opens its card in Chat
- * ("/?approval=<id>"), a path opens Paths. A carer's shared copy only shows
- * who shared it; it links nowhere, because only the subject can act on it.
+ * Tapping an item deep-links: an approval opens its card ("/?approval=<id>"),
+ * a task its live screen ("/?task=<id>"), a review its check screen, a path
+ * opens Paths. A carer's shared copy only shows who shared it; it links
+ * nowhere, because only the subject can act on it.
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import {
   ArrowRight,
   Bell,
   CalendarClock,
+  ChevronRight,
   CircleCheck,
+  Globe,
+  Hand,
   HeartPulse,
   Inbox,
   LoaderCircle,
@@ -21,15 +26,17 @@ import {
   Moon,
   Pill,
   RefreshCw,
+  Route,
   ShieldCheck,
   TriangleAlert,
   Users,
 } from 'lucide-react'
 import { apiFetch, apiUrl, type WorkflowRun } from '@/lib/api'
 import { fetchInbox, markInboxRead, type InboxItem } from '@/lib/notifications'
+import { fetchActiveTasks, openTaskScreen, type KriyaTask } from '@/lib/tasks'
 import { PUSH_EVENT } from '@/lib/pwa'
 import { relativeTime } from '@/lib/format-time'
-import { useIsMobile } from '@/hooks/useIsMobile'
+import { textLang } from '@/lib/trust'
 import { PhoneNotificationsCard } from './NotificationSettings'
 
 interface Props {
@@ -45,12 +52,14 @@ type Target = { label: string; open: () => void } | null
 
 const NEEDS_YOU_WINDOW_MS = 24 * 60 * 60_000
 const REFRESH_MS = 30_000
+// While an errand runs, its state here keeps up with the card in the chat.
+const TASK_REFRESH_MS = 8_000
 
-const cardStyle = {
-  border: '1px solid rgba(45,42,38,0.1)',
-  background: 'rgba(255,255,255,0.58)',
-  borderRadius: 12,
-} as const
+const cardStyle: CSSProperties = {
+  border: '1px solid var(--line)',
+  background: 'var(--surface-raised)',
+  borderRadius: 14,
+}
 
 const KIND_ICONS: Record<string, typeof Bell> = {
   approval_request: ShieldCheck,
@@ -76,6 +85,14 @@ const KIND_LABELS: Record<string, string> = {
   triage: 'Mail',
   andon: 'Needs attention',
   swapna: 'Digest',
+}
+
+/** How an errand stands, in the words the task card uses. */
+const TASK_STATES: Record<string, { label: string; tone: string; icon: typeof Globe }> = {
+  queued: { label: 'Waiting to start', tone: 'var(--ink-55)', icon: Globe },
+  running: { label: 'Working', tone: 'var(--tulsi)', icon: Globe },
+  waiting_approval: { label: 'Waiting for your OK', tone: 'var(--sindoor)', icon: ShieldCheck },
+  waiting_help: { label: 'Needs your help', tone: 'var(--sindoor)', icon: Hand },
 }
 
 function isRecent(item: InboxItem): boolean {
@@ -112,27 +129,43 @@ function readableTime(ts: string): string {
 
 function SectionLabel({ children, count }: { children: ReactNode; count?: number }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, margin: '18px 0 8px', fontFamily: 'var(--font-mono)', fontSize: 9.5, fontWeight: 750, textTransform: 'uppercase', letterSpacing: '0.12em', color: 'rgba(45,42,38,0.46)' }}>
-      {children}{typeof count === 'number' && <span style={{ color: 'rgba(45,42,38,0.32)' }}>· {count}</span>}
-    </div>
+    <h2 className="n-section-label">
+      {children}{typeof count === 'number' && <span style={{ color: 'var(--ink-40)' }}>· {count}</span>}
+    </h2>
   )
 }
 
 function Empty({ children }: { children: ReactNode }) {
-  return <div style={{ fontSize: 11.5, lineHeight: 1.5, color: 'rgba(45,42,38,0.46)', padding: '2px 2px 4px' }}>{children}</div>
+  return <p style={{ fontSize: 14, lineHeight: 1.5, color: 'var(--ink-55)', padding: '2px 2px 4px' }}>{children}</p>
+}
+
+function IconTile({ icon: Icon, tone }: { icon: typeof Bell; tone: string }) {
+  return (
+    <span aria-hidden="true" style={{ width: 36, height: 36, flex: '0 0 auto', display: 'grid', placeItems: 'center', borderRadius: 10, color: tone, background: 'var(--ink-05)' }}>
+      <Icon size={17} />
+    </span>
+  )
 }
 
 export function ActivityPanel({ userId, focusEventId, onOpenUrl, onOpenRun, onUnreadChange }: Props) {
   const [items, setItems] = useState<InboxItem[]>([])
   const [runs, setRuns] = useState<WorkflowRun[]>([])
+  const [tasks, setTasks] = useState<KriyaTask[]>([])
   const [newIds, setNewIds] = useState<Set<string>>(new Set())
   const [expanded, setExpanded] = useState<string | null>(focusEventId ?? null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const isMobile = useIsMobile()
   const focusRef = useRef<HTMLDivElement | null>(null)
   const unreadChanged = useRef(onUnreadChange)
   unreadChanged.current = onUnreadChange
+
+  const loadTasks = useCallback(async () => {
+    try {
+      setTasks(await fetchActiveTasks())
+    } catch {
+      // A Mac without Kriya, or a moment offline: no errands to show.
+    }
+  }, [])
 
   const load = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true)
@@ -142,6 +175,7 @@ export function ActivityPanel({ userId, focusEventId, onOpenUrl, onOpenRun, onUn
         apiFetch(apiUrl('/workflow-runs', { user_id: userId, limit: 50 }))
           .then(response => response.ok ? response.json() as Promise<{ runs: WorkflowRun[] }> : { runs: [] })
           .catch(() => ({ runs: [] as WorkflowRun[] })),
+        loadTasks(),
       ])
       setItems(inbox.items)
       setRuns(runPayload.runs)
@@ -158,7 +192,7 @@ export function ActivityPanel({ userId, focusEventId, onOpenUrl, onOpenRun, onUn
     } finally {
       if (!quiet) setLoading(false)
     }
-  }, [userId])
+  }, [userId, loadTasks])
 
   useEffect(() => { void load() }, [load])
 
@@ -174,10 +208,20 @@ export function ActivityPanel({ userId, focusEventId, onOpenUrl, onOpenRun, onUn
     }
   }, [load])
 
+  const hasTasks = tasks.length > 0
+  useEffect(() => {
+    if (!hasTasks) return
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void loadTasks()
+    }, TASK_REFRESH_MS)
+    return () => window.clearInterval(timer)
+  }, [hasTasks, loadTasks])
+
   useEffect(() => {
     if (!focusEventId) return
     setExpanded(focusEventId)
-    focusRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    focusRef.current?.scrollIntoView({ block: 'center', behavior: reduced ? 'auto' : 'smooth' })
   }, [focusEventId, items.length])
 
   const { needsYou, done } = useMemo(() => groupInbox(items), [items])
@@ -201,46 +245,46 @@ export function ActivityPanel({ userId, focusEventId, onOpenUrl, onOpenRun, onUn
     const open = expanded === item.id
     const fresh = newIds.has(item.id)
     const focused = item.id === focusEventId
+    const hindi = textLang(`${item.title} ${item.body}`) === 'hi'
     return (
       <div
         key={item.id}
         ref={focused ? focusRef : undefined}
+        lang={hindi ? 'hi' : undefined}
         style={{
           ...cardStyle,
-          padding: '11px 12px',
+          padding: '12px 12px 10px',
           display: 'grid',
-          gridTemplateColumns: '32px minmax(0,1fr)',
-          gap: 10,
+          gridTemplateColumns: '36px minmax(0,1fr)',
+          gap: 12,
           boxShadow: focused ? 'inset 3px 0 var(--sindoor)' : 'none',
-          background: fresh ? 'rgba(252,211,77,0.10)' : cardStyle.background,
+          background: fresh ? 'color-mix(in srgb, var(--haldi) 10%, var(--paper))' : cardStyle.background,
         }}
       >
-        <span style={{ width: 32, height: 32, display: 'grid', placeItems: 'center', borderRadius: 9, color: item.kind === 'health_alert' || item.kind === 'andon' ? 'var(--sindoor)' : 'var(--kajal)', background: 'rgba(45,42,38,0.06)' }}>
-          <Icon size={15} />
-        </span>
+        <IconTile icon={Icon} tone={item.kind === 'health_alert' || item.kind === 'andon' ? 'var(--sindoor)' : 'var(--kajal)'} />
         <div style={{ minWidth: 0 }}>
           <button
             type="button"
             onClick={() => (target ? target.open() : setExpanded(open ? null : item.id))}
             aria-expanded={target ? undefined : open}
-            style={{ display: 'block', width: '100%', padding: 0, border: 0, background: 'transparent', textAlign: 'left', cursor: 'pointer', minHeight: 32 }}
+            style={{ display: 'block', width: '100%', padding: 0, border: 0, background: 'transparent', textAlign: 'left', cursor: 'pointer', minHeight: 44, color: 'inherit' }}
           >
             <span style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-              <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 700, color: 'var(--kajal)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: open ? 'normal' : 'nowrap' }}>
-                {fresh && <span aria-label="New" style={{ display: 'inline-block', width: 7, height: 7, marginRight: 6, borderRadius: 99, background: 'var(--sindoor)', verticalAlign: 'middle' }} />}
+              <span style={{ flex: 1, minWidth: 0, fontSize: 15, lineHeight: 1.35, fontWeight: 700, color: 'var(--kajal)', overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: open ? undefined : 2, WebkitBoxOrient: 'vertical' }}>
+                {fresh && <span role="img" aria-label="New" style={{ display: 'inline-block', width: 8, height: 8, marginRight: 7, borderRadius: 99, background: 'var(--sindoor)', verticalAlign: 'middle' }} />}
                 {item.title || KIND_LABELS[item.kind] || 'Update'}
               </span>
-              <span title={new Date(item.ts).toLocaleString()} style={{ flex: '0 0 auto', fontSize: 10, color: 'rgba(45,42,38,0.46)' }}>
+              <span title={new Date(item.ts).toLocaleString()} style={{ flex: '0 0 auto', fontSize: 12.5, color: 'var(--ink-55)' }}>
                 {readableTime(item.ts)}
               </span>
             </span>
             {item.body && (
               <span style={{
                 display: open ? 'block' : '-webkit-box',
-                marginTop: 3,
-                fontSize: 11.5,
-                lineHeight: 1.45,
-                color: 'rgba(45,42,38,0.62)',
+                marginTop: 4,
+                fontSize: 14,
+                lineHeight: 1.5,
+                color: 'var(--ink-70)',
                 whiteSpace: 'pre-wrap',
                 overflow: 'hidden',
                 WebkitLineClamp: open ? undefined : 2,
@@ -250,19 +294,24 @@ export function ActivityPanel({ userId, focusEventId, onOpenUrl, onOpenRun, onUn
               </span>
             )}
           </button>
-          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginTop: 7 }}>
-            <span style={{ fontSize: 9.5, color: 'rgba(45,42,38,0.42)' }}>{relativeTime(item.ts)}</span>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginTop: 6 }}>
+            <span style={{ fontSize: 12.5, color: 'var(--ink-55)' }}>{relativeTime(item.ts)}</span>
             {KIND_LABELS[item.kind] && (
-              <span style={{ padding: '1px 7px', borderRadius: 99, background: 'rgba(45,42,38,0.06)', fontSize: 9.5, color: 'rgba(45,42,38,0.58)' }}>{KIND_LABELS[item.kind]}</span>
+              <span style={{ padding: '2px 8px', borderRadius: 99, background: 'var(--ink-05)', fontSize: 12, color: 'var(--ink-70)' }}>{KIND_LABELS[item.kind]}</span>
             )}
             {item.shared_from && (
-              <span style={{ padding: '1px 7px', borderRadius: 99, background: 'rgba(15,118,110,0.1)', fontSize: 9.5, fontWeight: 650, color: 'var(--mor)' }}>
+              <span style={{ padding: '2px 8px', borderRadius: 99, background: 'rgba(var(--rgb-mor),0.1)', fontSize: 12, fontWeight: 650, color: 'var(--mor)' }}>
                 Shared by {item.shared_from_name || item.shared_from}{item.kind === 'approval_request' ? ' · only they can decide' : ''}
               </span>
             )}
             {target && (
-              <button type="button" onClick={target.open} style={{ marginLeft: 'auto', minHeight: 32, padding: '0 11px', borderRadius: 8, border: 0, background: item.kind === 'approval_request' ? 'var(--tulsi)' : 'var(--kajal)', color: '#fff', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}>
-                {target.label} <ArrowRight size={12} />
+              <button
+                type="button"
+                onClick={target.open}
+                className={item.kind === 'approval_request' ? 'n-btn n-btn-go n-btn-sm' : 'n-btn n-btn-sm'}
+                style={{ marginLeft: 'auto' }}
+              >
+                {target.label} <ArrowRight size={15} aria-hidden="true" />
               </button>
             )}
           </div>
@@ -271,30 +320,58 @@ export function ActivityPanel({ userId, focusEventId, onOpenUrl, onOpenRun, onUn
     )
   }
 
+  const renderTask = (task: KriyaTask) => {
+    const state = TASK_STATES[task.status] ?? TASK_STATES.running
+    const waiting = task.status === 'waiting_approval' || task.status === 'waiting_help'
+    return (
+      <button
+        type="button"
+        key={task.id}
+        onClick={() => openTaskScreen(task.id)}
+        aria-label={`${task.goal}. ${state.label}. Open the task`}
+        style={{ ...cardStyle, width: '100%', minHeight: 64, padding: '12px', display: 'grid', gridTemplateColumns: '36px minmax(0,1fr) auto', alignItems: 'center', gap: 12, textAlign: 'left', cursor: 'pointer', color: 'inherit', borderLeft: `3px solid ${state.tone}` }}
+      >
+        <IconTile icon={state.icon} tone={state.tone} />
+        <span style={{ minWidth: 0 }}>
+          <span style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', fontSize: 15, lineHeight: 1.35, fontWeight: 700, color: 'var(--kajal)' }}>{task.goal}</span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3, fontSize: 13.5, color: 'var(--ink-70)', minWidth: 0 }}>
+            {task.status === 'running' && <LoaderCircle size={13} className="animate-spin" aria-hidden="true" style={{ flex: '0 0 auto', color: state.tone }} />}
+            <span style={{ flex: '0 0 auto', fontWeight: 650, color: state.tone }}>{state.label}</span>
+            {!waiting && task.detail && <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>· {task.detail}</span>}
+          </span>
+        </span>
+        <ChevronRight size={18} aria-hidden="true" style={{ color: 'var(--ink-40)' }} />
+      </button>
+    )
+  }
+
   const renderRun = (run: WorkflowRun, waiting: boolean) => (
     <button
       type="button"
       key={run.run_id}
       onClick={() => onOpenRun(run.run_id)}
-      style={{ ...cardStyle, width: '100%', padding: '11px 12px', display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', alignItems: 'center', gap: 10, textAlign: 'left', cursor: 'pointer', borderLeft: `3px solid ${run.definition?.accent || '#b45309'}` }}
+      style={{ ...cardStyle, width: '100%', minHeight: 64, padding: '12px', display: 'grid', gridTemplateColumns: '36px minmax(0,1fr) auto', alignItems: 'center', gap: 12, textAlign: 'left', cursor: 'pointer', color: 'inherit', borderLeft: `3px solid ${run.definition?.accent || '#b45309'}` }}
     >
+      <IconTile icon={Route} tone={run.definition?.accent || 'var(--kajal)'} />
       <span style={{ minWidth: 0 }}>
-        <span style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: 'var(--kajal)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{run.title}</span>
-        <span style={{ display: 'block', marginTop: 2, fontSize: 10.5, color: 'rgba(45,42,38,0.52)' }}>
-          {waiting ? 'Waiting for your approval' : `${run.current_stage?.title ?? 'In progress'} · ${run.progress_percent}%`}
+        <span style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', fontSize: 15, lineHeight: 1.35, fontWeight: 700, color: 'var(--kajal)' }}>{run.title}</span>
+        <span style={{ display: 'block', marginTop: 3, fontSize: 13.5, color: waiting ? 'var(--sindoor)' : 'var(--ink-70)', fontWeight: waiting ? 650 : 400 }}>
+          {waiting ? 'Waiting for your OK' : `Path · ${run.current_stage?.title ?? 'In progress'} · ${run.progress_percent}%`}
         </span>
       </span>
-      <ArrowRight size={14} style={{ color: 'rgba(45,42,38,0.45)' }} />
+      <ChevronRight size={18} aria-hidden="true" style={{ color: 'var(--ink-40)' }} />
     </button>
   )
 
+  const runningCount = tasks.length + activeRuns.length
+
   return (
-    <div className="panel-scroll" style={{ height: '100%', overflow: 'auto', background: 'linear-gradient(135deg, rgba(180,83,9,0.035), transparent 42%), var(--paper)' }}>
-      <div style={{ maxWidth: 680, margin: '0 auto', padding: isMobile ? '12px 12px 32px' : '18px 20px 36px' }}>
+    <div className="panel-scroll" style={{ height: '100%', overflow: 'auto', background: 'var(--paper)' }}>
+      <div style={{ maxWidth: 680, margin: '0 auto', padding: '14px 16px 36px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-          <div style={{ fontSize: 11, color: 'rgba(45,42,38,0.52)' }}>Reminders, approvals and finished work, newest first.</div>
-          <button type="button" onClick={() => void load()} title="Refresh" aria-label="Refresh activity" style={{ width: 34, height: 34, flex: '0 0 auto', borderRadius: 8, border: '1px solid rgba(45,42,38,0.1)', background: 'transparent', display: 'grid', placeItems: 'center', cursor: 'pointer' }}>
-            <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+          <p style={{ fontSize: 14, lineHeight: 1.45, color: 'var(--ink-70)' }}>Reminders, approvals, errands and finished work, newest first.</p>
+          <button type="button" onClick={() => void load()} className="n-icon-btn" aria-label="Refresh Activity" title="Refresh" style={{ border: '1px solid var(--line)', borderRadius: 12, color: 'var(--ink-70)' }}>
+            <RefreshCw size={17} className={loading ? 'animate-spin' : ''} aria-hidden="true" />
           </button>
         </div>
 
@@ -303,31 +380,32 @@ export function ActivityPanel({ userId, focusEventId, onOpenUrl, onOpenRun, onUn
         </div>
 
         {error && (
-          <div role="alert" style={{ ...cardStyle, marginTop: 12, padding: '9px 11px', borderColor: 'rgba(194,65,12,0.22)', color: 'var(--sindoor)', fontSize: 11.5 }}>{error}</div>
+          <div role="alert" style={{ ...cardStyle, marginTop: 12, padding: '10px 12px', borderColor: 'rgba(var(--rgb-sindoor),0.25)', color: 'var(--sindoor)', fontSize: 14 }}>{error}</div>
         )}
 
-        {loading && items.length === 0 && runs.length === 0 ? (
-          <div style={{ padding: 40, display: 'grid', placeItems: 'center', color: 'rgba(45,42,38,0.45)' }}><LoaderCircle size={22} className="animate-spin" /></div>
+        {loading && items.length === 0 && runs.length === 0 && tasks.length === 0 ? (
+          <div role="status" aria-label="Loading Activity" style={{ padding: 40, display: 'grid', placeItems: 'center', color: 'var(--ink-40)' }}><LoaderCircle size={24} className="animate-spin" aria-hidden="true" /></div>
         ) : (
           <>
             <SectionLabel count={needsYou.length + waitingRuns.length}>Needs you</SectionLabel>
-            <div style={{ display: 'grid', gap: 8 }}>
+            <div style={{ display: 'grid', gap: 10 }}>
               {needsYou.length + waitingRuns.length === 0 && <Empty>Nothing is waiting on you.</Empty>}
               {needsYou.map(renderItem)}
               {waitingRuns.map(run => renderRun(run, true))}
             </div>
 
-            <SectionLabel count={activeRuns.length}>Running</SectionLabel>
-            <div style={{ display: 'grid', gap: 8 }}>
-              {activeRuns.length === 0 && <Empty>No paths in progress.</Empty>}
+            <SectionLabel count={runningCount}>Running</SectionLabel>
+            <div style={{ display: 'grid', gap: 10 }}>
+              {runningCount === 0 && <Empty>Nothing is running right now. Errands and paths you start show up here.</Empty>}
+              {tasks.map(renderTask)}
               {activeRuns.map(run => renderRun(run, false))}
             </div>
 
             <SectionLabel count={done.length}>Done</SectionLabel>
-            <div style={{ display: 'grid', gap: 8 }}>
+            <div style={{ display: 'grid', gap: 10 }}>
               {done.length === 0 && (
-                <div style={{ ...cardStyle, padding: '18px 14px', display: 'flex', gap: 10, alignItems: 'center', color: 'rgba(45,42,38,0.5)', fontSize: 11.5, lineHeight: 1.5 }}>
-                  <Inbox size={18} style={{ flex: '0 0 auto' }} />
+                <div style={{ ...cardStyle, padding: '18px 14px', display: 'flex', gap: 12, alignItems: 'center', color: 'var(--ink-70)', fontSize: 14, lineHeight: 1.5 }}>
+                  <Inbox size={20} aria-hidden="true" style={{ flex: '0 0 auto' }} />
                   Nothing yet. Reminders, results and finished work will show up here.
                 </div>
               )}
