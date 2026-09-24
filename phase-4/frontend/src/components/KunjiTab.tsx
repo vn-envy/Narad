@@ -81,7 +81,7 @@ const PREFIX_HINTS: Array<[string, string]> = [
   ['sk-', 'openai'],
 ]
 
-const INK = 'rgba(26,24,21,'
+const INK = 'rgba(var(--rgb-ink),'
 
 function detectProvider(key: string): string {
   const trimmed = key.trim()
@@ -408,7 +408,7 @@ export function KunjiTab({ onOpenSetup }: { onOpenSetup?: () => void }) {
       )}
 
       {onOpenSetup && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, padding: '12px 14px', borderRadius: 14, marginBottom: 16, border: `1px solid ${INK}0.09)`, background: 'linear-gradient(110deg, rgba(53,94,59,0.08), rgba(252,250,242,0.82))' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, padding: '12px 14px', borderRadius: 14, marginBottom: 16, border: `1px solid ${INK}0.09)`, background: 'linear-gradient(110deg, rgba(53,94,59,0.08), rgba(var(--rgb-page),0.82))' }}>
           <div>
             <div style={{ fontSize: 12, fontWeight: 700, color: `${INK}0.82)` }}>Need the simple path?</div>
             <div style={{ marginTop: 3, fontSize: 10.5, color: `${INK}0.5)` }}>Run the guided setup again without changing any connection automatically.</div>
@@ -422,7 +422,7 @@ export function KunjiTab({ onOpenSetup }: { onOpenSetup?: () => void }) {
       {localModel && (
         <>
           {microLabel('Offline default')}
-          <div style={{ padding: '15px 17px', borderRadius: 16, border: `1px solid ${localModel.ready ? 'rgba(53,94,59,0.3)' : `${INK}0.09)`}`, background: localModel.ready ? 'linear-gradient(135deg, rgba(53,94,59,0.1), rgba(252,250,242,0.9))' : 'linear-gradient(135deg, rgba(194,65,12,0.07), rgba(252,250,242,0.9))', margin: '10px 0 20px' }}>
+          <div style={{ padding: '15px 17px', borderRadius: 16, border: `1px solid ${localModel.ready ? 'rgba(53,94,59,0.3)' : `${INK}0.09)`}`, background: localModel.ready ? 'linear-gradient(135deg, rgba(53,94,59,0.1), rgba(var(--rgb-page),0.9))' : 'linear-gradient(135deg, rgba(194,65,12,0.07), rgba(var(--rgb-page),0.9))', margin: '10px 0 20px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
               <div style={{ minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -447,7 +447,7 @@ export function KunjiTab({ onOpenSetup }: { onOpenSetup?: () => void }) {
                   {busy === 'local-model' || localModel.install.state === 'running' ? `${Math.round((localModel.install.progress || 0) * 100)}%` : `Download ${localModel.download_gb} GB`}
                 </button>
               ) : (
-                <a href="https://ollama.com/download" target="_blank" rel="noreferrer" style={{ padding: '8px 13px', borderRadius: 9, background: 'var(--kajal)', color: '#fff', fontSize: 10.5, fontWeight: 700, textDecoration: 'none' }}>Install runtime ↗</a>
+                <a href="https://ollama.com/download" target="_blank" rel="noreferrer" style={{ padding: '8px 13px', borderRadius: 9, background: 'var(--kajal)', color: 'var(--paper)', fontSize: 10.5, fontWeight: 700, textDecoration: 'none' }}>Install runtime ↗</a>
               )}
             </div>
             {localModel.install.state === 'running' && <div style={{ height: 4, marginTop: 11, borderRadius: 99, overflow: 'hidden', background: `${INK}0.08)` }}><div style={{ width: `${Math.max(2, localModel.install.progress * 100)}%`, height: '100%', borderRadius: 99, background: 'var(--tulsi)', transition: 'width 250ms ease' }} /></div>}
@@ -457,7 +457,7 @@ export function KunjiTab({ onOpenSetup }: { onOpenSetup?: () => void }) {
       )}
 
       {googleWorkspace && (
-        <div style={{ padding: '16px 18px', borderRadius: 16, border: `1px solid ${googleWorkspace.connected ? 'rgba(53,94,59,0.28)' : `${INK}0.09)`}`, background: 'linear-gradient(135deg, rgba(66,133,244,0.06), rgba(252,250,242,0.94))', marginBottom: 20 }}>
+        <div style={{ padding: '16px 18px', borderRadius: 16, border: `1px solid ${googleWorkspace.connected ? 'rgba(53,94,59,0.28)' : `${INK}0.09)`}`, background: 'linear-gradient(135deg, rgba(66,133,244,0.06), rgba(var(--rgb-page),0.94))', marginBottom: 20 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
             <div>
               {microLabel('Google workspace')}
@@ -503,7 +503,7 @@ export function KunjiTab({ onOpenSetup }: { onOpenSetup?: () => void }) {
             ]).map(section => {
               const grants = (profileGrants ?? interactionRuntimes.grants).filter(item => item.kind === section.kind)
               return (
-                <div key={section.kind} style={{ padding: '14px 15px', borderRadius: 15, border: `1px solid ${section.runtime.ready ? 'rgba(53,94,59,0.24)' : `${INK}0.09)`}`, background: 'rgba(252,250,242,0.88)', minWidth: 0 }}>
+                <div key={section.kind} style={{ padding: '14px 15px', borderRadius: 15, border: `1px solid ${section.runtime.ready ? 'rgba(53,94,59,0.24)' : `${INK}0.09)`}`, background: 'rgba(var(--rgb-page),0.88)', minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span style={{ width: 8, height: 8, borderRadius: '50%', background: section.runtime.ready ? 'var(--tulsi)' : `${INK}0.18)` }} />
                     <span style={{ fontSize: 12.5, fontWeight: 700, color: `${INK}0.82)` }}>{section.title}</span>
@@ -539,7 +539,7 @@ export function KunjiTab({ onOpenSetup }: { onOpenSetup?: () => void }) {
           padding: '16px 18px',
           borderRadius: 16,
           border: `1px solid ${INK}0.08)`,
-          background: 'linear-gradient(145deg, color-mix(in srgb, var(--haldi) 8%, var(--paper)) 0%, rgba(252,250,242,0.94) 100%)',
+          background: 'linear-gradient(145deg, color-mix(in srgb, var(--haldi) 8%, var(--paper)) 0%, rgba(var(--rgb-page),0.94) 100%)',
           marginBottom: 20,
         }}
       >
@@ -620,8 +620,8 @@ export function KunjiTab({ onOpenSetup }: { onOpenSetup?: () => void }) {
                 borderRadius: 16,
                 border: `1px solid ${conn.connected ? 'rgba(53,94,59,0.30)' : `${INK}0.08)`}`,
                 background: conn.connected
-                  ? 'linear-gradient(145deg, color-mix(in srgb, var(--tulsi) 8%, var(--paper)) 0%, rgba(252,250,242,0.94) 100%)'
-                  : 'rgba(252,250,242,0.85)',
+                  ? 'linear-gradient(145deg, color-mix(in srgb, var(--tulsi) 8%, var(--paper)) 0%, rgba(var(--rgb-page),0.94) 100%)'
+                  : 'rgba(var(--rgb-page),0.85)',
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -698,7 +698,7 @@ export function KunjiTab({ onOpenSetup }: { onOpenSetup?: () => void }) {
               padding: '14px 16px',
               borderRadius: 16,
               border: `1px solid ${sub.available ? 'rgba(53,94,59,0.30)' : `${INK}0.08)`}`,
-              background: 'rgba(252,250,242,0.85)',
+              background: 'rgba(var(--rgb-page),0.85)',
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

@@ -43,17 +43,17 @@ export function LearningArtifactPanel({ artifact, onClose }: Props) {
         </button>
       </div>
 
-      <div className="px-4 py-3 border-b" style={{ borderColor: 'rgba(45,42,38,0.08)', background: 'rgba(45,42,38,0.03)' }}>
+      <div className="px-4 py-3 border-b" style={{ borderColor: 'rgba(var(--rgb-ink),0.08)', background: 'rgba(var(--rgb-ink),0.03)' }}>
         <div className="flex items-center gap-2 flex-wrap">
           <span className="font-deva text-[15px]" style={{ color: 'var(--marigold)', fontFamily: 'var(--font-deva)' }}>अभ्यास</span>
           <span className="text-[13px] font-semibold" style={{ color: 'var(--kajal)' }}>
             {artifact.topic}
           </span>
         </div>
-        <p className="mt-1 text-[12px] leading-relaxed" style={{ color: 'rgba(45,42,38,0.66)' }}>
+        <p className="mt-1 text-[12px] leading-relaxed" style={{ color: 'rgba(var(--rgb-ink),0.66)' }}>
           This artifact is native to Narad. Keep refining it from the main chat with explicit edit prompts.
         </p>
-        <div className="mt-2 flex flex-wrap gap-2 font-mono text-[10px]" style={{ color: 'rgba(45,42,38,0.46)' }}>
+        <div className="mt-2 flex flex-wrap gap-2 font-mono text-[10px]" style={{ color: 'rgba(var(--rgb-ink),0.46)' }}>
           <span>version {artifact.version}</span>
           <span>workspace: {artifact.workspaceId}</span>
           {artifact.recordIds.length > 0 && <span>records: {artifact.recordIds.join(', ')}</span>}

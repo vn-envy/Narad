@@ -52,7 +52,7 @@ export function FlashcardArtifact({ topic, doc }: Props) {
             className="font-mono text-center leading-relaxed"
             style={{
               fontSize: 12,
-              color: flipped ? 'rgba(252,250,242,0.85)' : 'rgba(45,42,38,0.8)',
+              color: flipped ? 'rgba(252,250,242,0.85)' : 'rgba(var(--rgb-ink),0.8)',
             }}
           >
             {flipped ? card.back : card.front}
@@ -60,10 +60,10 @@ export function FlashcardArtifact({ topic, doc }: Props) {
         </div>
 
         <div className="mt-3 flex items-center justify-between gap-3">
-          <p className="font-mono text-[9px]" style={{ color: 'rgba(45,42,38,0.35)' }}>
+          <p className="font-mono text-[9px]" style={{ color: 'rgba(var(--rgb-ink),0.35)' }}>
             click card to flip
           </p>
-          <div className="font-mono text-[9px]" style={{ color: 'rgba(45,42,38,0.42)' }}>
+          <div className="font-mono text-[9px]" style={{ color: 'rgba(var(--rgb-ink),0.42)' }}>
             {current + 1} / {cards.length}
           </div>
         </div>
@@ -74,7 +74,7 @@ export function FlashcardArtifact({ topic, doc }: Props) {
               <span
                 key={tag}
                 className="font-mono text-[9px] px-2 py-1 rounded-full"
-                style={{ background: 'rgba(45,42,38,0.06)', color: 'rgba(45,42,38,0.48)' }}
+                style={{ background: 'rgba(var(--rgb-ink),0.06)', color: 'rgba(var(--rgb-ink),0.48)' }}
               >
                 {tag}
               </span>
@@ -83,12 +83,12 @@ export function FlashcardArtifact({ topic, doc }: Props) {
         )}
       </div>
 
-      <div className="px-4 py-3 border-t flex items-center justify-between" style={{ borderColor: 'rgba(45,42,38,0.08)' }}>
+      <div className="px-4 py-3 border-t flex items-center justify-between" style={{ borderColor: 'rgba(var(--rgb-ink),0.08)' }}>
         <button
           onClick={() => go(-1)}
           disabled={current === 0}
           className="font-mono text-[10px] px-2 py-1 rounded disabled:opacity-30"
-          style={{ color: 'rgba(45,42,38,0.6)', border: '1px solid color-mix(in srgb, var(--kajal) 15%, transparent)' }}
+          style={{ color: 'rgba(var(--rgb-ink),0.6)', border: '1px solid color-mix(in srgb, var(--kajal) 15%, transparent)' }}
         >
           ← previous
         </button>
@@ -96,7 +96,7 @@ export function FlashcardArtifact({ topic, doc }: Props) {
           onClick={() => go(1)}
           disabled={current === cards.length - 1}
           className="font-mono text-[10px] px-2 py-1 rounded disabled:opacity-30"
-          style={{ color: 'rgba(45,42,38,0.6)', border: '1px solid color-mix(in srgb, var(--kajal) 15%, transparent)' }}
+          style={{ color: 'rgba(var(--rgb-ink),0.6)', border: '1px solid color-mix(in srgb, var(--kajal) 15%, transparent)' }}
         >
           next →
         </button>

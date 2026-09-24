@@ -59,11 +59,22 @@ test('only the app shell is cached; API responses and media never are', () => {
   assert.equal(worker.requestStrategy(request('/assets/x.js', { method: 'POST' }), ORIGIN), 'passthrough')
 })
 
-test('Google Fonts are cached; other origins pass through', () => {
-  assert.equal(worker.requestStrategy(request('https://fonts.gstatic.com/s/inter/v1/a.woff2'), ORIGIN), 'font')
-  assert.equal(worker.requestStrategy(request('https://fonts.googleapis.com/css2?family=Inter'), ORIGIN), 'font')
+test('fonts are self-hosted shell assets; other origins, Google Fonts included, pass through', () => {
+  assert.equal(worker.requestStrategy(request('/assets/inter-latin-wght-normal-abc123.woff2'), ORIGIN), 'asset')
+  assert.equal(worker.requestStrategy(request('/assets/noto-sans-devanagari-devanagari-wght-normal-abc123.woff2'), ORIGIN), 'asset')
+  assert.equal(worker.requestStrategy(request('https://fonts.gstatic.com/s/inter/v1/a.woff2'), ORIGIN), 'passthrough')
+  assert.equal(worker.requestStrategy(request('https://fonts.googleapis.com/css2?family=Inter'), ORIGIN), 'passthrough')
   assert.equal(worker.requestStrategy(request('https://team.cloudflareaccess.com/cdn-cgi/access/login'), ORIGIN), 'passthrough')
   assert.equal(worker.requestStrategy(request('https://evil.example/assets/x.js'), ORIGIN), 'passthrough')
+})
+
+test('activation drops older shells and the retired Google Fonts cache, keeping this build', () => {
+  // The unbuilt worker's own cache name (vite.config.ts stamps the real version).
+  const current = 'narad-shell-__NARAD_BUILD_VERSION__'
+  assert.equal(worker.isStaleCache('narad-shell-0123456789ab'), true)
+  assert.equal(worker.isStaleCache('narad-fonts-v1'), true)
+  assert.equal(worker.isStaleCache(current), false)
+  assert.equal(worker.isStaleCache('some-other-app-cache'), false)
 })
 
 test('an Access redirect goes through; an unreachable Mac falls back to the shell', () => {

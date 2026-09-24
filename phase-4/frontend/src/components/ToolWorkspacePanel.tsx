@@ -9,14 +9,14 @@ interface Props {
 function ArtifactPreview({ artifact }: { artifact: ToolArtifact | null }) {
   if (!artifact?.url) {
     return (
-      <div className="flex items-center justify-center h-full text-[12px]" style={{ color: 'rgba(45,42,38,0.45)' }}>
+      <div className="flex items-center justify-center h-full text-[12px]" style={{ color: 'rgba(var(--rgb-ink),0.45)' }}>
         No preview available yet.
       </div>
     )
   }
   const lower = artifact.url.toLowerCase()
   if (lower.endsWith('.mp4')) {
-    return <video src={artifact.url} controls className="w-full h-full object-contain rounded" style={{ background: 'rgba(45,42,38,0.08)' }} />
+    return <video src={artifact.url} controls className="w-full h-full object-contain rounded" style={{ background: 'rgba(var(--rgb-ink),0.08)' }} />
   }
   if (lower.endsWith('.wav') || lower.endsWith('.mp3')) {
     return (
@@ -27,12 +27,12 @@ function ArtifactPreview({ artifact }: { artifact: ToolArtifact | null }) {
   }
   if (lower.match(/\.(png|jpe?g|webp|gif)(?:\?.*)?$/)) {
     return (
-      <div className="flex items-center justify-center h-full p-3" style={{ background: 'rgba(45,42,38,0.035)' }}>
+      <div className="flex items-center justify-center h-full p-3" style={{ background: 'rgba(var(--rgb-ink),0.035)' }}>
         <img
           src={artifact.url}
           alt={artifact.label}
           className="max-w-full max-h-full object-contain rounded-lg"
-          style={{ boxShadow: '0 12px 36px rgba(45,42,38,0.12)' }}
+          style={{ boxShadow: '0 12px 36px rgba(var(--rgb-ink),0.12)' }}
         />
       </div>
     )
@@ -93,7 +93,7 @@ export function ToolWorkspacePanel({ toolUi, onClose }: Props) {
       </div>
 
       <div className="grid min-h-0 flex-1" style={{ gridTemplateRows: 'auto 1fr auto' }}>
-        <div className="px-4 py-3 border-b" style={{ borderColor: 'rgba(45,42,38,0.08)' }}>
+        <div className="px-4 py-3 border-b" style={{ borderColor: 'rgba(var(--rgb-ink),0.08)' }}>
           <div className="flex items-center gap-2 flex-wrap">
             <span className="font-deva text-[15px]" style={{ color: 'var(--marigold)', fontFamily: 'var(--font-deva)' }}>दर्शन</span>
             <span className="text-[13px] font-semibold" style={{ color: 'var(--kajal)' }}>{title}</span>
@@ -103,7 +103,7 @@ export function ToolWorkspacePanel({ toolUi, onClose }: Props) {
               </span>
             )}
           </div>
-          <p className="mt-1 text-[12px] leading-relaxed" style={{ color: 'rgba(45,42,38,0.64)' }}>
+          <p className="mt-1 text-[12px] leading-relaxed" style={{ color: 'rgba(var(--rgb-ink),0.64)' }}>
             {summary}
           </p>
         </div>
@@ -112,15 +112,15 @@ export function ToolWorkspacePanel({ toolUi, onClose }: Props) {
           <ArtifactPreview artifact={primaryArtifact} />
         </div>
 
-        <div className="px-4 py-3 overflow-y-auto border-t" style={{ borderColor: 'rgba(45,42,38,0.08)', maxHeight: '42%' }}>
+        <div className="px-4 py-3 overflow-y-auto border-t" style={{ borderColor: 'rgba(var(--rgb-ink),0.08)', maxHeight: '42%' }}>
           {(toolUi.ui?.sections ?? []).length > 0 && (
             <div className="mb-4">
               {(toolUi.ui?.sections ?? []).map(section => (
                 <div key={section.title} className="mb-3">
-                  <div className="font-mono text-[10px] uppercase tracking-[0.12em]" style={{ color: 'rgba(45,42,38,0.46)' }}>
+                  <div className="font-mono text-[10px] uppercase tracking-[0.12em]" style={{ color: 'rgba(var(--rgb-ink),0.46)' }}>
                     {section.title}
                   </div>
-                  <p className="text-[12px] leading-relaxed mt-1" style={{ color: 'rgba(45,42,38,0.72)' }}>
+                  <p className="text-[12px] leading-relaxed mt-1" style={{ color: 'rgba(var(--rgb-ink),0.72)' }}>
                     {section.body}
                   </p>
                 </div>
@@ -129,21 +129,21 @@ export function ToolWorkspacePanel({ toolUi, onClose }: Props) {
           )}
 
           <div className="mb-4">
-            <div className="font-mono text-[10px] uppercase tracking-[0.12em] mb-2" style={{ color: 'rgba(45,42,38,0.46)' }}>
+            <div className="font-mono text-[10px] uppercase tracking-[0.12em] mb-2" style={{ color: 'rgba(var(--rgb-ink),0.46)' }}>
               Artifacts
             </div>
             <div className="space-y-2">
               {toolUi.artifacts.length === 0 && (
-                <div className="text-[12px]" style={{ color: 'rgba(45,42,38,0.42)' }}>
+                <div className="text-[12px]" style={{ color: 'rgba(var(--rgb-ink),0.42)' }}>
                   No artifacts attached.
                 </div>
               )}
               {toolUi.artifacts.map(item => (
-                <div key={`${item.label}-${item.url ?? item.path ?? item.type}`} className="rounded-lg px-3 py-2" style={{ border: '1px solid rgba(45,42,38,0.09)', background: 'rgba(255,255,255,0.42)' }}>
+                <div key={`${item.label}-${item.url ?? item.path ?? item.type}`} className="rounded-lg px-3 py-2" style={{ border: '1px solid rgba(var(--rgb-ink),0.09)', background: 'rgba(var(--rgb-surface),0.42)' }}>
                   <div className="flex items-center justify-between gap-2">
                     <div>
                       <div className="text-[12px] font-semibold" style={{ color: 'var(--kajal)' }}>{item.label}</div>
-                      <div className="text-[11px]" style={{ color: 'rgba(45,42,38,0.48)' }}>{item.type}</div>
+                      <div className="text-[11px]" style={{ color: 'rgba(var(--rgb-ink),0.48)' }}>{item.type}</div>
                     </div>
                     {item.url && (
                       <a href={item.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[11px] underline" style={{ color: 'var(--sindoor)' }}>
@@ -152,7 +152,7 @@ export function ToolWorkspacePanel({ toolUi, onClose }: Props) {
                     )}
                   </div>
                   {item.description && (
-                    <p className="text-[11px] mt-1 leading-relaxed" style={{ color: 'rgba(45,42,38,0.64)' }}>
+                    <p className="text-[11px] mt-1 leading-relaxed" style={{ color: 'rgba(var(--rgb-ink),0.64)' }}>
                       {item.description}
                     </p>
                   )}
@@ -162,12 +162,12 @@ export function ToolWorkspacePanel({ toolUi, onClose }: Props) {
           </div>
 
           <div>
-            <div className="font-mono text-[10px] uppercase tracking-[0.12em] mb-2" style={{ color: 'rgba(45,42,38,0.46)' }}>
+            <div className="font-mono text-[10px] uppercase tracking-[0.12em] mb-2" style={{ color: 'rgba(var(--rgb-ink),0.46)' }}>
               Citations
             </div>
             <div className="space-y-2">
               {toolUi.citations.length === 0 && (
-                <div className="text-[12px]" style={{ color: 'rgba(45,42,38,0.42)' }}>
+                <div className="text-[12px]" style={{ color: 'rgba(var(--rgb-ink),0.42)' }}>
                   No citations attached.
                 </div>
               )}
@@ -178,18 +178,18 @@ export function ToolWorkspacePanel({ toolUi, onClose }: Props) {
                   target="_blank"
                   rel="noopener noreferrer"
                   className="block rounded-lg px-3 py-2"
-                  style={{ border: '1px solid rgba(45,42,38,0.09)', background: 'rgba(255,255,255,0.34)' }}
+                  style={{ border: '1px solid rgba(var(--rgb-ink),0.09)', background: 'rgba(var(--rgb-surface),0.34)' }}
                 >
                   <div className="text-[12px] font-semibold underline" style={{ color: 'var(--sindoor)' }}>
                     {item.title}
                   </div>
                   {item.source && (
-                    <div className="text-[10px] mt-0.5 uppercase tracking-[0.08em]" style={{ color: 'rgba(45,42,38,0.45)' }}>
+                    <div className="text-[10px] mt-0.5 uppercase tracking-[0.08em]" style={{ color: 'rgba(var(--rgb-ink),0.45)' }}>
                       {item.source}
                     </div>
                   )}
                   {item.snippet && (
-                    <div className="text-[11px] mt-1 leading-relaxed" style={{ color: 'rgba(45,42,38,0.66)' }}>
+                    <div className="text-[11px] mt-1 leading-relaxed" style={{ color: 'rgba(var(--rgb-ink),0.66)' }}>
                       {item.snippet}
                     </div>
                   )}

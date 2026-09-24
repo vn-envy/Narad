@@ -3,9 +3,12 @@ import type { ErrorInfo, ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App'
 import { registerServiceWorker } from './lib/pwa'
+import { trackVisualViewport } from './lib/viewport'
 
 // Production builds over HTTPS (or localhost) only: push and the offline shell.
 registerServiceWorker()
+// The app is as tall as what is visible, so the keyboard never hides the composer.
+trackVisualViewport()
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state = { error: null }
@@ -18,7 +21,7 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
       const err = this.state.error as Error
       return (
         <div style={{ padding: 32, fontFamily: 'monospace', background: '#2d2a26', color: '#fcfaf2', minHeight: '100vh' }}>
-          <h2 style={{ color: '#e05a2b', marginBottom: 16 }}>⚠ Runtime Error</h2>
+          <h2 style={{ color: '#e05a2b', marginBottom: 16 }}>Something went wrong</h2>
           <pre style={{ color: '#fcd34d', whiteSpace: 'pre-wrap', marginBottom: 16 }}>{err.message}</pre>
           <pre style={{ color: '#A0A49A', fontSize: 11, whiteSpace: 'pre-wrap' }}>{err.stack}</pre>
         </div>

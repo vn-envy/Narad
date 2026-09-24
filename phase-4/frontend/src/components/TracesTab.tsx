@@ -87,8 +87,8 @@ function MetaPill({ label, color }: { label: string; color?: string }) {
     <span style={{
       fontSize: 10.5, padding: '1px 6px', borderRadius: 10,
       fontFamily: 'var(--font-mono)',
-      background: color ? `${color}22` : 'rgba(26,24,21,0.06)',
-      color: color ?? 'rgba(26,24,21,0.5)',
+      background: color ? `${color}22` : 'rgba(var(--rgb-ink),0.06)',
+      color: color ?? 'rgba(var(--rgb-ink),0.5)',
     }}>{label}</span>
   )
 }
@@ -97,16 +97,16 @@ function ToolCallRow({ tc }: { tc: NonNullable<TraceEvent['trajectory']>['turns'
   return (
     <div style={{
       display: 'flex', alignItems: 'flex-start', gap: 8,
-      padding: '5px 8px', background: 'rgba(26,24,21,0.04)', borderRadius: 4, fontSize: 11.5,
+      padding: '5px 8px', background: 'rgba(var(--rgb-ink),0.04)', borderRadius: 4, fontSize: 11.5,
     }}>
       <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--kajal)', fontSize: 11, flexShrink: 0 }}>
         {tc.tool}
       </span>
-      <span style={{ color: 'rgba(26,24,21,0.45)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+      <span style={{ color: 'rgba(var(--rgb-ink),0.45)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {tc.result_preview ?? tc.params_preview}
       </span>
       {tc.error && <span style={{ color: 'var(--sindoor)', fontSize: 10, flexShrink: 0 }}>⚠ err</span>}
-      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'rgba(26,24,21,0.35)', flexShrink: 0 }}>
+      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'rgba(var(--rgb-ink),0.35)', flexShrink: 0 }}>
         {fmtMs(tc.latency_ms)}
       </span>
     </div>
@@ -126,7 +126,7 @@ function ValidateRow({ passed, total }: { passed: number; total: number }) {
       <span style={{ fontWeight: 600, color: ok ? 'var(--tulsi)' : 'var(--kesari)', fontSize: 10, textTransform: 'uppercase' }}>
         {ok ? '✓ VALIDATE' : '✗ CORRECT'}
       </span>
-      <span style={{ color: 'rgba(26,24,21,0.45)' }}>
+      <span style={{ color: 'rgba(var(--rgb-ink),0.45)' }}>
         {passed}/{total} sources passed{!ok ? ' → re-queried with refined terms' : ''}
       </span>
     </div>
@@ -143,7 +143,7 @@ function CompressRow({ uuid, wordsBefore, wordsAfter, onExpand }: { uuid: string
       <span style={{ color: '#e879f9', fontWeight: 600, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.3px', flexShrink: 0 }}>
         ⚡ Compressed
       </span>
-      <span style={{ color: 'rgba(26,24,21,0.45)', flex: 1 }}>
+      <span style={{ color: 'rgba(var(--rgb-ink),0.45)', flex: 1 }}>
         {wordsBefore ? `${wordsBefore.toLocaleString()} words → summary` : 'output compressed'} · uuid: {uuid.slice(0, 12)}…
       </span>
       <button
@@ -166,7 +166,7 @@ function ScopeWarnRow({ signals, avatar }: { signals: string[]; avatar: string }
       borderRadius: 4, fontSize: 11,
     }}>
       <span style={{ color: '#f59e0b', flexShrink: 0 }}>⚠</span>
-      <span style={{ color: 'rgba(26,24,21,0.5)', flex: 1 }}>
+      <span style={{ color: 'rgba(var(--rgb-ink),0.5)', flex: 1 }}>
         <strong style={{ color: '#b45309' }}>Scope signal</strong>: '{signals.join("', '")}' in {avatar} task — cross-scope logged to audit
       </span>
     </div>
@@ -175,10 +175,10 @@ function ScopeWarnRow({ signals, avatar }: { signals: string[]; avatar: string }
 
 function SessionMarker({ label, ts, end }: { label: string; ts: string; end?: boolean }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', fontSize: 11, color: 'rgba(26,24,21,0.45)' }}>
-      <div style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, background: end ? 'rgba(26,24,21,0.3)' : 'var(--marigold)' }} />
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', fontSize: 11, color: 'rgba(var(--rgb-ink),0.45)' }}>
+      <div style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, background: end ? 'rgba(var(--rgb-ink),0.3)' : 'var(--marigold)' }} />
       <span>{label}{ts ? ` · ${fmtTime(ts)}` : ''}</span>
-      <div style={{ flex: 1, height: 1, background: 'rgba(26,24,21,0.1)' }} />
+      <div style={{ flex: 1, height: 1, background: 'rgba(var(--rgb-ink),0.1)' }} />
     </div>
   )
 }
@@ -247,7 +247,7 @@ export function TracesTab({ currentSession, stepEvents, sessionTotals, userId }:
 
   if (!hasData) {
     return (
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(26,24,21,0.35)', fontSize: 13 }}>
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(var(--rgb-ink),0.35)', fontSize: 13 }}>
         No session trace yet — send a message to start.
       </div>
     )
@@ -259,10 +259,10 @@ export function TracesTab({ currentSession, stepEvents, sessionTotals, userId }:
       {/* Timeline column */}
       <div style={{ flex: 1, overflowY: 'auto', padding: 16, display: 'flex', flexDirection: 'column' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-          <span style={{ fontSize: 11.5, fontWeight: 600, color: 'rgba(26,24,21,0.5)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+          <span style={{ fontSize: 11.5, fontWeight: 600, color: 'rgba(var(--rgb-ink),0.5)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
             Session Timeline
           </span>
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'rgba(26,24,21,0.4)' }}>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'rgba(var(--rgb-ink),0.4)' }}>
             {sessionId ? sessionId.slice(0, 8) + '…' : '—'}
             {sessionEnd && ` · ${fmtMs(sessionEnd.total_ms ?? 0)}`}
           </span>
@@ -282,7 +282,7 @@ export function TracesTab({ currentSession, stepEvents, sessionTotals, userId }:
             <div key={cardKey} style={{ position: 'relative', paddingLeft: 22, marginBottom: 4 }}>
               {/* connector */}
               {i < avatarDoneEvents.length - 1 && (
-                <div style={{ position: 'absolute', left: 6, top: 20, bottom: -4, width: 1, background: 'rgba(26,24,21,0.1)' }} />
+                <div style={{ position: 'absolute', left: 6, top: 20, bottom: -4, width: 1, background: 'rgba(var(--rgb-ink),0.1)' }} />
               )}
               {/* dot */}
               <div style={{
@@ -292,7 +292,7 @@ export function TracesTab({ currentSession, stepEvents, sessionTotals, userId }:
 
               {/* Card */}
               <div style={{
-                background: 'rgba(26,24,21,0.03)', border: '1px solid rgba(26,24,21,0.1)',
+                background: 'rgba(var(--rgb-ink),0.03)', border: '1px solid rgba(var(--rgb-ink),0.1)',
                 borderRadius: 8, marginBottom: 4, overflow: 'hidden',
                 transition: 'border-color 0.12s',
               }}>
@@ -304,7 +304,7 @@ export function TracesTab({ currentSession, stepEvents, sessionTotals, userId }:
                   <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.3px', color: avatarColor(ev.avatar), flexShrink: 0 }}>
                     {ev.avatar?.toUpperCase()}
                   </span>
-                  <span style={{ flex: 1, fontSize: 12, color: 'rgba(26,24,21,0.6)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <span style={{ flex: 1, fontSize: 12, color: 'rgba(var(--rgb-ink),0.6)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {traj?.task_preview ?? ev.trajectory?.task_preview ?? '—'}
                   </span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
@@ -320,7 +320,7 @@ export function TracesTab({ currentSession, stepEvents, sessionTotals, userId }:
 
                 {/* Expanded body */}
                 {isExpanded && (
-                  <div style={{ borderTop: '1px solid rgba(26,24,21,0.08)', padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <div style={{ borderTop: '1px solid rgba(var(--rgb-ink),0.08)', padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 4 }}>
                     {/* Tool calls */}
                     {traj?.turns.flatMap(t => t.tool_calls).map((tc, j) => (
                       <ToolCallRow key={j} tc={tc} />
@@ -337,7 +337,7 @@ export function TracesTab({ currentSession, stepEvents, sessionTotals, userId }:
                     ))}
 
                     {ev.degraded_capabilities && ev.degraded_capabilities.length > 0 && (
-                      <div style={{ fontSize: 11, color: 'rgba(26,24,21,0.55)', paddingTop: 2 }}>
+                      <div style={{ fontSize: 11, color: 'rgba(var(--rgb-ink),0.55)', paddingTop: 2 }}>
                         Degraded capabilities: {ev.degraded_capabilities.join(', ')}
                       </div>
                     )}
@@ -355,8 +355,8 @@ export function TracesTab({ currentSession, stepEvents, sessionTotals, userId }:
                     {/* Expanded sandbox content */}
                     {ev.sandbox_uuid && expandedContent[ev.sandbox_uuid] && (
                       <div style={{
-                        padding: 8, background: 'rgba(26,24,21,0.04)', borderRadius: 4,
-                        fontSize: 11.5, color: 'rgba(26,24,21,0.6)',
+                        padding: 8, background: 'rgba(var(--rgb-ink),0.04)', borderRadius: 4,
+                        fontSize: 11.5, color: 'rgba(var(--rgb-ink),0.6)',
                         maxHeight: 200, overflowY: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
                         fontFamily: 'var(--font-mono)',
                       }}>
@@ -374,9 +374,9 @@ export function TracesTab({ currentSession, stepEvents, sessionTotals, userId }:
         {sessionEnd && (
           <div style={{ position: 'relative', paddingLeft: 22, marginBottom: 4 }}>
             <div style={{ position: 'absolute', left: 0, top: 8, width: 13, height: 13, borderRadius: '50%', border: `2px solid var(--marigold)`, background: 'var(--paper)' }} />
-            <div style={{ background: 'rgba(26,24,21,0.03)', border: '1px solid rgba(26,24,21,0.1)', borderRadius: 8, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ background: 'rgba(var(--rgb-ink),0.03)', border: '1px solid rgba(var(--rgb-ink),0.1)', borderRadius: 8, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--marigold)', flexShrink: 0 }}>NARAD</span>
-              <span style={{ flex: 1, fontSize: 12, color: 'rgba(26,24,21,0.5)' }}>Synthesis — orchestrating avatar results → final response</span>
+              <span style={{ flex: 1, fontSize: 12, color: 'rgba(var(--rgb-ink),0.5)' }}>Synthesis — orchestrating avatar results → final response</span>
               {sessionTotals.completionTokens > 0 && (
                 <MetaPill label={`${sessionTotals.completionTokens.toLocaleString()} tok`} color="var(--marigold)" />
               )}
@@ -392,14 +392,14 @@ export function TracesTab({ currentSession, stepEvents, sessionTotals, userId }:
             {fallbackAvatars.map(av => (
               <div key={av} style={{ position: 'relative', paddingLeft: 22, marginBottom: 4 }}>
                 <div style={{ position: 'absolute', left: 0, top: 8, width: 13, height: 13, borderRadius: '50%', border: `2px solid ${avatarColor(av)}`, background: 'var(--paper)' }} />
-                <div style={{ background: 'rgba(26,24,21,0.03)', border: '1px solid rgba(26,24,21,0.1)', borderRadius: 8, padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <div style={{ background: 'rgba(var(--rgb-ink),0.03)', border: '1px solid rgba(var(--rgb-ink),0.1)', borderRadius: 8, padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 4 }}>
                   <span style={{ fontSize: 11, fontWeight: 700, color: avatarColor(av) }}>{av.toUpperCase()}</span>
                   {stepEvents.filter(e => e.avatar === av).map((e, j) => (
                     <div key={j} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 11.5, padding: '3px 0' }}>
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'rgba(26,24,21,0.35)', flexShrink: 0 }}>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'rgba(var(--rgb-ink),0.35)', flexShrink: 0 }}>
                         {e.kind === 'tool_call' ? '⚙' : e.kind === 'tool_result' ? '↩' : '✍'}
                       </span>
-                      <span style={{ flex: 1, color: 'rgba(26,24,21,0.55)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <span style={{ flex: 1, color: 'rgba(var(--rgb-ink),0.55)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {e.preview}
                       </span>
                     </div>
@@ -413,30 +413,30 @@ export function TracesTab({ currentSession, stepEvents, sessionTotals, userId }:
 
       {/* Right summary panel */}
       <div style={{
-        width: 248, borderLeft: '1px solid rgba(26,24,21,0.1)',
-        background: 'rgba(26,24,21,0.02)', display: 'flex', flexDirection: 'column',
+        width: 248, borderLeft: '1px solid rgba(var(--rgb-ink),0.1)',
+        background: 'rgba(var(--rgb-ink),0.02)', display: 'flex', flexDirection: 'column',
         overflowY: 'auto', flexShrink: 0,
       }}>
 
         {/* Token usage */}
-        <div style={{ padding: '12px 14px 10px', borderBottom: '1px solid rgba(26,24,21,0.08)' }}>
-          <div style={{ fontSize: 10.5, fontWeight: 600, color: 'rgba(26,24,21,0.4)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>
+        <div style={{ padding: '12px 14px 10px', borderBottom: '1px solid rgba(var(--rgb-ink),0.08)' }}>
+          <div style={{ fontSize: 10.5, fontWeight: 600, color: 'rgba(var(--rgb-ink),0.4)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>
             Token Usage
           </div>
           {Object.entries(avatarUsage).map(([av, tok]) => (
             <div key={av} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
               <span style={{ width: 72, fontSize: 11, fontWeight: 600, color: avatarColor(av), flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{av}</span>
-              <div style={{ flex: 1, height: 5, background: 'rgba(26,24,21,0.08)', borderRadius: 3, overflow: 'hidden' }}>
+              <div style={{ flex: 1, height: 5, background: 'rgba(var(--rgb-ink),0.08)', borderRadius: 3, overflow: 'hidden' }}>
                 <div style={{ height: '100%', borderRadius: 3, background: avatarColor(av), width: `${Math.round((tok / maxTok) * 100)}%` }} />
               </div>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'rgba(26,24,21,0.45)', width: 38, textAlign: 'right' }}>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'rgba(var(--rgb-ink),0.45)', width: 38, textAlign: 'right' }}>
                 {tok.toLocaleString()}
               </span>
             </div>
           ))}
           {sessionTotals.totalTokens > 0 && (
-            <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(26,24,21,0.08)', display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: 11, color: 'rgba(26,24,21,0.4)' }}>Total</span>
+            <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(var(--rgb-ink),0.08)', display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 11, color: 'rgba(var(--rgb-ink),0.4)' }}>Total</span>
               <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600, color: 'var(--marigold)' }}>
                 {sessionTotals.totalTokens.toLocaleString()}
               </span>
@@ -446,14 +446,14 @@ export function TracesTab({ currentSession, stepEvents, sessionTotals, userId }:
 
         {/* Latency breakdown */}
         {avatarDoneEvents.some(e => e.latency_ms) && (
-          <div style={{ padding: '12px 14px 10px', borderBottom: '1px solid rgba(26,24,21,0.08)' }}>
-            <div style={{ fontSize: 10.5, fontWeight: 600, color: 'rgba(26,24,21,0.4)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>
+          <div style={{ padding: '12px 14px 10px', borderBottom: '1px solid rgba(var(--rgb-ink),0.08)' }}>
+            <div style={{ fontSize: 10.5, fontWeight: 600, color: 'rgba(var(--rgb-ink),0.4)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>
               Latency
             </div>
             {avatarDoneEvents.filter(e => e.latency_ms).map((ev, i) => (
               <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '3px 0', fontSize: 11.5 }}>
                 <span style={{ color: avatarColor(ev.avatar) }}>{ev.avatar}</span>
-                <span style={{ fontFamily: 'var(--font-mono)', color: 'rgba(26,24,21,0.45)' }}>{fmtMs(ev.latency_ms!)}</span>
+                <span style={{ fontFamily: 'var(--font-mono)', color: 'rgba(var(--rgb-ink),0.45)' }}>{fmtMs(ev.latency_ms!)}</span>
               </div>
             ))}
           </div>
@@ -461,8 +461,8 @@ export function TracesTab({ currentSession, stepEvents, sessionTotals, userId }:
 
         {/* Audit log excerpt */}
         {auditEntries.length > 0 && (
-          <div style={{ padding: '12px 14px 10px', borderBottom: '1px solid rgba(26,24,21,0.08)' }}>
-            <div style={{ fontSize: 10.5, fontWeight: 600, color: 'rgba(26,24,21,0.4)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>
+          <div style={{ padding: '12px 14px 10px', borderBottom: '1px solid rgba(var(--rgb-ink),0.08)' }}>
+            <div style={{ fontSize: 10.5, fontWeight: 600, color: 'rgba(var(--rgb-ink),0.4)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>
               Audit Log
             </div>
             {auditEntries.slice(0, 6).map((e, i) => (
@@ -470,18 +470,18 @@ export function TracesTab({ currentSession, stepEvents, sessionTotals, userId }:
                 {e.event === 'scope_warning' ? (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 0', fontSize: 11, color: '#b45309' }}>
                     <span>⚠</span>
-                    <span style={{ color: 'rgba(26,24,21,0.45)' }}>
+                    <span style={{ color: 'rgba(var(--rgb-ink),0.45)' }}>
                       Scope: '{e.matched_signals?.join("', '")}' in {e.avatar} task
                     </span>
                   </div>
                 ) : (
-                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '5px 0', borderBottom: '1px solid rgba(26,24,21,0.06)', fontSize: 11 }}>
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'rgba(26,24,21,0.35)', flexShrink: 0, marginTop: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '5px 0', borderBottom: '1px solid rgba(var(--rgb-ink),0.06)', fontSize: 11 }}>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'rgba(var(--rgb-ink),0.35)', flexShrink: 0, marginTop: 1 }}>
                       {e.ts.slice(11, 19)}
                     </span>
                     <div>
                       <div><span style={{ fontWeight: 600, color: avatarColor(e.avatar) }}>{e.avatar}</span> invoked</div>
-                      <div style={{ color: 'rgba(26,24,21,0.45)', marginTop: 1 }}>{e.task_preview.slice(0, 60)}{e.task_preview.length > 60 ? '…' : ''}</div>
+                      <div style={{ color: 'rgba(var(--rgb-ink),0.45)', marginTop: 1 }}>{e.task_preview.slice(0, 60)}{e.task_preview.length > 60 ? '…' : ''}</div>
                     </div>
                   </div>
                 )}

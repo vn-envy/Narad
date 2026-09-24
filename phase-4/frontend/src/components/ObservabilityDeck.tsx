@@ -13,7 +13,7 @@ interface Props {
   metricsOnly?: boolean
 }
 
-const INK = 'rgba(26,24,21,'
+const INK = 'rgba(var(--rgb-ink),'
 
 function compact(value: number) {
   return value >= 1000 ? `${(value / 1000).toFixed(1)}k` : String(value)
@@ -21,7 +21,7 @@ function compact(value: number) {
 
 function Metric({ label, value, detail }: { label: string; value: string; detail: string }) {
   return (
-    <div style={{ padding: '14px 15px', borderRadius: 14, border: `1px solid ${INK}0.08)`, background: 'rgba(252,250,242,0.82)' }}>
+    <div style={{ padding: '14px 15px', borderRadius: 14, border: `1px solid ${INK}0.08)`, background: 'rgba(var(--rgb-page),0.82)' }}>
       <div style={{ fontSize: 9.5, letterSpacing: '0.15em', textTransform: 'uppercase', color: `${INK}0.42)` }}>{label}</div>
       <div style={{ marginTop: 5, fontFamily: 'var(--font-hero)', fontSize: 23, color: 'var(--kajal)' }}>{value}</div>
       <div style={{ marginTop: 3, fontSize: 10.5, color: `${INK}0.48)` }}>{detail}</div>
@@ -59,7 +59,7 @@ export function ObservabilityDeck({
         <Metric label="Tools ready" value={capabilities ? `${readyTools}/${totalTools}` : '—'} detail={`${toolCalls} calls this session`} />
       </div>
 
-      <div style={{ marginTop: 20, padding: '15px 16px', borderRadius: 15, border: `1px solid ${INK}0.08)`, background: 'linear-gradient(120deg, rgba(53,94,59,0.055), rgba(252,250,242,0.8))' }}>
+      <div style={{ marginTop: 20, padding: '15px 16px', borderRadius: 15, border: `1px solid ${INK}0.08)`, background: 'linear-gradient(120deg, rgba(53,94,59,0.055), rgba(var(--rgb-page),0.8))' }}>
         <div style={{ fontSize: 10, letterSpacing: '0.15em', textTransform: 'uppercase', color: `${INK}0.42)` }}>Four-agent runtime</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8, marginTop: 10 }}>
           {AVATAR_NAMES.map(name => {
