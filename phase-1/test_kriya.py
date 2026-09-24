@@ -593,8 +593,9 @@ def test_server_mounts_the_task_routes_behind_profile_identity(home, monkeypatch
 
 def test_cloud_session_gets_a_bare_context_and_an_egress_line(home, monkeypatch) -> None:
     import computer_use_skill
-    import privacy_gateway
     from kriya import browser as kriya_browser
+
+    import privacy_gateway
 
     monkeypatch.setenv("NARAD_CLOUD_BROWSER_URL", "wss://browser.example.com/cdp")
     monkeypatch.setattr(computer_use_skill, "_COMPUTER_ARTIFACTS_DIR", home.root / "computer-use")
