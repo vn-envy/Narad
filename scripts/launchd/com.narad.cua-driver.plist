@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Cua Driver daemon (cua-driver serve) for Narad's desktop tasks, kept alive by launchd with telemetry off. It runs the binary inside CuaDriver.app directly, as Cua's own LaunchAgent recipe does, so macOS attributes Screen Recording and Accessibility to the app. Installed only when cua-driver is installed and nothing else supervises it. Narad reaches it through one persistent `cua-driver mcp` session. Template: see scripts/install_launchd.sh. -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.narad.cua-driver</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>@CUA_DRIVER_BIN@</string>
+        <string>serve</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>@HOME@/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>CUA_DRIVER_RS_TELEMETRY_ENABLED</key>
+        <string>false</string>
+        <key>CUA_TELEMETRY_ENABLED</key>
+        <string>false</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+    <key>ProcessType</key>
+    <string>Interactive</string>
+    <key>StandardOutPath</key>
+    <string>@LOG_DIR@/cua-driver.log</string>
+    <key>StandardErrorPath</key>
+    <string>@LOG_DIR@/cua-driver.log</string>
+</dict>
+</plist>

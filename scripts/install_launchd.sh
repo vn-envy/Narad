@@ -15,6 +15,10 @@
 #   com.narad.backup    daily 03:30: scripts/narad_backup.py backup
 #   com.narad.drill     Sundays 04:30: scripts/narad_backup.py drill
 #   com.narad.awake     caffeinate -s: no system sleep while on the charger
+#   com.narad.cua-driver  cua-driver serve (desktop tasks), telemetry off; installed only
+#                       when cua-driver is installed and no other LaunchAgent runs it
+#   com.narad.artemis   the Artemis Android service on 127.0.0.1; installed only when
+#                       Artemis is under NARAD_ARTEMIS_DIR and NARAD_ARTEMIS_URL is this Mac
 #
 # Safe to run again: unchanged jobs keep running, changed ones are reloaded.
 # Settings come from .env through scripts/pilot_env.sh, exactly as for
@@ -28,7 +32,7 @@ source "$ROOT/scripts/pilot_env.sh"
 
 TEMPLATES="$ROOT/scripts/launchd"
 AGENTS_DIR="${NARAD_LAUNCH_AGENTS_DIR:-$HOME/Library/LaunchAgents}"
-JOBS=(backend tunnel watchdog uptime backup drill awake)
+JOBS=(backend tunnel watchdog uptime backup drill awake cua-driver artemis)
 DOMAIN="gui/$(id -u)"
 if [ "$(uname -s)" = "Darwin" ]; then
     KEY_FILE="${NARAD_BACKUP_KEY_FILE:-$HOME/Library/Application Support/Narad/backup.key}"
@@ -47,10 +51,26 @@ loaded() { launchctl print "$DOMAIN/$(label_of "$1")" >/dev/null 2>&1; }
 # Escape a value for an XML text node, then for a sed replacement (| delimiter).
 fill() { printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' -e 's/[|&\\]/\\&/g'; }
 
+# The cua-driver binary inside CuaDriver.app (the ~/.local/bin link resolved),
+# so launchd starts the app's own code; a stand-in path where it is missing.
+cua_driver_bin() {
+    local found
+    found="$(command -v cua-driver 2>/dev/null || true)"
+    [ -n "$found" ] || { [ -x "$HOME/.local/bin/cua-driver" ] && found="$HOME/.local/bin/cua-driver"; }
+    if [ -z "$found" ]; then
+        echo "/Applications/CuaDriver.app/Contents/MacOS/cua-driver"
+        return 1
+    fi
+    readlink -f "$found" 2>/dev/null || echo "$found"
+}
+
 render_job() {  # render_job JOB OUTPUT_FILE
+    local cua
+    cua="$(cua_driver_bin || true)"
     sed -e "s|@ROOT@|$(fill "$ROOT")|g" \
         -e "s|@HOME@|$(fill "$HOME")|g" \
         -e "s|@LOG_DIR@|$(fill "$NARAD_LOG_DIR")|g" \
+        -e "s|@CUA_DRIVER_BIN@|$(fill "$cua")|g" \
         "$TEMPLATES/$(label_of "$1").plist" >"$2"
     if command -v plutil >/dev/null 2>&1; then
         plutil -lint -s "$2" >/dev/null || die "Rendered $(label_of "$1") is not a valid plist."
@@ -59,6 +79,25 @@ render_job() {  # render_job JOB OUTPUT_FILE
 
 tunnel_ready() {
     command -v cloudflared >/dev/null 2>&1 && [ -s "$TOKEN_FILE" ] && [ -n "$PUBLIC_URL" ]
+}
+
+# Why the optional sidecar jobs are not installed ("" when they should be).
+cua_driver_skip() {
+    cua_driver_bin >/dev/null || { echo "cua-driver is not installed"; return; }
+    if ls "$AGENTS_DIR"/com.trycua.*.plist >/dev/null 2>&1; then
+        echo "Cua's own LaunchAgent already runs it"
+        return
+    fi
+    if ! loaded cua-driver && cua-driver status 2>/dev/null | grep -qi "daemon is running"; then
+        echo "a Cua Driver daemon started outside launchd is running; quit CuaDriver and install again"
+    fi
+}
+
+artemis_skip() {
+    [ "${NARAD_DISABLE_ARTEMIS:-0}" != "1" ] || { echo "NARAD_DISABLE_ARTEMIS=1"; return; }
+    [ -x "$ARTEMIS_DIR/.venv/bin/artemis-admin" ] || { echo "Artemis is not installed under $ARTEMIS_DIR"; return; }
+    [ "$NARAD_ARTEMIS_URL" = "http://127.0.0.1:$ARTEMIS_PORT" ] \
+        || echo "NARAD_ARTEMIS_URL points elsewhere ($NARAD_ARTEMIS_URL)"
 }
 
 wait_unloaded() {
@@ -138,10 +177,28 @@ cmd_install() {
     mkdir -p "$AGENTS_DIR" "$NARAD_LOG_DIR"
     chmod 700 "$NARAD_LOG_DIR"
 
+    local why
     for job in "${JOBS[@]}"; do
         if [ "$job" = tunnel ] && ! tunnel_ready; then
             remove_job tunnel "skipped: needs cloudflared, $TOKEN_FILE and NARAD_PUBLIC_URL"
             continue
+        fi
+        if [ "$job" = cua-driver ]; then
+            why="$(cua_driver_skip)"
+            if [ -n "$why" ]; then
+                remove_job cua-driver "skipped: $why"
+                continue
+            fi
+            # Persist the opt-out for the daemon however it starts, not only in this job's environment.
+            cua-driver telemetry disable >/dev/null 2>&1 \
+                || warn "Could not persist the Cua Driver telemetry opt-out; run: cua-driver telemetry disable"
+        fi
+        if [ "$job" = artemis ]; then
+            why="$(artemis_skip)"
+            if [ -n "$why" ]; then
+                remove_job artemis "skipped: $why"
+                continue
+            fi
         fi
         install_job "$job"
     done
@@ -158,7 +215,7 @@ cmd_install() {
 cmd_uninstall() {
     is_macos || die "launchd is macOS-only; there is nothing to uninstall on this system."
     # The watchdog goes first so it cannot restart the backend mid-removal.
-    for job in watchdog uptime backup drill awake tunnel backend; do
+    for job in watchdog uptime backup drill awake tunnel artemis cua-driver backend; do
         remove_job "$job"
     done
     log "Jobs removed. ~/.narad, your backups and $NARAD_LOG_DIR are untouched."
@@ -192,6 +249,20 @@ cmd_status() {
         echo "  http://$BACKEND_HOST:$BACKEND_PORT/health is answering"
     else
         echo "  http://$BACKEND_HOST:$BACKEND_PORT/health is NOT answering"
+    fi
+    if [ -n "$(artemis_skip)" ]; then
+        echo "  Artemis: not set up ($(artemis_skip))"
+    elif curl -fsS --noproxy '*' --max-time 5 -o /dev/null "$NARAD_ARTEMIS_URL/api/status" 2>/dev/null; then
+        echo "  Artemis ($NARAD_ARTEMIS_URL) is answering"
+    else
+        echo "  Artemis ($NARAD_ARTEMIS_URL) is NOT answering"
+    fi
+    if ! cua_driver_bin >/dev/null; then
+        echo "  Cua Driver: not installed"
+    elif cua-driver status 2>/dev/null | grep -qi "daemon is running"; then
+        echo "  Cua Driver daemon is running"
+    else
+        echo "  Cua Driver daemon is NOT running"
     fi
     echo "Last uptime check:"
     tail -n 1 "$ops/uptime.jsonl" 2>/dev/null | sed 's/^/  /' || true
