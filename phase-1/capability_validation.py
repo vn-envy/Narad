@@ -33,6 +33,7 @@ _TOOL_FAMILIES = {
     "enrich_web_research": "search",
     "browse_url": "browser",
     "computer_use": "browser",
+    "start_task": "browser",
     "phone_use": "phone",
     "browser_screenshot": "browser",
     "browser_fill": "browser",

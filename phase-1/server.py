@@ -933,6 +933,12 @@ async def _startup_runtime_contract() -> None:
 @app.on_event("shutdown")
 async def _shutdown_computer_runtime() -> None:
     """Release managed browser processes instead of leaving Chromium orphaned."""
+    try:  # Kriya first: its tasks stop at a checkpoint and resume after the restart
+        from kriya.runtime import runtime as _kriya_runtime
+
+        await asyncio.to_thread(_kriya_runtime().suspend)
+    except Exception:
+        logging.getLogger("narad.server").warning("Kriya suspend failed", exc_info=True)
     try:
         from computer_use_skill import shutdown_computer_use
 
@@ -1531,6 +1537,25 @@ async def edit_approval(proposal_id: str, body: ApprovalEdit, request: Request):
     except (anumati.ApprovalError, ValueError) as exc:
         raise _approval_http_error(exc)
     return proposal.to_payload()
+
+
+# ── Kriya tasks ───────────────────────────────────────────────────────────────
+# Multi-step errands run in the task runtime (phase-8/kriya), not in chat. The
+# phone watches, stops and helps them through /tasks, profile-scoped by the
+# same identity helper as the approvals above.
+try:
+    from kriya.api import build_tasks_router, resume_tasks_after_restart
+
+    app.include_router(build_tasks_router(_assert_profile_match))
+
+    @app.on_event("startup")
+    async def _resume_kriya_tasks() -> None:
+        if os.environ.get("NARAD_KRIYA", "1") != "0":
+            import threading
+
+            threading.Thread(target=resume_tasks_after_restart, name="kriya-resume", daemon=True).start()
+except Exception as _kriya_err:
+    logging.getLogger("narad.server").warning("Kriya task routes unavailable: %s", _kriya_err)
 
 
 @app.post("/chat")

@@ -585,6 +585,13 @@ class BrowserSessionManager:
             future.cancel()
             raise TimeoutError(f"Browser operation exceeded {timeout_s} seconds") from exc
 
+    def run(self, coroutine: Any, timeout_s: int = 180) -> Any:
+        """Run a coroutine on the browser loop and wait for it.
+
+        The Kriya task runtime shares this loop and its Chromium process: its
+        pages live in their own contexts, outside ``computer_use`` sessions."""
+        return self._call(coroutine, timeout_s)
+
     async def _ensure_browser(self) -> None:
         if self._browser is not None and self._browser.is_connected():
             return
@@ -600,7 +607,12 @@ class BrowserSessionManager:
             headless = os.environ.get("NARAD_BROWSER_HEADLESS", "1").strip().lower() not in {
                 "0", "false", "off", "no",
             }
-            self._browser = await self._playwright.chromium.launch(headless=headless)
+            # A Chromium build other than the one this Playwright release
+            # downloads (a pinned or system install) is named explicitly.
+            executable = os.environ.get("NARAD_CHROMIUM_EXECUTABLE", "").strip() or None
+            self._browser = await self._playwright.chromium.launch(
+                headless=headless, executable_path=executable
+            )
             self._launch_error = None
         except Exception as exc:
             self._launch_error = f"{type(exc).__name__}: {exc}"

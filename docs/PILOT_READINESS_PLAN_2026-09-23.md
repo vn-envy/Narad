@@ -140,6 +140,34 @@ Still open in Stage A:
   - handwriting quality without escalation;
   - saving a relative's report into their own profile (a care-circle decision).
 
+**Stage C progress (2026-09-24), Kriya v0 for the browser surfaces** (closes most of Fix D):
+- **Task runtime** (`phase-8/kriya/`). Matsya calls `start_task(goal, start_url, surface, done_when)` and gets a task id at once; the chat shows a task card (`task_started`). The loop runs on its own worker thread with a dedicated operator model (`NARAD_OPERATOR_MODEL`, default Matsya's worker model) through `NaradLiteLlm`, so every call goes through the privacy gateway.
+  - Durable per profile: `profiles/<id>/kriya.db` (SQLite WAL), states queued / running / waiting_approval / waiting_help / done / failed / cancelled, an event log that is the phone's step list.
+  - One browser task per profile at a time, desktop and phone exclusive, a small queue. Cancel is checked before every action and while waiting: a task stops within one step. Shutdown suspends tasks at a checkpoint; startup resumes them from their last page.
+  - Finishing sends `task_done` and a note into the originating chat thread; a sign-in or captcha sends `question`.
+- **Perception v2.** Playwright's AI accessibility snapshot: real ARIA roles, refs stable across steps, same- and cross-origin iframes and open shadow DOM in one call. The view is scoped to the viewport with "more below: N items" paging and a 2K-token budget; password values and secret-named fields are masked. A screenshot goes to the operator only for a poor tree, and only to a model that reads images at a `local` or `trusted` tier.
+- **Act, settle, verify.** Actions by ref with 5 s actionability timeouts (was 30 s). The page settles on navigation or a quiet DOM with no document/XHR/fetch in flight (at most 4 s). Each step is checked deterministically (value kept, box ticked, URL, text appeared or gone, the page changed); a miss re-grounds by role and name and retries once. Only the latest observation is sent in full; older steps are one line each.
+- **Approvals inside a task.** A commit step becomes an Anumati proposal (surface `task`, screenshot preview) and the task waits; approving runs exactly that step once (never retried, page and target rechecked, Dharma-gated). A rejection stops the task cleanly; an expired approval pauses it until Continue. A page with prompt-injection text sends every write to approval.
+- **Live view and stop from the phone.** A task card in chat and a task screen: the goal, the current step in plain words, a ~1.5 fps frame (`GET /tasks/{id}/frame`, memory only, `no-store`), the step list and a big Stop. While a task waits for help, takeover forwards taps on the frame (with a 2.5x zoom for small fields), typing (never logged), Enter, scroll and Back; Continue resumes. `/?task=<id>` opens the screen from a notification.
+- **Cloud browser** (owner decision 2). `NARAD_CLOUD_BROWSER_URL` connects Playwright over CDP to a self-hosted Steel or browserless, used only for tasks with no sign-in and no personal data. Each task gets a fresh context with no cookies, storage state, credentials or vault values; a sign-in wall or a personal-data step moves the task to the Mac. Each session is one line in the egress ledger. The Steel flags are in AGENTS.md (Kriya).
+- **Evidence** (Pariksha fixtures in real Chromium with a scripted operator: `phase-1/test_kriya_browser.py`, `scripts/pariksha_browser.py --operator scripted`):
+
+  | Fixture | Result | Steps | Time per step | Largest observation | Approvals asked / needed |
+  |---|---|---|---|---|---|
+  | Flight search → booking with payment | done after 1 approval | 5 | 0.9 s | ~170 tokens | 1 / 1 |
+  | Clinic appointment (6 actions in one step) | done after 1 approval | 1 | 1.6 s | ~160 tokens | 1 / 1 |
+  | Cookie wall + news search | done | 2 | 0.9 s | ~140 tokens | 0 / 0 |
+  | Infinite scroll to item 57 of 200 | done | 15 | 0.2 s | ~330 tokens | 0 / 0 |
+  | Form in a cross-origin iframe | done | 1 | 1.0–2.0 s | ~70 tokens | 0 / 0 |
+  | Prompt-injection page, read only | done | 0 | 0.7 s | ~170 tokens | 0 / 0 |
+  | Prompt-injection page, sign-up (rejected) | stopped, nothing sent | 1 | 0.8 s | ~170 tokens | 1 / 1 |
+  | Button that ignores its first click | done after 1 retry | 1 | 1.3 s | ~60 tokens | 0 / 0 |
+  | Sign-in wall (takeover, Continue) | done | 0 | 0.7 s | ~80 tokens | 0 / 0 |
+  | 800 links on one screen | budget held | — | — | ~1,930 tokens | — |
+
+  Times are the runtime's own (browser, settle, verify) with no model; on the Mac the operator model's latency adds to each step. Cancel stopped a running task within one step in under 5 s.
+- **Still open:** the scorecard with the real operator model on the Mac (`scripts/pariksha_browser.py`); desktop and phone tasks (still `computer_use` / `phone_use`); standing envelopes; the signed-in BrowserSkill surface and `request-help` as takeover; Prompt Guard as a second injection check; downloads and uploads inside tasks beyond a single download; per-profile `storage_state` with consent; a Running section for tasks in Activity.
+
 ## Stack decisions (2026-09-24): Indic voice, Indic documents, local decision models
 
 These decisions come from two source-checked research passes, one on Sarvam and Indic open models, one on Jev, CUA-S1 and Laya. They put experience and functionality first, then privacy, then cost. Sarvam and Laya numbers are vendor-reported unless marked otherwise. Every Mac figure is an estimate until `scripts/bench_local_stack.py` has been run on the M5 Air.
@@ -519,6 +547,8 @@ Each phase is one reviewable PR (or a small stack). Exit gates are hard: a phase
 - Egress policy tests show that no sensitive-class turn reaches an `open` provider.
 
 ### Phase 4: Kriya, the computer and phone use engine
+
+> **Status (2026-09-24): Kriya v0 for the browser surfaces has landed** (see Stage C progress): the task runtime, perception v2, act/settle/verify, approvals inside a task, live view and takeover, the cloud browser and the Pariksha browser fixtures. Desktop, Android, the signed-in surface, envelopes and the model bake-off are still open.
 
 - **One Surface protocol** (`observe / act / verify / frame / handoff`) with the canonical Effect contract.
 - **Task runtime**

@@ -12,6 +12,7 @@ import { HostUnreachableError, isUnreachableStatus } from './lib/host-status'
 import { disablePush, fetchInbox, setAppBadge, syncPushSubscription } from './lib/notifications'
 import { OPEN_URL_EVENT, PUSH_EVENT, type PushPayload } from './lib/pwa'
 import { ApprovalSheet }        from './components/ApprovalCard'
+import { TaskSheet }            from './components/TaskCard'
 import {
   apiFetch,
   apiUrl,
@@ -564,6 +565,9 @@ function NaradSession({ profile, onSwitchProfile }: { profile: FamilyProfile; on
 
       {/* Opened from an approval notification: /?approval=<id> */}
       <ApprovalSheet onChange={updateApproval} />
+
+      {/* A Kriya task's live view, from its card or a notification: /?task=<id> */}
+      <TaskSheet />
 
       <Toaster />
     </>

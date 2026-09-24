@@ -3,6 +3,7 @@ import { toast } from 'sonner'
 import { apiPath, apiUrl, apiFetch, type ApprovalProposal } from '@/lib/api'
 import { CONSENT_REQUIRED_EVENT, type PrivacyReceipt } from '@/lib/trust'
 import { emitDocumentReview } from '@/lib/document-review'
+import type { KriyaTask } from '@/lib/tasks'
 
 export type AvatarName = 'Matsya' | 'Rama' | 'Krishna' | 'Parashurama'
 
@@ -72,8 +73,9 @@ function storedTurnTrust(turn: StoredThreadTurn): Pick<Message, 'turnId' | 'priv
 
 export interface Message {
   id: string
-  /** 'approval': an Anumati card, never a reply to speak, copy or replay. */
-  role: 'user' | 'assistant' | 'approval'
+  /** 'approval': an Anumati card, never a reply to speak, copy or replay.
+   *  'task': a Kriya task card (a background errand), likewise. */
+  role: 'user' | 'assistant' | 'approval' | 'task'
   text: string
   avatarsInvolved?: AvatarName[]
   sessionId?: string
@@ -92,6 +94,8 @@ export interface Message {
   turnId?: string
   /** What left the Mac for this answer: counts only (privacy_receipt event). */
   privacyReceipt?: PrivacyReceipt
+  /** Kriya: present when this message is a task card, not prose. */
+  task?: KriyaTask
 }
 
 export interface SessionInfo {
@@ -406,6 +410,15 @@ function upsertApprovalMessage(
   }
   const next = [...messages]
   next[index] = { ...next[index], text: proposal.summary, approval: proposal }
+  return next
+}
+
+/** Put a task card in the chat, or refresh the one already showing that task. */
+function upsertTaskMessage(messages: Message[], task: KriyaTask): Message[] {
+  const index = messages.findIndex(m => m.task?.id === task.id)
+  if (index < 0) return [...messages, { id: `task-${task.id}`, role: 'task', text: task.goal, task }]
+  const next = [...messages]
+  next[index] = { ...next[index], text: task.goal, task }
   return next
 }
 
@@ -1319,6 +1332,15 @@ export function useAvatara(userId = 'default') {
             case 'document_review': {
               // extract_fields made a review; the chat shows a card for it.
               emitDocumentReview(evt.data)
+              break
+            }
+
+            case 'task_started':
+            case 'task_updated': {
+              // An errand now runs on the Mac by itself: show its card in the chat.
+              const task = evt.data as unknown as KriyaTask
+              if (!task?.id) break
+              setState(s => ({ ...s, messages: upsertTaskMessage(s.messages, task) }))
               break
             }
 

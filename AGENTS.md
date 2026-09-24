@@ -114,7 +114,8 @@ document extraction, critical analysis (steelman + red-team), and the local file
 | `exa_contents` | Bounded full-text extraction for known public URLs |
 | `browse_url` | Playwright headless browser for JS SPAs and specific URLs |
 | `http_request` | Direct REST API / webhook calls; POST/PUT/PATCH/DELETE wait for an Anumati approval |
-| `computer_use` | Persistent isolated Playwright or profile-granted signed-in BrowserSkill sessions; semantic actions, batched execution, and trace artifacts; desktop is opt-in. Benign steps run; the first commit step returns `needs_approval` (Anumati) |
+| `start_task` | Every multi-step web errand (search and compare, fill a form, book, find something on a long page). Returns a task id at once; Kriya runs it in the background, the person watches and stops it on the task card (see Kriya below) |
+| `computer_use` | Single quick looks or actions: persistent isolated Playwright or profile-granted signed-in BrowserSkill sessions; semantic actions, batched execution, and trace artifacts; desktop is opt-in. Benign steps run; the first commit step returns `needs_approval` (Anumati) |
 | `phone_use` | Optional profile-granted Android execution through Artemis; consequential tasks need verified mode and an Anumati approval |
 | `browser_screenshot` / `browser_fill` / `browser_upload_and_submit` | Compatible form helpers over one shared session: screenshot → fill → approval card → Narad submits |
 | `search_arxiv` / `search_papers` / `search_hf_papers` / `search_hf_models` | Academic + model discovery |
@@ -247,7 +248,7 @@ all; Anumati decides whether this person approved this exact one.
 ### Anumati (Approvals)
 Commit-class side effects run only against an `ActionProposal` the person approved on
 their phone (`anumati.py`). A model's `confirmed=True` or `dry_run=False` approves nothing.
-- **Proposal**: surface (email / browser / signed_in_browser / desktop / phone / workflow / http),
+- **Proposal**: surface (email / browser / signed_in_browser / desktop / phone / workflow / http / task),
   action, target, canonical args, and `args_hash` = sha256 over all four; a summary the tool
   builds from the args; risk class; preview (email fields or a screenshot); 15-minute expiry
   (24 h for path steps, `NARAD_APPROVAL_TTL_S`); decided by / at / device; result. Stored per
@@ -257,9 +258,11 @@ their phone (`anumati.py`). A model's `confirmed=True` or `dry_run=False` approv
   `needs_approval` with the pending proposal (an identical request reuses it, an executed
   one returns `already_done`). Covered: `send_email`, commit steps in `computer_use`
   (isolated, signed-in, desktop), `browser_fill` / `browser_upload_and_submit` submits,
-  consequential `phone_use` tasks, workflow stage confirmations, and `http_request` POST /
+  consequential `phone_use` tasks, workflow stage confirmations, `http_request` POST /
   PUT / PATCH / DELETE (GET, HEAD and OPTIONS run at once; secret headers are masked on the
-  card). The owner-only shell tools keep their own allowlist gate. `create_event` stays
+  card), and commit steps inside Kriya tasks (surface `task`: no executor is registered, so
+  approving leaves the proposal `approved` and the task's own loop consumes it and runs that
+  one step). The owner-only shell tools keep their own allowlist gate. `create_event` stays
   model-confirmed on purpose: it only adds a private event to the person's own calendar
   (no attendees), which they can delete, so it is reversible input, not a commit.
 - **Deciding**: `GET /approvals?status=pending`, `GET /approvals/{id}`,
@@ -277,6 +280,61 @@ their phone (`anumati.py`). A model's `confirmed=True` or `dry_run=False` approv
   unlabelled or coordinate clicks, all desktop input, and any non-read step on a page with
   prompt-injection text. Reading, navigating, scrolling, typing into ordinary fields, search
   boxes, filters, sorting, paging, cookie/consent banners and sign-in pages run freely.
+
+### Kriya (Task runtime)
+Multi-step errands run in `phase-8/kriya/`, not in the avatar's context: `start_task(goal,
+start_url, surface, done_when)` returns a task id at once, the chat stream emits
+`task_started` (the app's task card), and a worker thread runs the loop with a dedicated
+operator model (`NARAD_OPERATOR_MODEL`, default Matsya's worker model), always through
+`NaradLiteLlm` and so the privacy gateway.
+- **Loop**: perceive → decide → act → settle → verify. Perception is Playwright's AI
+  accessibility snapshot (real ARIA roles, refs stable across steps, same- and
+  cross-origin iframes, open shadow DOM), scoped to the viewport with "more below: N items"
+  paging and a budget of about 2K tokens; password-field values and fields named like a
+  secret are masked. Only the latest observation goes to the operator in full; earlier steps
+  are one line each. Actions go by ref with 5 s actionability timeouts; the page then settles
+  (navigation, a quiet DOM, no document/XHR/fetch in flight; at most 4 s) and the step is
+  verified deterministically (field value, checked state, URL, text appeared or gone, "the
+  page changed"); a miss re-grounds the target by role and name and retries once, then the
+  operator is told. A screenshot goes to the operator only when the tree is poor and the
+  model reads images at a `local` or `trusted` tier.
+- **Safety**: every step is classified by `risk_policy`; a commit step becomes an Anumati
+  proposal (surface `task`, screenshot preview) and the task waits in `waiting_approval`.
+  Approve → that exact step runs once (never retried; page URL and target label rechecked;
+  Dharma `browser_submit` gate); reject → the task stops cleanly; expiry → it pauses and asks
+  again on Continue. Page-state rules from the DOM: a password field in view or a captcha →
+  `waiting_help` and a `question` push; instruction-like page text is shown to the operator
+  as untrusted and every non-read step there needs approval; the Phase 0 URL policy runs
+  before every navigation and wherever a page lands.
+- **Store and control**: `profiles/<id>/kriya.db` (SQLite WAL, 0600) with the task and its
+  event log (the phone's step list); states queued / running / waiting_approval /
+  waiting_help / done / failed / cancelled. One browser task per profile at a time (the
+  isolated and cloud browser share the lock), desktop and phone exclusive, `NARAD_KRIYA_WORKERS`
+  (3) at once, `NARAD_KRIYA_MAX_ACTIVE` (3) per profile, `NARAD_KRIYA_MAX_STEPS` (30). Cancel
+  is checked before every action and while waiting (stops within one step). Server shutdown
+  suspends tasks at a checkpoint; startup resumes unfinished ones from their last page.
+- **Routes** (`kriya/api.py`, profile-scoped with `_assert_profile_match`; another profile's
+  id is 404): `GET /tasks`, `GET /tasks/{id}` (with events, and the approval while one
+  waits), `POST /tasks/{id}/cancel`, `POST /tasks/{id}/resume`, `POST /tasks/{id}/takeover`
+  (click at a fraction of the frame, type, key, scroll, back; only while `waiting_help`;
+  typed text is never logged or stored), `GET /tasks/{id}/frame` (latest viewport JPEG, kept
+  in memory only, `Cache-Control: no-store`; the app polls it at about 1.5 fps).
+- **Cloud browser** (owner decision 2): with `NARAD_CLOUD_BROWSER_URL` (CDP websocket of a
+  self-hosted Steel or browserless; `NARAD_CLOUD_BROWSER_TOKEN` is added as `?token=`,
+  `NARAD_CLOUD_BROWSER_TOKEN_PARAM` renames it) the runtime uses it only for tasks with no
+  sign-in words and no personal data in the goal (`NARAD_KRIYA_CLOUD=off` disables). Each
+  task gets a fresh context (no cookies, storage state, credentials or vault values, no
+  downloads) on a CDP connection kept per profile; a sign-in wall or a step that would type
+  personal data moves the task to the Mac's browser. Each session is one line in the egress
+  ledger (`source=kriya_cloud_browser`, no content). Steel: create no `sessionContext`,
+  `persist`, `userDataDir` or `credentials`, and run it with `ENABLE_CDP_LOGGING=false`,
+  `LOG_CUSTOM_EMIT_EVENTS=false`, `ENABLE_VERBOSE_LOGGING=false`, `LOG_STORAGE_ENABLED=false`
+  (the session event store behind replays) and no `CHROME_USER_DATA_DIR`; browserless: leave
+  `record` off. Check these names against the version you deploy.
+- **Pariksha**: `evals/pariksha/browser_fixtures.py` (fixture sites with server-side oracles and
+  scripted operators), `phase-1/test_kriya_browser.py` (real Chromium; skipped without one;
+  `NARAD_CHROMIUM_EXECUTABLE` names a pinned build) and `scripts/pariksha_browser.py`
+  (scorecard with the real operator model on the Mac).
 
 ### Privacy Gateway
 `privacy_gateway.py` is the single egress chokepoint:
@@ -330,6 +388,7 @@ Workflow stages provide durable progress directly; there is no parallel Kanban o
 - **Producers**:
   - Kala sends `medicine_reminder` per profile and one `health_alert` when a reminder is still unopened after `NARAD_DOSE_FOLLOWUP_MINUTES` (default 60).
   - A finished workflow path sends `task_done`.
+  - A finished or failed Kriya task sends `task_done`; a task paused for a sign-in, a captcha or an expired approval sends `question` (both link to `/?task=<id>`).
   - The PWA service worker (`phase-4/frontend/public/sw.js`) shows pushes and caches only the app shell.
 
 ### Security Floor
@@ -411,6 +470,11 @@ SAVING VALUES FROM A DOCUMENT (lab report, statement, prescription, circular, bi
         Hard pages: the person may send that page image, per document, to a local or
         trusted vision model (privacy_gateway.allow_raw; logged in the egress ledger).
         Rama reads the history with get_lab_results ("how has my HbA1c changed?").
+
+WEB ERRANDS: User → Narad → Matsya start_task() → task card in chat
+        → Kriya [perceive → decide → act → settle → verify] in the background
+        → commit step: approval card on the phone · sign-in: live view takeover
+        → task_done push + a note in the chat thread
 ```
 
 ---
