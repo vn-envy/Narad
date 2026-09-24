@@ -23,7 +23,8 @@ health logging to Rama; symptom triage and mental-health support to Krishna; deb
 to Parashurama. `runtime_contract.py` records this as `stale_agents_removed`.
 
 All avatars are `LlmAgent` instances wrapped in `FunctionTool` via `_make_avatar_tool()`.
-Narad calls them as function tools and synthesises their outputs into one response.
+Narad calls them as function tools. A single avatar hands off (its streamed answer is
+the reply, no rewrite call); outputs of several avatars are synthesised into one response.
 Each invocation enriches the task with Smriti memories, active Sutras, and per-user
 Sankalpas before running the inner agent. Models are assigned in
 `phase-1/model_config.py` and overridable per avatar via env vars
@@ -74,6 +75,16 @@ Sankalpas before running the inner agent. Models are assigned in
   bypasses skill enforcement.
 - **Mental health crisis:** PHQ-4 score ≥ 12 → mandatory crisis resources
   (iCall: 9152987821). Never route mental health to Parashurama or Matsya.
+- **Hand off, don't rewrite.** Avatar tools take `hand_off` (default true): one avatar
+  with one deliverable ends the turn with its own answer (`skip_summarization`).
+  Pass `hand_off=false` for parallel or sequential avatars, video URL checks, Rama
+  plans to dispatch, or any reply that combines results. Two or more calls in one
+  response always get a synthesis, whatever `hand_off` says.
+- **Pre-router (`phase-1/prerouter.py`, `NARAD_PREROUTER=off` disables).** Unambiguous
+  turns skip Narad's routing call: a bound workflow stage → its owner (never
+  Parashurama), `/teach` or "teach me" or a Gurukul check answer → Krishna, a
+  bank-statement CSV → Rama, a document/photo with a summarise-style ask → Matsya,
+  a bare URL → Matsya. Everything else goes to Narad.
 
 ### Parallel routing patterns
 
@@ -201,6 +212,15 @@ Tracer span around every invocation; live step events on the SSE stream; traces 
 `GET /trace/{session_id}` and `~/.narad/sessions/{session_id}.jsonl`. Error events
 carry `error_type`: `tool_not_found` | `import_failed` | `timeout` | `model_error` |
 `json_parse` | `event_loop`.
+
+### Streaming
+Narad and every avatar run with `StreamingMode.SSE` (never `tool_thread_pool_config`:
+sync tools are already offloaded). Partial text reaches the client as `text_delta`
+`{source, text}` (avatars add `handoff`) after a per-source `<think>` filter;
+`Part.thought` text is never sent; `text_reset {source}` drops chatter before a tool
+call. `narad_synthesis` still carries the complete reply, and a pre-routed turn adds
+a `route {avatar, reason, via}` event. For `redact`-tier providers,
+`privacy_gateway.StreamRestorer` restores placeholders split across chunks.
 
 ### Dharma (Policy Gates)
 Two layers. Input: `_dharma_gate(query)` in `server.py` blocks prompt injection, PII
