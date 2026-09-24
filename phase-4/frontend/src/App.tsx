@@ -4,6 +4,7 @@ import { useIsMobile } from './hooks/useIsMobile'
 import { ChatPanel }            from './components/ChatPanel'
 import { AwarenessBar }         from './components/AwarenessBar'
 import { FamilyProfileGate }    from './components/FamilyProfileGate'
+import { ConsentGate }          from './components/ConsentGate'
 import { OnboardingFlow }       from './components/OnboardingFlow'
 import {
   apiFetch,
@@ -119,15 +120,14 @@ export default function App() {
     return <FamilyProfileGate onAuthenticated={setActiveProfileSession} />
   }
 
+  const switchProfile = () => {
+    clearProfileSession()
+    setActiveProfileSession(null)
+  }
   return (
-    <NaradSession
-      key={profileSession.profile.user_id}
-      profile={profileSession.profile}
-      onSwitchProfile={() => {
-        clearProfileSession()
-        setActiveProfileSession(null)
-      }}
-    />
+    <ConsentGate key={profileSession.profile.user_id} profile={profileSession.profile} onSwitchProfile={switchProfile}>
+      <NaradSession profile={profileSession.profile} onSwitchProfile={switchProfile} />
+    </ConsentGate>
   )
 }
 

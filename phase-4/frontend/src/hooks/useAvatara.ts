@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { toast } from 'sonner'
 import { apiPath, apiUrl, apiFetch } from '@/lib/api'
+import { CONSENT_REQUIRED_EVENT, type PrivacyReceipt } from '@/lib/trust'
 
 export type AvatarName = 'Matsya' | 'Rama' | 'Krishna' | 'Parashurama'
 
@@ -58,6 +59,16 @@ function storedTurnAttachments(turn: StoredThreadTurn): ChatAttachment[] | undef
   return Array.isArray(value) ? value as ChatAttachment[] : undefined
 }
 
+/** The answer's turn id and privacy receipt, as the server stored them with it. */
+function storedTurnTrust(turn: StoredThreadTurn): Pick<Message, 'turnId' | 'privacyReceipt'> {
+  const turnId = turn.metadata?.turn_id
+  const receipt = turn.metadata?.privacy_receipt
+  return {
+    turnId: typeof turnId === 'string' ? turnId : undefined,
+    privacyReceipt: receipt && typeof receipt === 'object' ? receipt as PrivacyReceipt : undefined,
+  }
+}
+
 export interface Message {
   id: string
   role: 'user' | 'assistant'
@@ -73,6 +84,10 @@ export interface Message {
   attachments?: ChatAttachment[]
   /** G7: present when this message is a guided-mode (guru) card, not prose. */
   guru?: GuruPayload
+  /** The chat turn that wrote this answer (feedback posts it). */
+  turnId?: string
+  /** What left the Mac for this answer: counts only (privacy_receipt event). */
+  privacyReceipt?: PrivacyReceipt
 }
 
 export interface SessionInfo {
@@ -533,6 +548,7 @@ export function useAvatara(userId = 'default') {
           text: turn.text,
           sessionId,
           attachments: storedTurnAttachments(turn),
+          ...storedTurnTrust(turn),
         }))
         return {
           ...current,
@@ -1109,6 +1125,20 @@ export function useAvatara(userId = 'default') {
               break
             }
 
+            case 'privacy_receipt': {
+              // Arrives after the answer and before done: stamp it on the answer.
+              const receipt = evt.data as unknown as PrivacyReceipt
+              setState(s => ({
+                ...s,
+                messages: s.messages.map(m =>
+                  m.id === msgIdRef.current
+                    ? { ...m, privacyReceipt: receipt, turnId: receipt.turn_id ?? m.turnId }
+                    : m
+                ),
+              }))
+              break
+            }
+
             case 'usage': {
               // Store raw token counts only — timing (tokPerSec, synthDurationMs)
               // is computed in the `done` handler when synthesis is definitively complete.
@@ -1186,6 +1216,7 @@ export function useAvatara(userId = 'default') {
                           ...m,
                           avatarsInvolved: sessionAvatarsRef.current,
                           sessionId,
+                          turnId: typeof evt.data.turn_id === 'string' ? evt.data.turn_id : m.turnId,
                           tokenEstimate,
                           totalDurationMs,
                           clientTokPerSec,
@@ -1313,11 +1344,12 @@ export function useAvatara(userId = 'default') {
         if (!prevUser || prevUser.role !== 'user' || prevUser.text.trim() !== resolvedQuery) return false
 
         const id = msgIdRef.current
+        const trust = storedTurnTrust(last)
         setState(s => {
           const existing = s.messages.find(m => m.id === id)
           const messages = existing
-            ? s.messages.map(m => m.id === id ? { ...m, text: last.text, sessionId: turnSessionId } : m)
-            : [...s.messages, { id, role: 'assistant' as const, text: last.text, avatarsInvolved: sessionAvatarsRef.current, sessionId: turnSessionId }]
+            ? s.messages.map(m => m.id === id ? { ...m, text: last.text, sessionId: turnSessionId, ...trust } : m)
+            : [...s.messages, { id, role: 'assistant' as const, text: last.text, avatarsInvolved: sessionAvatarsRef.current, sessionId: turnSessionId, ...trust }]
           return { ...s, messages, streaming: false, naradActive: false }
         })
         toast('Answer recovered', {
@@ -1351,6 +1383,13 @@ export function useAvatara(userId = 'default') {
         signal: abortRef.current.signal,
       })
 
+      if (res.status === 403) {
+        // Consent not given yet (or the sheet changed): the consent screen takes over.
+        const detail = await res.json().catch(() => ({})) as { code?: string; detail?: string }
+        if (detail.code === 'consent_required') window.dispatchEvent(new CustomEvent(CONSENT_REQUIRED_EVENT))
+        setState(s => ({ ...s, streaming: false, naradActive: false, error: detail.detail ?? `HTTP ${res.status}` }))
+        return
+      }
       if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
       await consumeStream(res.body)
     } catch (err) {
@@ -1437,6 +1476,7 @@ export function useAvatara(userId = 'default') {
         text: turn.text,
         sessionId,
         attachments: storedTurnAttachments(turn),
+        ...storedTurnTrust(turn),
       }))
       convoSessionId.current = sessionId
       writeStorage(conversationStorageKey, sessionId)
