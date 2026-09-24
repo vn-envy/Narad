@@ -191,6 +191,9 @@ class ProfileSecurityTests(unittest.TestCase):
 
     def test_uploads_without_user_id_belong_to_the_session_profile(self) -> None:
         bob = self._headers("bob", "1357")
+        import pilot_metrics
+
+        self.client.post("/consent", headers=bob, json={"version": pilot_metrics.CONSENT_VERSION})
         uploaded = self.client.post(
             "/chat/attachments",
             data={"relative_paths": "[]"},

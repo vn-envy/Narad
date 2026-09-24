@@ -12,6 +12,7 @@ counted per agent, which pins the cost of each turn shape:
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import json
 import sys
 import time
@@ -40,6 +41,8 @@ from google.genai import types
 from text_stream import DeltaStream
 
 import cost_ledger
+import privacy_gateway
+import profile_context
 import smriti_core
 import workflow_engine
 
@@ -142,12 +145,13 @@ def harness(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> dict[str, list]:
     return record
 
 
-def _runner(log: list, supervisor_reply) -> Runner:
+def _runner(log: list, supervisor_reply, avatar_reply=None) -> Runner:
+    avatar_reply = avatar_reply or (lambda name: (ANSWERS[name], []))
     avatars = [
         LlmAgent(
             name=name,
             description=f"{name}, a scripted test avatar.",
-            model=_Scripted(model=f"scripted-{name.lower()}", reply=lambda _req, n=name: (ANSWERS[n], []), log=log),
+            model=_Scripted(model=f"scripted-{name.lower()}", reply=lambda _req, n=name: avatar_reply(n), log=log),
             instruction=f"You are {name}.",
         )
         for name in ANSWERS
@@ -169,6 +173,8 @@ def _turn(
     bundle: dict | None = None,
     workflow_run_id: str | None = None,
     session_id: str | None = None,
+    turn_id: str | None = None,
+    settle=None,
 ) -> list[dict]:
     monkeypatch.setattr(server, "_get_runner_for_user", lambda *_args, **_kwargs: runner)
     monkeypatch.setattr(server, "_build_attachment_bundle", lambda *_args, **_kwargs: bundle or _EMPTY_BUNDLE)
@@ -176,7 +182,17 @@ def _turn(
 
     async def scenario() -> list[dict]:
         queue: asyncio.Queue = asyncio.Queue()
-        await server._run_agent_task(request, session_id or f"thread-{uuid.uuid4().hex[:8]}", queue)
+        run = server._run_agent_task(request, session_id or f"thread-{uuid.uuid4().hex[:8]}", queue)
+        if turn_id:  # as /chat starts a turn: its own task, in a context carrying the turn id
+            context = contextvars.copy_context()
+            context.run(privacy_gateway.set_turn_id, turn_id)
+            await asyncio.create_task(run, context=context)
+        else:
+            await run
+        for _ in range(100):  # let work that outlives the turn finish
+            if settle is None or settle():
+                break
+            await asyncio.sleep(0.02)
         events = []
         while not queue.empty():
             item = queue.get_nowait()
@@ -370,6 +386,113 @@ def test_prerouter_off_sends_the_same_turn_to_the_supervisor(
 
     assert _calls(harness["log"]) == {"scripted-narad": 1, "scripted-matsya": 1}
     assert not [e for e in events if e["type"] == "route"]
+
+
+def _egress_rows(tmp_path: Path) -> list[dict]:
+    path = tmp_path / "profiles" / "default" / "privacy" / "egress.jsonl"
+    return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+
+
+@pytest.fixture
+def ledger(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    """A real egress ledger in tmp; Tapas and Sankalpa run (not frozen) and each
+    make one cloud call, the way their judges do."""
+    monkeypatch.setattr(profile_context, "PROFILES_DIR", tmp_path / "profiles")
+    monkeypatch.setattr(privacy_gateway, "_stores", {})
+    monkeypatch.setenv("NARAD_LEARNING_FREEZE", "0")
+
+    def learner(source: str):
+        def run(**_kwargs) -> None:
+            privacy_gateway.record_egress(model="deepseek/deepseek-reasoner", source=source, tier="redact")
+        return run
+
+    # By dotted name: the learners import from whichever smriti_core is loaded now.
+    monkeypatch.setattr("smriti_core.promote_sutra", learner("tapas"))
+    monkeypatch.setattr("smriti_core.update_sankalpa", learner("sankalpa"))
+    return tmp_path
+
+
+def _model_call(model: str, tier: str, reply: tuple[str, list], **entities: int) -> tuple[str, list]:
+    """A scripted model call that crosses the gateway the way NaradLiteLlm does."""
+    privacy_gateway.record_egress(model=model, source="agent", tier=tier, entities=entities)
+    return reply
+
+
+def _learners_done(tmp_path: Path):
+    return lambda: {"tapas", "sankalpa"} <= {
+        row["source"] for row in _egress_rows(tmp_path) if row["model"] == "deepseek/deepseek-reasoner"
+    }
+
+
+def test_every_egress_row_of_a_turn_carries_its_id_and_learners_after_it_do_not(
+    monkeypatch: pytest.MonkeyPatch, harness: dict[str, list], ledger: Path
+) -> None:
+    route = _supervisor([("invoke_matsya", {"task": "Rain in Pune today"})])
+    runner = _runner(
+        harness["log"],
+        lambda request: _model_call("anthropic/claude-sonnet-5", "trusted", route(request)),
+        lambda name: _model_call("deepseek/deepseek-chat", "redact", (ANSWERS[name], []), PERSON=2),
+    )
+    events = _turn(monkeypatch, runner, "How much did it rain in Pune today?",
+                   turn_id="abc0123456789def", settle=_learners_done(ledger))
+
+    rows = _egress_rows(ledger)
+    assert [(row["source"], row["provider"], row.get("turn_id")) for row in rows if row["source"] == "agent"] == [
+        ("agent", "anthropic", "abc0123456789def"),  # the supervisor's routing call
+        ("agent", "deepseek", "abc0123456789def"),   # the avatar, inside its tool
+    ]
+    learners = [row for row in rows if row["source"] in ("tapas", "sankalpa")]
+    assert {row["source"] for row in learners if row["model"] == "deepseek/deepseek-reasoner"} == {
+        "tapas", "sankalpa",
+    }
+    assert all("turn_id" not in row for row in learners)
+
+    # The receipt comes before done, and is stored with the answer.
+    kinds = [event["type"] for event in events]
+    assert kinds.index("privacy_receipt") < kinds.index("done")
+    receipt = next(event["data"] for event in events if event["type"] == "privacy_receipt")
+    assert receipt["turn_id"] == "abc0123456789def"
+    assert {(d["provider"], d["tier"], d["calls"]) for d in receipt["destinations"]} == {
+        ("anthropic", "trusted", 1), ("deepseek", "redact", 1),
+    }
+    assert next(d for d in receipt["destinations"] if d["provider"] == "deepseek")["replaced"] == {"PERSON": 2}
+    answer = harness["thread"][-1]
+    assert answer["role"] == "assistant"
+    assert answer["metadata"]["turn_id"] == "abc0123456789def"
+    assert answer["metadata"]["privacy_receipt"] == receipt
+
+
+def test_a_pre_routed_turn_is_stamped_too(
+    monkeypatch: pytest.MonkeyPatch, harness: dict[str, list], ledger: Path
+) -> None:
+    runner = _runner(
+        harness["log"],
+        _supervisor([("invoke_rama", {"task": "wrong"})]),
+        lambda name: _model_call("gemini/gemini-2.5-flash", "trusted", (ANSWERS[name], [])),
+    )
+    url = "https://example.com/rainfall/pune"
+    events = _turn(monkeypatch, runner, url, bundle=dict(_EMPTY_BUNDLE, urls=[url]),
+                   turn_id="0123456789abcdef", settle=_learners_done(ledger))
+
+    assert _calls(harness["log"]) == {"scripted-matsya": 1}
+    stamped = [row for row in _egress_rows(ledger) if row.get("turn_id") == "0123456789abcdef"]
+    assert [(row["source"], row["provider"]) for row in stamped] == [("agent", "gemini")]
+    receipt = next(event["data"] for event in events if event["type"] == "privacy_receipt")
+    assert receipt["destinations"] == [
+        {"provider": "gemini", "tier": "trusted", "sources": ["answer"], "calls": 1, "replaced": {}},
+    ]
+
+
+def test_sync_tools_on_the_worker_pool_carry_the_turn(ledger: Path) -> None:
+    def tool() -> str:
+        privacy_gateway.record_egress(model="gemini/text-embedding-004", source="memory", tier="trusted")
+        return "ok"
+
+    offloaded = avatar_agents._run_off_loop(tool)
+    context = contextvars.copy_context()
+    context.run(privacy_gateway.set_turn_id, "feedfacefeedface")
+    assert context.run(asyncio.run, offloaded()) == "ok"
+    assert [row.get("turn_id") for row in _egress_rows(ledger)] == ["feedfacefeedface"]
 
 
 def test_workflow_stage_owner_gets_the_turn_and_the_stage_advances(

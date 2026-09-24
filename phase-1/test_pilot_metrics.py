@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import tempfile
 import time
 import unittest
@@ -183,7 +184,31 @@ class TurnRecorderTests(_Isolated):
             row(400),                                    # after the turn
         ]) + "\n")
         counts = pilot_metrics.turn_egress("asha", start, start + 10)
-        self.assertEqual(counts, {"trusted": 2, "redact": 1, "blocked": 1, "cloud_llm_calls": 2})
+        self.assertEqual(counts, {"trusted": 2, "redact": 1, "web": 0, "blocked": 1, "cloud_llm_calls": 2})
+
+    def test_turn_egress_matches_the_exact_turn_id_and_falls_back_for_old_rows(self) -> None:
+        ledger = self.root / "profiles" / "asha" / "privacy" / "egress.jsonl"
+        ledger.parent.mkdir(parents=True)
+        start = time.time() - 30
+
+        def row(offset: float, **fields) -> str:
+            stamp = time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime(start + offset))
+            return json.dumps({"ts": stamp, "source": "agent", "tier": "trusted", "blocked": "", **fields})
+
+        ledger.write_text("\n".join([
+            row(1, turn_id="aaaa1111"),                               # this turn
+            row(2, turn_id="aaaa1111", source="guru_grader", tier="redact"),  # any source of this turn
+            row(3, turn_id="aaaa1111", source="search", tier="web"),
+            row(3, turn_id="bbbb2222"),                               # a turn running alongside
+            row(4, turn_id="bbbb2222", tier="redact"),
+            row(5),                                                   # an old unstamped row: window fallback
+            row(6, source="tapas"),                                   # unstamped learner: excluded
+            row(60, turn_id="aaaa1111", source="memory"),             # stamped, after the window: still this turn's
+        ]) + "\n")
+        counts = pilot_metrics.turn_egress("asha", start, start + 10, turn_id="aaaa1111")
+        self.assertEqual(counts, {"trusted": 3, "redact": 1, "web": 1, "blocked": 0, "cloud_llm_calls": 2})
+        recorder = pilot_metrics.TurnRecorder(profile_id="asha", session_id="s", turn_id="aaaa1111")
+        self.assertEqual(recorder.turn_id, "aaaa1111")
 
     def test_turn_queue_observes_every_put_and_writes_when_the_task_ends(self) -> None:
         async def scenario() -> list[str]:
@@ -268,6 +293,11 @@ class FeedbackConsentSummaryTests(_Isolated):
         self.assertTrue(withdrawn["needs_consent"])
         stored = json.loads((self.root / "profiles" / "asha" / "consent.json").read_text())
         self.assertEqual(len(stored["history"]), 1)
+
+    def test_the_apps_reason_chips_are_the_reasons_feedback_accepts(self) -> None:
+        trust = Path(__file__).resolve().parents[1] / "phase-4" / "frontend" / "src" / "lib" / "trust.ts"
+        block = trust.read_text(encoding="utf-8").split("export const FEEDBACK_REASONS", 1)[1].split("]\n", 1)[0]
+        self.assertEqual(tuple(re.findall(r"id: '([a-z_]+)'", block)), pilot_metrics.FEEDBACK_REASONS)
 
     def test_consent_document_carries_the_current_version(self) -> None:
         doc = Path(__file__).resolve().parents[1] / "docs" / "PILOT_CONSENT_AND_METRICS.md"
@@ -418,11 +448,131 @@ class PilotRouteTests(_Isolated):
         owner = self._headers("default", "8642")
         everyone = self.client.get("/consent?scope=all", headers=owner).json()
         self.assertFalse(everyone["profiles"]["alice"]["needs_consent"])
-        self.assertTrue(everyone["profiles"]["default"]["needs_consent"])
+        # The owner is always considered consented.
+        self.assertFalse(everyone["profiles"]["default"]["needs_consent"])
+        self.assertTrue(everyone["profiles"]["default"]["owner"])
+
+    def test_consent_screen_reads_part_a_from_the_document(self) -> None:
+        alice = self._headers("alice", "2468")
+        english = self.client.get("/consent?part=a", headers=alice).json()
+        self.assertTrue(english["enforced"])
+        sheet = english["sheet"]
+        self.assertEqual((sheet["lang"], sheet["languages"]), ("en", ["en", "hi"]))
+        self.assertIn("### What Narad is", sheet["markdown"])
+        self.assertIn("What left my Mac", sheet["markdown"])
+        # Printed-copy lines and the owner's checklist stay off the screen.
+        self.assertNotIn("______", sheet["markdown"])
+        self.assertNotIn("owner checklist", sheet["markdown"])
+        self.assertNotIn("<!--", sheet["markdown"])
+        hindi = self.client.get("/consent?part=a&lang=hi", headers=alice).json()["sheet"]
+        self.assertEqual(hindi["lang"], "hi")
+        self.assertIn("नारद", hindi["markdown"])
+        self.assertIn("अनुवाद", hindi["markdown"])  # it says it is a translation
+        self.assertNotIn("______", hindi["markdown"])
+        fallback = self.client.get("/consent?part=a&lang=xx", headers=alice).json()["sheet"]
+        self.assertEqual(fallback["lang"], "en")
+
+    def _chat(self, headers: dict[str, str], query: str, session_id: str, fake_run=None) -> tuple[int, str]:
+        async def default_run(req, session_id, queue):
+            try:
+                await queue.put(_event("narad_synthesis", text="an answer"))
+                await queue.put(_event("done", session_id=session_id))
+            finally:
+                await queue.put(None)
+
+        with patch.object(server, "_run_agent_task", fake_run or default_run), \
+                patch.object(server, "_agent_runtime_unavailable_reason", return_value=None), \
+                patch("model_registry.provider_available_for_model", return_value=True), \
+                patch.object(server, "_check_rate_limit", return_value=True):
+            with self.client.stream("POST", "/chat", headers=headers,
+                                    json={"query": query, "session_id": session_id}) as response:
+                body = "".join(chunk for chunk in response.iter_text())
+                status = response.status_code
+        for key in [key for key in server._active_tasks if key[1] == session_id]:
+            server._active_tasks.pop(key, None)
+        return status, body
+
+    def test_members_without_consent_get_403_on_chat_uploads_and_voice(self) -> None:
+        alice = self._headers("alice", "2468")
+        status, body = self._chat(alice, "plan my week", "chat-c1")
+        self.assertEqual(status, 403)
+        self.assertEqual(json.loads(body)["code"], "consent_required")
+        self.assertEqual(json.loads(body)["current_version"], pilot_metrics.CONSENT_VERSION)
+        upload = self.client.post("/chat/attachments", headers=alice, data={"relative_paths": "[]"},
+                                  files=[("files", ("notes.txt", b"hello", "text/plain"))])
+        self.assertEqual((upload.status_code, upload.json()["code"]), (403, "consent_required"))
+        for method, path, kwargs in (
+            ("post", "/voice/tts", {"json": {"text": "hello"}}),
+            ("post", "/voice/stt", {"files": [("audio", ("a.webm", b"xx", "audio/webm"))]}),
+            ("get", "/voice/status", {}),
+        ):
+            response = getattr(self.client, method)(path, headers=alice, **kwargs)
+            self.assertEqual(response.status_code, 403, path)
+            self.assertEqual(response.json()["code"], "consent_required", path)
+        self.assertFalse((self.root / "profiles" / "alice" / "metrics" / "turns.jsonl").exists())
+
+        # After accepting, the same requests go through.
+        self.client.post("/consent", headers=alice, json={"version": pilot_metrics.CONSENT_VERSION})
+        status, body = self._chat(alice, "plan my week", "chat-c2")
+        self.assertEqual(status, 200)
+        self.assertIn("an answer", body)
+        upload = self.client.post("/chat/attachments", headers=alice, data={"relative_paths": "[]"},
+                                  files=[("files", ("notes.txt", b"hello", "text/plain"))])
+        self.assertNotEqual(upload.status_code, 403)
+        self.assertNotEqual(self.client.get("/voice/status", headers=alice).status_code, 403)
+
+        # Withdrawing stops processing again.
+        self.client.post("/consent", headers=alice, json={"version": pilot_metrics.CONSENT_VERSION,
+                                                          "accepted": False})
+        self.assertEqual(self._chat(alice, "plan my week", "chat-c3")[0], 403)
+
+    def test_the_owner_is_exempt_and_the_setting_can_turn_the_check_off(self) -> None:
+        owner = self._headers("default", "8642")
+        status, _ = self._chat(owner, "plan my week", "chat-o1")
+        self.assertEqual(status, 200)
+        self.assertNotEqual(self.client.get("/voice/status", headers=owner).status_code, 403)
+
+        alice = self._headers("alice", "2468")
+        with patch.dict("os.environ", {"NARAD_REQUIRE_CONSENT": "off"}):
+            status, _ = self._chat(alice, "plan my week", "chat-o2")
+            self.assertEqual(status, 200)
+            self.assertFalse(self.client.get("/consent", headers=alice).json()["enforced"])
+        self.assertEqual(self._chat(alice, "plan my week", "chat-o3")[0], 403)
+
+    def test_someone_in_crisis_is_answered_even_before_consent(self) -> None:
+        alice = self._headers("alice", "2468")
+
+        async def must_not_run(req, session_id, queue):  # no model, no agent task
+            raise AssertionError("a crisis message reached the agent")
+
+        status, body = self._chat(alice, "मैं मरना चाहता हूँ", "chat-x1", fake_run=must_not_run)
+        self.assertEqual(status, 200)
+        events = [json.loads(line[5:]) for line in body.splitlines() if line.startswith("data:")]
+        kinds = [event["type"] for event in events]
+        self.assertEqual(kinds, ["crisis_support", "narad_synthesis", "privacy_receipt", "done"])
+        reply = events[1]["data"]["text"]
+        self.assertIn("14416", reply)
+        self.assertIn("शुक्रिया", reply)
+        self.assertTrue(events[2]["data"]["stayed_local"])
+        self.assertEqual(events[3]["data"]["session_id"], "chat-x1")  # the thread carries on
+        karma = (self.root / "profiles" / "alice" / "karma_mutations.jsonl").read_text(encoding="utf-8")
+        row = json.loads(karma.splitlines()[-1])
+        self.assertEqual((row["action"], row["metadata"]), (
+            "input_gate", {"verdict": "care", "kind": "suicide", "language": "hi"},
+        ))
+        self.assertNotIn("मरना", karma)
+        self.assertFalse((self.root / "profiles" / "alice" / "metrics" / "turns.jsonl").exists())
 
     def test_chat_turn_writes_one_count_only_record(self) -> None:
+        import privacy_gateway
+
+        seen: dict[str, str | None] = {}
+
         async def fake_run(req, session_id, queue):
             try:
+                # Runs as the real task does, inside the turn: its egress rows are stamped.
+                seen["turn_id"] = privacy_gateway.current_turn_id()
+                privacy_gateway.record_egress(model="anthropic/claude-sonnet-5", source="agent", tier="trusted")
                 await queue.put(_event("avatar_start", avatar="Krishna", task="SECRET-PROMPT"))
                 await queue.put(_event("step_event", avatar="Krishna", kind="tool_call",
                                        tool="compose_email", preview="SECRET-TOOL-ARG"))
@@ -432,17 +582,14 @@ class PilotRouteTests(_Isolated):
                 await queue.put(None)
 
         alice = self._headers("alice", "2468")
-        with patch.object(server, "_run_agent_task", fake_run), \
-                patch.object(server, "_agent_runtime_unavailable_reason", return_value=None), \
-                patch("model_registry.provider_available_for_model", return_value=True), \
-                patch.object(server, "_check_rate_limit", return_value=True):
-            with self.client.stream("POST", "/chat", headers=alice,
-                                    json={"query": "SECRET-PROMPT please", "session_id": "chat-1"}) as response:
-                self.assertEqual(response.status_code, 200)
-                body = "".join(chunk for chunk in response.iter_text())
-        server._active_tasks.pop(("alice", "chat-1"), None)
+        self.client.post("/consent", headers=alice, json={"version": pilot_metrics.CONSENT_VERSION})
+        status, body = self._chat(alice, "SECRET-PROMPT please", "chat-1", fake_run=fake_run)
+        self.assertEqual(status, 200)
         self.assertIn("SECRET-REPLY", body)  # the stream itself is untouched
-        self.assertIn('"turn_id"', body)
+        done = next(json.loads(line[5:]) for line in body.splitlines() if '"done"' in line)
+        turn_id = done["data"]["turn_id"]
+        self.assertEqual(seen["turn_id"], turn_id)  # one id: the done event and the egress rows
+        self.assertIsNone(privacy_gateway.current_turn_id())  # never leaks outside the turn
 
         turns = pilot_metrics.metrics_dir("alice") / "turns.jsonl"
         for _ in range(100):
@@ -451,13 +598,27 @@ class PilotRouteTests(_Isolated):
             time.sleep(0.02)
         rows = pilot_metrics.read_jsonl(turns)
         self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["turn_id"], turn_id)
         self.assertEqual(rows[0]["outcome"], "answered")
         self.assertEqual(rows[0]["session_id"], "chat-1")
         self.assertEqual(rows[0]["tools"], {"compose_email": 1})
+        self.assertEqual(rows[0]["egress"]["trusted"], 1)  # matched by the exact turn id
+        egress = (self.root / "profiles" / "alice" / "privacy" / "egress.jsonl").read_text()
+        self.assertEqual(json.loads(egress)["turn_id"], turn_id)
         stored = self._metrics_text()
         for secret in _SECRETS:
             self.assertNotIn(secret, stored)
         self.assertNotIn("please", stored)
+
+        # The phone rates the answer with that turn id; a reason chip, never text.
+        rated = self.client.post("/feedback", headers=alice, json={
+            "session_id": "chat-1", "turn_id": turn_id, "rating": "down", "reason": "language",
+        })
+        self.assertEqual(rated.status_code, 201, rated.text)
+        feedback = pilot_metrics.read_jsonl(pilot_metrics.metrics_dir("alice") / "feedback.jsonl")
+        self.assertEqual((feedback[-1]["turn_id"], feedback[-1]["reason"]), (turn_id, "language"))
+        summary = pilot_metrics.profile_summary("alice")
+        self.assertEqual(summary["feedback"]["down"], 1)
 
 
 if __name__ == "__main__":

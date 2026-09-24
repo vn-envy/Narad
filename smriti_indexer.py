@@ -478,9 +478,23 @@ def schedule_index_refresh(user_id: str = "default", project_id: str = "general"
         _REFRESH_IN_FLIGHT.add(key)
 
     def _run() -> None:
+        # A new thread starts with an empty context: no chat turn (so these
+        # embeddings are never on a turn's privacy receipt) and no profile, so
+        # name the profile whose episodes these are, for the privacy gateway's
+        # ledger and pseudonyms.
+        from contextlib import nullcontext
+
+        from profile_context import profile_scope, validate_profile_id
+
         try:
-            ensure_user_episode_index(user_id)
-            ensure_wiki_fts(user_id, project_id)
+            validate_profile_id(user_id)
+            scope = profile_scope(user_id)
+        except ValueError:
+            scope = nullcontext(user_id)
+        try:
+            with scope:
+                ensure_user_episode_index(user_id)
+                ensure_wiki_fts(user_id, project_id)
         except Exception as exc:  # visible, never fatal — recall stays lexical
             log.warning("Smriti background index refresh failed: %s", exc)
         finally:

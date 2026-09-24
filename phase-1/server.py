@@ -216,12 +216,13 @@ def _json_loads_tolerant(s, /, *args, **kwargs):
 json.loads = _json_loads_tolerant
 # ─────────────────────────────────────────────────────────────────────────────
 
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
+from starlette.requests import HTTPConnection
 
 _ADK_IMPORT_ERROR: str | None = None
 try:
@@ -433,9 +434,14 @@ except Exception as _router_err:
     logging.getLogger("narad.server").warning("Product routers unavailable: %s", _router_err)
 
 # ── Voice (Sarvam + local STT/TTS) ────────────────────────────────
+def _voice_consent_gate(connection: HTTPConnection) -> None:
+    """Every /voice route waits for the caller's consent, like /chat (_require_consent)."""
+    _require_consent(connection)
+
+
 try:
     from voice_api import voice_router
-    app.include_router(voice_router)
+    app.include_router(voice_router, dependencies=[Depends(_voice_consent_gate)])
 except Exception as _voice_err:
     logging.getLogger("narad.server").warning("Voice router unavailable: %s", _voice_err)
 
@@ -935,14 +941,20 @@ async def _shutdown_computer_runtime() -> None:
             "local model runtime shutdown failed", exc_info=True
         )
 
-# ── Dharma Gate — input-level topic blocking ──────────────────────────────────
+# ── Dharma Gate — input-level checks before any agent work ────────────────────
+# Prompt-injection markers are refused. Identifiers (passport, Aadhaar, SSN) are
+# not: Travel needs passport numbers on visa forms, and the privacy gateway
+# pseudonymises identifiers for `redact` providers. Crisis phrases are answered
+# at once, on the Mac, with care and helplines (crisis_care.py, _crisis_stream).
 import re as _re_gate
 
+import crisis_care as _crisis_care
+
+import privacy_gateway as _privacy_gateway
+
 _HARD_BLOCKS: list[tuple] = [
-    (r"(?i)IGNORE\s+ALL\s+PREVIOUS\s+INSTRUCTIONS?", "Prompt injection detected."),
+    (r"(?i)\bIGNORE\s+ALL\s+PREVIOUS\s+INSTRUCTIONS?\b", "Prompt injection detected."),
     (r"(?i)\[INST\]", "Prompt injection detected."),
-    (r"(?i)(\bSSNs?\b|social\s+security\s+number|passport\s+number)", "I can't collect sensitive personal identifiers."),
-    (r"(?i)how\s+(to|do\s+I|can\s+I)\s+(kill|seriously\s+harm)\s+(myself|someone)", "If you're in crisis, please reach out to iCall: 9152987821 or your local emergency services."),
 ]
 
 def _dharma_gate(query: str) -> str | None:
@@ -951,6 +963,42 @@ def _dharma_gate(query: str) -> str | None:
         if _re_gate.search(pattern, query):
             return reason
     return None
+
+
+def _log_input_gate(verdict: str, kind: str, language: str = "") -> None:
+    """Karma note that the input gate answered a message itself; never its text.
+
+    The action name is the same for every verdict, so the owner's all-profiles
+    view (which hides detail and metadata) shows only that the gate answered."""
+    try:
+        from karma_log import log_karma
+
+        log_karma(
+            action="input_gate",
+            sutra_id="dharma.input",
+            avatar="narad",
+            detail=":".join(part for part in (verdict, kind, language) if part),
+            entity_type="input",
+            policy="dharma.input",
+            metadata={"verdict": verdict, "kind": kind, **({"language": language} if language else {})},
+        )
+    except Exception:
+        pass
+
+
+def _crisis_stream(match: Any, session_id: str) -> EventSourceResponse:
+    """The care reply, streamed like an answer. Nothing is sent to any model, and
+    nothing is written to the thread (a later turn would replay it to the brain)."""
+    _log_input_gate("care", match.kind, match.language)
+
+    async def _stream():
+        yield json.dumps({"type": "crisis_support", "data": {"kind": match.kind, "language": match.language}})
+        yield json.dumps({"type": "narad_synthesis", "data": {"text": _crisis_care.reply(match)}})
+        yield json.dumps({"type": "privacy_receipt", "data": {
+            "v": 1, "turn_id": None, "stayed_local": True, "destinations": [], "refused": {},
+        }})
+        yield json.dumps({"type": "done", "data": {"session_id": session_id}})
+    return EventSourceResponse(_stream())
 
 # ── Rate limiting — token bucket per user_id ──────────────────────────────────
 import time as _time_rl
@@ -1164,6 +1212,7 @@ async def upload_chat_attachments(
 ):
     """Persist files or an expanded browser folder as one private batch."""
     user_id = _assert_profile_match(request, user_id)
+    _require_consent(request)
     try:
         parsed_paths = json.loads(relative_paths)
         if not isinstance(parsed_paths, list) or not all(isinstance(item, str) for item in parsed_paths):
@@ -1351,6 +1400,14 @@ async def chat(req: ChatRequest, request: Request):
     if not req.query.strip():
         req.query = "Review the attached inputs and summarize what matters."
 
+    # Someone in crisis is answered first: before consent, the rate limit and
+    # model checks, and without the message reaching any model.
+    crisis = _crisis_care.detect(req.query)
+    if crisis is not None:
+        return _crisis_stream(crisis, req.session_id or str(uuid.uuid4()))
+
+    _require_consent(request)
+
     runtime_error = _agent_runtime_unavailable_reason()
     if runtime_error:
         async def _unavailable_stream():
@@ -1405,6 +1462,8 @@ async def chat(req: ChatRequest, request: Request):
     # Dharma Gate: block hard-forbidden inputs before any agent work starts
     block_reason = _dharma_gate(req.query)
     if block_reason:
+        _log_input_gate("blocked", "prompt_injection")
+
         async def _blocked_stream():
             yield json.dumps({"type": "error", "data": {"message": block_reason}})
             yield json.dumps({"type": "done",  "data": {"session_id": "blocked"}})
@@ -1430,8 +1489,13 @@ async def chat(req: ChatRequest, request: Request):
             return EventSourceResponse(_drain_queue(session_id, queue))
 
     # Start a new background task and return a stream that drains its queue.
-    queue: asyncio.Queue = _pilot_turn_queue(req, session_id)
-    task = asyncio.create_task(_run_agent_task(req, session_id, queue))
+    # One turn id names the turn everywhere: the pilot record, the done event,
+    # and every egress ledger row written by the task (privacy receipts).
+    turn_id = uuid.uuid4().hex[:16]
+    queue: asyncio.Queue = _pilot_turn_queue(req, session_id, turn_id)
+    turn_context = contextvars.copy_context()
+    turn_context.run(_privacy_gateway.set_turn_id, turn_id)
+    task = asyncio.create_task(_run_agent_task(req, session_id, queue), context=turn_context)
     _watch_pilot_turn(queue, task)
     _active_tasks[task_key] = (task, queue)
     return EventSourceResponse(_drain_queue(session_id, queue))
@@ -1675,7 +1739,8 @@ async def _run_agent_task(
                 syllabus = _guru_load_syllabus(user_id=req.user_id, workspace_id=learning_workspace_id)
                 if syllabus is None:
                     # First teach turn on this workspace: generate the syllabus in
-                    # the background so the NEXT turn has real atoms (G6.1).
+                    # the background so the NEXT turn has real atoms (G6.1). It
+                    # outlives this turn, so its model call is not on its receipt.
                     topic_for_syllabus = str(learning_workspace.get("topic", "")).strip()
                     if topic_for_syllabus:
                         asyncio.create_task(asyncio.to_thread(
@@ -1683,7 +1748,7 @@ async def _run_agent_task(
                             user_id=req.user_id,
                             workspace_id=learning_workspace_id,
                             topic=topic_for_syllabus,
-                        ))
+                        ), context=_privacy_gateway.context_outside_turn())
                 else:
                     current_frontier_atom = _guru_frontier_atom(
                         syllabus,
@@ -1756,6 +1821,7 @@ async def _run_agent_task(
                 "type": "narad_synthesis",
                 "data": {"text": narad_response_text},
             }))
+            receipt_meta = await _turn_privacy_receipt(queue)
             _append_thread_turn(
                 user_id=req.user_id,
                 session_id=session_id,
@@ -1771,7 +1837,10 @@ async def _run_agent_task(
                 session_id=session_id,
                 role="assistant",
                 text=narad_response_text,
-                metadata={"artifact_id": artifact["artifact_id"], "artifact_type": artifact_type, "artifact_topic": artifact_topic},
+                metadata={
+                    "artifact_id": artifact["artifact_id"], "artifact_type": artifact_type,
+                    "artifact_topic": artifact_topic, **receipt_meta,
+                },
             )
             thread_summary = _summarize_thread(user_id=req.user_id, session_id=session_id)
             turn_count = len(_load_thread(req.user_id, session_id))
@@ -1843,6 +1912,7 @@ async def _run_agent_task(
                 "type": "narad_synthesis",
                 "data": {"text": narad_response_text},
             }))
+            receipt_meta = await _turn_privacy_receipt(queue)
             _append_thread_turn(
                 user_id=req.user_id,
                 session_id=session_id,
@@ -1859,7 +1929,10 @@ async def _run_agent_task(
                 session_id=session_id,
                 role="assistant",
                 text=narad_response_text,
-                metadata={"artifact_id": artifact_id, "artifact_type": artifact_type, "artifact_topic": artifact_topic},
+                metadata={
+                    "artifact_id": artifact_id, "artifact_type": artifact_type,
+                    "artifact_topic": artifact_topic, **receipt_meta,
+                },
             )
             thread_summary = _summarize_thread(user_id=req.user_id, session_id=session_id)
             turn_count = len(_load_thread(req.user_id, session_id))
@@ -2462,6 +2535,7 @@ async def _run_agent_task(
                 )
 
         tracer.session_done()
+        receipt_meta = await _turn_privacy_receipt(queue)
         _append_thread_turn(
             user_id=req.user_id,
             session_id=session_id,
@@ -2481,6 +2555,7 @@ async def _run_agent_task(
                 metadata={
                     "restored_after_reset": restored_thread,
                     "restored_turn_count": restored_turn_count,
+                    **receipt_meta,
                 },
             )
         trace_summary = Tracer.summary(session_id)
@@ -3820,7 +3895,7 @@ async def expand_sandbox(doc_id: str):
 # Records live under profiles/<id>/metrics and profiles/<id>/consent.json; see
 # pilot_metrics.py and docs/PILOT_CONSENT_AND_METRICS.md.
 
-def _pilot_turn_queue(req: ChatRequest, session_id: str) -> asyncio.Queue:
+def _pilot_turn_queue(req: ChatRequest, session_id: str, turn_id: str | None = None) -> asyncio.Queue:
     """The chat task's SSE queue, observed for pilot metrics (a plain queue on failure)."""
     try:
         import pilot_metrics
@@ -3831,10 +3906,30 @@ def _pilot_turn_queue(req: ChatRequest, session_id: str) -> asyncio.Queue:
             workflow_run_id=req.workflow_run_id,
             attachments=len(req.attachment_ids),
             images=len(req.images),
+            turn_id=turn_id,
         )
     except Exception as exc:  # metrics must never block a turn
         logging.getLogger("narad.server").warning("Pilot metrics off for this turn: %s", exc)
         return asyncio.Queue()
+
+
+async def _turn_privacy_receipt(queue: asyncio.Queue) -> dict[str, Any]:
+    """Queue this turn's privacy receipt (before done) and return thread metadata for it.
+
+    The receipt summarises the egress rows stamped with the turn id: which
+    providers saw something, their tier, what for, and how many details were
+    replaced, as counts only. Stored on the assistant turn so a reloaded
+    thread shows it again."""
+    turn_id = _privacy_gateway.current_turn_id()
+    if not turn_id:
+        return {}
+    try:
+        receipt = await asyncio.to_thread(_privacy_gateway.privacy_receipt, turn_id)
+    except Exception as exc:  # a receipt must never break a turn
+        logging.getLogger("narad.server").warning("Privacy receipt skipped: %s", exc)
+        return {"turn_id": turn_id}
+    await queue.put(json.dumps({"type": "privacy_receipt", "data": receipt}))
+    return {"turn_id": turn_id, "privacy_receipt": receipt}
 
 
 def _watch_pilot_turn(queue: asyncio.Queue, task: asyncio.Task) -> None:
@@ -3916,9 +4011,54 @@ class ConsentRequest(BaseModel):
     accepted: bool = True
 
 
+class _ConsentRequired(Exception):
+    """Raised by _require_consent; answered as 403 with code consent_required."""
+
+    def __init__(self, version: str) -> None:
+        super().__init__("consent_required")
+        self.version = version
+
+
+@app.exception_handler(_ConsentRequired)
+async def _consent_required_response(request: Request, exc: _ConsentRequired) -> JSONResponse:
+    return JSONResponse(status_code=403, content={
+        "detail": "Narad needs your OK on the consent sheet before it reads your messages. "
+                  "Open Narad to read it.",
+        "code": "consent_required",
+        "current_version": exc.version,
+    })
+
+
+def _consent_enforced() -> bool:
+    """NARAD_REQUIRE_CONSENT (default on): until a member accepts the current
+    consent sheet, /chat, /voice/* and uploads process nothing of theirs."""
+    return os.environ.get("NARAD_REQUIRE_CONSENT", "on").strip().lower() not in ("0", "off", "false", "no")
+
+
+def _require_consent(connection: HTTPConnection) -> None:
+    """403 consent_required unless the caller's profile accepted the current
+    consent version. The owner is always considered consented."""
+    if not _consent_enforced():
+        return
+    import pilot_metrics
+
+    status = pilot_metrics.consent_status(_profile_from_request(connection))
+    if status["needs_consent"]:
+        raise _ConsentRequired(status["current_version"])
+
+
 @app.get("/consent")
-async def get_consent(request: Request, scope: Optional[str] = None, document: bool = False):
-    """The caller's consent state; the owner may ask for every profile (scope=all)."""
+async def get_consent(
+    request: Request,
+    scope: Optional[str] = None,
+    document: bool = False,
+    part: Optional[str] = None,
+    lang: str = "en",
+):
+    """The caller's consent state; the owner may ask for every profile (scope=all).
+
+    part=a adds Part A of the consent document as the consent screen shows it
+    (lang=en or hi), read from docs/PILOT_CONSENT_AND_METRICS.md itself."""
     import pilot_metrics
 
     profile_id = _assert_profile_match(request, None)
@@ -3930,6 +4070,7 @@ async def get_consent(request: Request, scope: Optional[str] = None, document: b
             "profiles": {p: pilot_metrics.consent_status(p) for p in profiles},
         }
     status = await asyncio.to_thread(pilot_metrics.consent_status, profile_id)
+    status["enforced"] = _consent_enforced()
     if document:
         try:
             status["document_markdown"] = (
@@ -3937,6 +4078,14 @@ async def get_consent(request: Request, scope: Optional[str] = None, document: b
             ).read_text(encoding="utf-8")
         except OSError:
             status["document_markdown"] = ""
+    if str(part or "").strip().lower() == "a":
+        language = lang if lang in pilot_metrics.CONSENT_LANGUAGES else "en"
+        status["sheet"] = {
+            "part": "a",
+            "lang": language,
+            "languages": list(pilot_metrics.CONSENT_LANGUAGES),
+            "markdown": await asyncio.to_thread(pilot_metrics.consent_sheet, language),
+        }
     return status
 
 

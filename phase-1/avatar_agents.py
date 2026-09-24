@@ -48,6 +48,8 @@ from runtime_contract import (
 )
 from text_stream import DeltaStream, visible_text
 
+import privacy_gateway
+
 # Context var holding the SSE queue for the current request. server.py sets this
 # before the outer agent runs; _make_avatar_tool reads it to emit step events live.
 _step_queue_ctx: contextvars.ContextVar[asyncio.Queue | None] = contextvars.ContextVar(
@@ -1104,6 +1106,8 @@ def _make_avatar_tool(agent: LlmAgent, user_id: str = "default") -> FunctionTool
         # Tapas: score and promote/flag — fire-and-forget, never blocks.
         # M4.4: pass the sutras that were injected into this run so a failing
         # outcome strikes them toward demotion.
+        # Learners outlive the chat turn: they run outside it, so their cloud
+        # calls never land on this turn's privacy receipt.
         import asyncio as _asyncio
         _applied_sutra_ids = list(recall_packet.get("sutra_ids") or [])
         _asyncio.get_event_loop().call_soon(
@@ -1113,7 +1117,8 @@ def _make_avatar_tool(agent: LlmAgent, user_id: str = "default") -> FunctionTool
                 avatar=agent.name,
                 result=result_text,
                 applied_sutra_ids=_applied_sutra_ids,
-            ))
+            )),
+            context=privacy_gateway.context_outside_turn(),
         )
 
         # Sankalpa: observe this session — fire-and-forget
@@ -1123,7 +1128,8 @@ def _make_avatar_tool(agent: LlmAgent, user_id: str = "default") -> FunctionTool
                 avatar=agent.name,
                 task=task,
                 result=result_text,
-            ))
+            )),
+            context=privacy_gateway.context_outside_turn(),
         )
 
         # Belt-and-braces: some models inline chain-of-thought as literal tags
@@ -1740,6 +1746,8 @@ def _guard_matsya_retrieval(tool, args, tool_context):
     seen.append(fingerprint)
     tool_context.state["temp:narad_matsya_retrieval_seen"] = seen[-budget:]
     tool_context.state["temp:narad_matsya_retrieval_count"] = count + 1
+    # The call goes ahead: its search words or URL leave the Mac (egress ledger).
+    privacy_gateway.record_tool_egress(tool_name, args)
     return None
 
 matsya = LlmAgent(

@@ -18,7 +18,11 @@ through this module, which:
      except in arguments of tools that send text to the internet (search, HTTP);
      streamed replies are restored chunk by chunk (StreamRestorer holds back a
      placeholder split across chunks);
-  5. appends one line per cloud call to the profile's egress ledger.
+  5. appends one line per cloud call to the profile's egress ledger, stamped
+     with the chat turn it belongs to (set_turn_id), so each answer can carry
+     a privacy receipt (privacy_receipt): who saw something and in what form,
+     as counts only. Search engines and websites that tools reach are listed
+     too (record_tool_egress), as `web`.
 
 Tier overrides: NARAD_PROVIDER_TIERS="deepseek=redact,nebius=trusted" or
 NARAD_HOME/config/provider_tiers.json ({"nebius": "trusted"}).
@@ -29,6 +33,7 @@ Extra names/addresses: NARAD_HOME/config/privacy_terms.json
 """
 from __future__ import annotations
 
+import contextvars
 import copy
 import hashlib
 import json
@@ -48,6 +53,9 @@ log = logging.getLogger("narad.privacy")
 
 LOCAL, TRUSTED, REDACT, BLOCKED = "local", "trusted", "redact", "blocked"
 _TIERS = {LOCAL, TRUSTED, REDACT, BLOCKED}
+# Search engines and websites that tools reach. Not a trust tier (they are not
+# model services); their ledger rows carry this label instead of one.
+WEB = "web"
 
 _DEFAULT_TIERS: dict[str, str] = {
     "ollama": LOCAL,
@@ -83,8 +91,27 @@ _DEFAULT_TIERS: dict[str, str] = {
 OUTBOUND_TOOLS = frozenset({
     "web_search", "exa_search", "exa_contents", "search_last30days", "search_arxiv",
     "search_papers", "search_hf_papers", "search_hf_models", "query_deepwiki",
-    "http_request", "browse_url", "tavily_search",
+    "http_request", "browse_url", "tavily_search", "enrich_web_research",
+    "firecrawl_extract",
 })
+
+# Where each outbound tool's arguments go, and its ledger source.
+_TOOL_DESTINATIONS: dict[str, tuple[str, str]] = {
+    "web_search": ("exa", "search"),
+    "exa_search": ("exa", "search"),
+    "enrich_web_research": ("exa", "search"),
+    "exa_contents": ("exa", "web"),
+    "firecrawl_extract": ("firecrawl", "web"),
+    "tavily_search": ("tavily", "search"),
+    "search_last30days": ("community_sites", "search"),
+    "search_arxiv": ("arxiv", "search"),
+    "search_papers": ("semantic_scholar", "search"),
+    "search_hf_papers": ("huggingface", "search"),
+    "search_hf_models": ("huggingface", "search"),
+    "query_deepwiki": ("deepwiki", "search"),
+    "browse_url": ("website", "web"),
+    "http_request": ("website", "web"),
+}
 
 # Identity-bearing OpenMed labels. Dates and ages stay: health answers need them.
 _ML_LABELS = {
@@ -613,6 +640,33 @@ def _walk(value: Any, fn: Any) -> Any:
     return value
 
 
+# ── Turn stamp ────────────────────────────────────────────────────────────────
+
+# The chat turn a cloud call belongs to. /chat sets it on the turn's task, and
+# it flows with the context into avatar tools, streamed model calls and
+# asyncio.to_thread. Work that outlives the turn (Tapas, Sankalpa, a syllabus
+# for the next turn) runs in context_outside_turn(), and a threading.Thread
+# starts with an empty context, so neither is stamped.
+_turn_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "narad_privacy_turn_id", default=None
+)
+
+
+def set_turn_id(turn_id: str | None) -> contextvars.Token[str | None]:
+    return _turn_id.set(turn_id or None)
+
+
+def current_turn_id() -> str | None:
+    return _turn_id.get()
+
+
+def context_outside_turn() -> contextvars.Context:
+    """A copy of the current context without the chat turn, for background work."""
+    context = contextvars.copy_context()
+    context.run(_turn_id.set, None)
+    return context
+
+
 # ── Egress ledger ─────────────────────────────────────────────────────────────
 
 _ledger_lock = threading.Lock()
@@ -626,19 +680,23 @@ def record_egress(
     entities: dict[str, int] | None = None,
     chars: int = 0,
     blocked: str = "",
+    provider: str | None = None,
 ) -> None:
     entry = {
         "ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "profile": _profile_id(),
         "source": source,
         "model": model,
-        "provider": provider_for_model(model),
+        "provider": provider or provider_for_model(model),
         "tier": tier,
         "detector": detector_mode() if tier == REDACT else "",
         "entities": entities or {},
         "chars": chars,
         "blocked": blocked,
     }
+    turn_id = _turn_id.get()
+    if turn_id:
+        entry["turn_id"] = turn_id
     try:
         path = _privacy_dir() / "egress.jsonl"
         with _ledger_lock:
@@ -663,6 +721,121 @@ def recent_egress(limit: int = 50, profile_id: str | None = None) -> list[dict[s
         except ValueError:
             continue
     return list(reversed(rows))
+
+
+def record_tool_egress(tool: str, args: dict[str, Any] | None) -> None:
+    """Log a search or web tool call whose arguments are about to leave the Mac.
+
+    Only counts are kept: the length of the arguments, and the placeholders
+    still in them, which are details the search engine or site did not see
+    (restore_llm_response leaves placeholders in OUTBOUND_TOOLS arguments).
+    """
+    destination = _TOOL_DESTINATIONS.get(tool)
+    if destination is None:
+        return
+    provider, source = destination
+    serialized = json.dumps(args or {}, ensure_ascii=False, default=str)
+    kept: dict[str, int] = {}
+    for match in _PLACEHOLDER_RE.finditer(serialized):
+        kept[match.group(1)] = kept.get(match.group(1), 0) + 1
+    record_egress(model=tool, source=source, tier=WEB, entities=kept,
+                  chars=len(serialized), provider=provider)
+
+
+# ── Privacy receipts ──────────────────────────────────────────────────────────
+
+_RECEIPT_TOKEN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:+-]{0,63}$")
+# Ledger sources, grouped the way a person would describe them.
+_RECEIPT_SOURCES = {
+    "agent": "answer", "background": "answer", "memory": "memory", "embedding": "memory",
+    "search": "search", "web": "web", "stt": "voice", "tts": "voice",
+    "imagen": "image", "veo": "video", "guided_presenter": "lesson",
+}
+
+
+def _receipt_source(source: Any) -> str:
+    text = str(source or "")
+    if text in _RECEIPT_SOURCES:
+        return _RECEIPT_SOURCES[text]
+    if text.startswith("guru"):
+        return "lesson"
+    if text.startswith("jev:"):
+        return "check"
+    return "other"
+
+
+def _receipt_token(value: Any, default: str = "other") -> str:
+    text = str(value or "")
+    return text if _RECEIPT_TOKEN.fullmatch(text) else default
+
+
+def _count(value: Any) -> int:
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
+
+
+def turn_egress_rows(turn_id: str, profile_id: str | None = None) -> list[dict[str, Any]]:
+    """Ledger rows stamped with *turn_id*, oldest first (read from the file's tail)."""
+    if not turn_id:
+        return []
+    path = _privacy_dir(profile_id) / "egress.jsonl"
+    try:
+        with path.open("rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            handle.seek(max(0, handle.tell() - 256 * 1024))
+            tail = handle.read().decode("utf-8", errors="replace").splitlines()
+    except OSError:
+        return []
+    rows: list[dict[str, Any]] = []
+    for line in tail:
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(row, dict) and row.get("turn_id") == turn_id:
+            rows.append(row)
+    return rows
+
+
+def privacy_receipt(turn_id: str, profile_id: str | None = None) -> dict[str, Any]:
+    """What left the Mac during one chat turn: counts, never values.
+
+    One entry per destination: its provider id, tier, what it was for
+    (answer, memory, search, web, voice...), how many calls, and how many
+    details of each kind were swapped for placeholders. Calls the gateway
+    refused are counted by reason; nothing was sent for them.
+    """
+    destinations: dict[tuple[str, str], dict[str, Any]] = {}
+    refused: dict[str, int] = {}
+    for row in turn_egress_rows(turn_id, profile_id):
+        if row.get("blocked"):
+            reason = _receipt_token(str(row["blocked"]).split(":", 1)[0])
+            refused[reason] = refused.get(reason, 0) + 1
+            continue
+        tier = _receipt_token(row.get("tier"), REDACT)
+        if tier == LOCAL:
+            continue
+        provider = _receipt_token(row.get("provider"), "unknown")
+        entry = destinations.setdefault((provider, tier), {
+            "provider": provider, "tier": tier, "sources": [], "calls": 0, "replaced": {},
+        })
+        entry["calls"] += 1
+        source = _receipt_source(row.get("source"))
+        if source not in entry["sources"]:
+            entry["sources"].append(source)
+        entities = row.get("entities") if isinstance(row.get("entities"), dict) else {}
+        for label, count in entities.items():
+            key = _receipt_token(str(label).upper(), "OTHER")
+            entry["replaced"][key] = entry["replaced"].get(key, 0) + _count(count)
+    return {
+        "v": 1,
+        "turn_id": _receipt_token(turn_id, "") or None,
+        "stayed_local": not destinations,
+        "destinations": list(destinations.values()),
+        "refused": refused,
+    }
 
 
 # ── ADK request/response ──────────────────────────────────────────────────────
