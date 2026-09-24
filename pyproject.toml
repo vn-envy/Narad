@@ -25,6 +25,8 @@ dependencies = [
     "requests>=2.32.0",
     # Cloudflare Access JWT verification (phase-1/cf_access.py).
     "pyjwt[crypto]>=2.8",
+    # AES-256-GCM for encrypted backups (scripts/narad_backup.py).
+    "cryptography>=42",
     "pydantic>=2.6.0",
     "nest_asyncio>=1.6.0",
     "numpy>=1.26.0",
@@ -83,6 +85,8 @@ py-modules = [
     "conversation_memory",
     "dharma",
     "privacy_gateway",
+    "pilot_metrics",
+    "pilot_scorecard",
     "tool_result",
     "init_workspace",
 ]

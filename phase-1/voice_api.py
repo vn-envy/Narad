@@ -25,6 +25,16 @@ from voice_engine import voice_engine
 voice_router = APIRouter()
 
 
+def _record_voice(kind: str, engine: str | None, ok: bool, **counts: int) -> None:
+    """Pilot metric: one voice-in or voice-out request (engine and counts, no text)."""
+    try:
+        from pilot_metrics import record_voice
+
+        record_voice(kind, engine=engine, ok=ok, **counts)
+    except Exception:
+        pass
+
+
 class VoiceTTSRequest(BaseModel):
     text:   str
     avatar: str = "narad"
@@ -57,7 +67,9 @@ async def voice_tts(req: VoiceTTSRequest):
             voice_engine.synthesize, clean, req.avatar, req.lang
         )
     except RuntimeError as exc:
+        _record_voice("tts", None, False, chars=len(clean))
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    _record_voice("tts", out.get("engine"), True, chars=len(clean))
     return {
         "audio_b64":   base64.b64encode(out["audio"]).decode(),
         "format":      "wav",
@@ -89,10 +101,12 @@ async def voice_stt(audio: UploadFile = File(...), lang: str = Form("")):
         tmp.close()
         result = await asyncio.to_thread(voice_engine.transcribe, tmp.name, lang or None)
     except RuntimeError as exc:
+        _record_voice("stt", None, False, audio_bytes=len(data))
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     finally:
         try:
             os.unlink(tmp.name)
         except OSError:
             pass
+    _record_voice("stt", result.get("engine"), True, audio_bytes=len(data))
     return result
