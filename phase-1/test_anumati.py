@@ -538,7 +538,6 @@ def test_desktop_input_always_waits_even_with_confirmed(home, monkeypatch) -> No
     executed = Mock(return_value=([{"action": "type", "status": "ok"}], None))
     monkeypatch.setattr(computer_use_skill, "_desktop_driver_status", lambda: readiness)
     monkeypatch.setattr(computer_use_skill, "_execute_pyautogui_actions", executed)
-    monkeypatch.setattr(computer_use_skill, "_desktop_decision_hint", lambda *_a, **_k: None)
     monkeypatch.setattr(interaction_targets, "resolve_interaction_target", lambda *_a, **_k: {"target_id": "t1"})
     with profile_scope("asha"):
         waiting = computer_use_skill.computer_use(

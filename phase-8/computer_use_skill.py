@@ -14,7 +14,6 @@ import ipaddress
 import json
 import os
 import re
-import shutil
 import socket
 import subprocess
 import sys
@@ -286,6 +285,8 @@ def _steps_summary(actions: list[dict[str, Any]], labels: list[str | None], wher
             steps.append(f"open {str(action.get('url', ''))[:80]}")
         elif kind == "hotkey":
             steps.append(f"press {'+'.join(str(key) for key in action.get('keys') or [])}")
+        elif kind == "open_app":  # a Kriya desktop step
+            steps.append(f'open the app "{str(action.get("name") or "")[:60]}"')
         elif kind == "drag":
             steps.append(f"drag from ({action.get('x1')}, {action.get('y1')}) to ({action.get('x2')}, {action.get('y2')})")
         else:
@@ -380,9 +381,9 @@ def _desktop_permission_status() -> dict[str, bool | None]:
 
 
 def _cua_env() -> dict[str, str]:
-    env = os.environ.copy()
-    env["CUA_DRIVER_RS_TELEMETRY_ENABLED"] = "false"
-    return env
+    from cua_session import cua_env
+
+    return cua_env()
 
 
 def _desktop_driver_status() -> dict[str, Any]:
@@ -394,8 +395,9 @@ def _desktop_driver_status() -> dict[str, Any]:
     if requested not in {"auto", "cua", "pyautogui"}:
         requested = "auto"
 
-    bundled_cua = Path.home() / ".local" / "bin" / "cua-driver"
-    cua_binary = shutil.which("cua-driver") or (str(bundled_cua) if bundled_cua.is_file() else None)
+    import cua_session
+
+    cua_binary = cua_session.cua_binary()
     daemon_ready = False
     permissions_ready = False
     cua_version: str | None = None
@@ -440,7 +442,11 @@ def _desktop_driver_status() -> dict[str, Any]:
             cua_detail = f"{cua_detail}\n{permission_detail}".strip()
         except (OSError, subprocess.SubprocessError) as exc:
             cua_detail = str(exc)
-    cua_ready = bool(cua_binary and daemon_ready and permissions_ready)
+    # The persistent MCP session, when one has started: its self-check result
+    # (a cua-driver whose tools no longer match Narad's table is not ready).
+    session = cua_session.session_status()
+    contract_ok = not (session and session.get("self_check") and not session["self_check"].get("ok"))
+    cua_ready = bool(cua_binary and daemon_ready and permissions_ready and contract_ok)
 
     pyautogui_available = importlib.util.find_spec("pyautogui") is not None
     pyautogui_permissions = (
@@ -471,6 +477,8 @@ def _desktop_driver_status() -> dict[str, Any]:
         reason = "Start CuaDriver.app on the Narad host"
     elif selected == "cua" and not permissions_ready:
         reason = "Grant CuaDriver Accessibility and Screen Recording on the Narad host"
+    elif selected == "cua" and not contract_ok:
+        reason = f"cua-driver's tools do not match Narad's table: {(session or {}).get('last_error')}"
     elif selected == "pyautogui" and not pyautogui_available:
         reason = "Install pyautogui or configure the optional CUA adapter"
     elif selected == "pyautogui" and not pyautogui_permissions_ready:
@@ -493,6 +501,7 @@ def _desktop_driver_status() -> dict[str, Any]:
                 "version": cua_version,
                 "daemon_ready": daemon_ready,
                 "permissions_ready": permissions_ready,
+                "session": session,
                 "targets": [{"id": "host-primary", "label": "Narad host desktop"}],
                 "reason": None if cua_ready else (
                     reason or cua_detail[-300:] or "Cua Driver is not ready"
@@ -1476,7 +1485,6 @@ def _browser_decision_hint(task: str, observation: dict[str, Any]) -> dict[str, 
 
 
 _WHEEL_NOTCH_PX = 120  # cua-driver's per-notch line step and the usual wheel delta
-_CUA_UNCONFIRMED_EFFECTS = frozenset({"unverifiable", "suspected_noop"})
 
 
 def _desktop_scroll_steps(action: dict[str, Any]) -> tuple[str, int]:
@@ -1506,69 +1514,79 @@ def _desktop_scroll_steps(action: dict[str, Any]) -> tuple[str, int]:
     return direction, max(1, min(amount, 50))
 
 
-def _cua_action_command(
-    binary: str,
-    action: dict[str, Any],
-    screenshot_path: Path,
-    session_id: str = "narad-desktop",
-) -> list[str] | None:
+_DESKTOP_TARGET = {"kind": "desktop", "display_id": "primary"}
+
+
+def _cua_action_call(
+    action: dict[str, Any], session_id: str = "narad-desktop"
+) -> tuple[str, dict[str, Any]] | None:
+    """The cua-driver tool and arguments for one coordinate desktop action.
+
+    Every input goes to the primary display with an explicit
+    ``delivery_mode``: desktop-scoped input is foreground by nature (the driver
+    refuses background delivery there), so Narad says so instead of relying on
+    a default. ``wait`` needs no call (None).
+    """
     kind = action["action"]
-    target = {"kind": "desktop", "display_id": "primary"}
-    payload: dict[str, Any] = {"session": session_id}
+    base: dict[str, Any] = {"session": session_id, "target": dict(_DESKTOP_TARGET)}
     if kind == "move":
-        payload.update({"target": target, "x": float(action["x"]), "y": float(action["y"])})
-        tool = "move_cursor"
-    # The driver contract requires delivery_mode on click and refuses background
-    # delivery for desktop-scoped targets.
-    if kind == "click":
-        payload.update({"target": target, "x": float(action["x"]), "y": float(action["y"]), "button": str(action.get("button", "left")), "delivery_mode": "foreground"})
-        tool = "click"
-    elif kind == "double_click":
-        payload.update({"target": target, "x": float(action["x"]), "y": float(action["y"]), "count": 2, "delivery_mode": "foreground"})
-        tool = "click"
-    elif kind == "type":
-        payload.update({"target": target, "text": str(action.get("text", action.get("value", "")))})
-        tool = "type_text"
-    elif kind == "press":
-        payload.update({"target": target, "key": str(action.get("key", ""))})
-        tool = "press_key"
-    elif kind == "hotkey":
+        return "move_cursor", {**base, "x": float(action["x"]), "y": float(action["y"])}
+    if kind in {"click", "double_click"}:
+        arguments = {**base, "x": float(action["x"]), "y": float(action["y"]), "delivery_mode": "foreground"}
+        if kind == "double_click":
+            arguments["count"] = 2
+        else:
+            arguments["button"] = str(action.get("button", "left"))
+        return "click", arguments
+    if kind == "type":
+        return "type_text", {**base, "text": str(action.get("text", action.get("value", ""))),
+                             "delivery_mode": "foreground"}
+    if kind == "press":
+        return "press_key", {**base, "key": str(action.get("key", "")), "delivery_mode": "foreground"}
+    if kind == "hotkey":
         keys = action.get("keys", [])
         if not isinstance(keys, list) or not keys:
             raise ValueError("hotkey requires a non-empty keys list")
-        payload.update({"target": target, "keys": [str(key) for key in keys]})
-        tool = "hotkey"
-    elif kind == "scroll":
+        return "hotkey", {**base, "keys": [str(key) for key in keys], "delivery_mode": "foreground"}
+    if kind == "scroll":
         # Desktop scroll is a wheel at an absolute get_desktop_state point.
         if action.get("x") is None or action.get("y") is None:
             raise ValueError("desktop scroll requires x and y in get_desktop_state coordinates")
         direction, amount = _desktop_scroll_steps(action)
-        payload.update({
-            "target": target,
-            "x": float(action["x"]),
-            "y": float(action["y"]),
-            "direction": direction,
-            "amount": amount,
-            "by": "line",
-        })
-        tool = "scroll"
-    elif kind == "drag":
-        payload.update({
-            "target": target,
-            "from_x": float(action["x1"]),
-            "from_y": float(action["y1"]),
-            "to_x": float(action["x2"]),
-            "to_y": float(action["y2"]),
-        })
-        tool = "drag"
-    elif kind == "screenshot":
-        payload["screenshot_out_file"] = str(screenshot_path)
-        tool = "get_desktop_state"
-    elif kind == "wait":
+        return "scroll", {
+            **base, "x": float(action["x"]), "y": float(action["y"]), "direction": direction, "amount": amount,
+            "by": "line", "delivery_mode": "foreground",
+        }
+    if kind == "drag":
+        return "drag", {
+            **base, "from_x": float(action["x1"]), "from_y": float(action["y1"]), "to_x": float(action["x2"]),
+            "to_y": float(action["y2"]), "delivery_mode": "foreground",
+        }
+    if kind == "screenshot":
+        return "get_desktop_state", {"session": session_id}
+    if kind == "wait":
         return None
-    elif kind != "move":
-        raise ValueError(f"Unsupported CUA action: {kind}")
-    return [binary, "call", tool, json.dumps(payload, separators=(",", ":"))]
+    raise ValueError(f"Unsupported CUA action: {kind}")
+
+
+def _effect_status(effect: str | None) -> str:
+    """The canonical Effect contract as a batch status: only ``confirmed``
+    counts as done; ``refused`` stops the batch; the rest are unverified."""
+    if effect == "refused":
+        return "error"
+    if effect in (None, "confirmed"):
+        return "ok"
+    return "unverified"  # partial, unverifiable, suspected_noop
+
+
+def _save_desktop_screenshot(result: dict[str, Any], path: Path) -> Path | None:
+    import cua_session
+
+    image = cua_session.tool_image(result)
+    if image is None:
+        return None
+    path.write_bytes(image[0])
+    return path
 
 
 def _execute_cua_actions(
@@ -1577,9 +1595,15 @@ def _execute_cua_actions(
     run_dir: Path,
     session_id: str,
 ) -> tuple[list[dict[str, Any]], Path | None]:
+    """Run a batch over the host's persistent ``cua-driver mcp`` session."""
+    import cua_session
+
     results: list[dict[str, Any]] = []
     screenshot_path: Path | None = None
-    env = _cua_env()
+    try:
+        driver = cua_session.session(binary)
+    except cua_session.CuaSessionError as exc:
+        return [{"action": actions[0]["action"] if actions else "none", "status": "error", "error": str(exc)}], None
     for index, action in enumerate(actions):
         kind = action["action"]
         try:
@@ -1587,87 +1611,34 @@ def _execute_cua_actions(
                 time.sleep(max(0, min(float(action.get("seconds", 1)), 30)))
                 results.append({"action": kind, "status": "ok"})
                 continue
-            candidate = run_dir / f"desktop-{time.time_ns()}-{index}.png"
-            command = _cua_action_command(binary, action, candidate, session_id)
-            completed = subprocess.run(
-                command,
-                cwd=run_dir,
-                stdin=subprocess.DEVNULL,
-                capture_output=True,
-                text=True,
-                timeout=60,
-                check=False,
-                env=env,
-            )
-            if completed.returncode != 0:
-                message = (completed.stderr or completed.stdout or "CUA action failed").strip()[:800]
-                raise RuntimeError(message)
-            if kind == "screenshot" and candidate.exists():
-                screenshot_path = candidate
-            parsed: dict[str, Any] = {}
-            try:
-                parsed = json.loads(completed.stdout) if completed.stdout.strip() else {}
-            except json.JSONDecodeError:
-                pass
+            tool, arguments = _cua_action_call(action, session_id) or ("", {})
+            result = driver.call(tool, arguments)
+            if kind == "screenshot":
+                screenshot_path = _save_desktop_screenshot(
+                    result, run_dir / f"desktop-{time.time_ns()}-{index}.png"
+                ) or screenshot_path
+                results.append({"action": kind, "status": "ok"})
+                continue
+            parsed = cua_session.tool_payload(result)
             effect = parsed.get("effect") if isinstance(parsed, dict) else None
-            # The driver delivered the input but could not confirm it landed.
-            status = "unverified" if effect in _CUA_UNCONFIRMED_EFFECTS else "ok"
-            results.append({"action": kind, "status": status, "effect": effect, "driver_result": parsed})
+            status = _effect_status(effect)
+            row: dict[str, Any] = {"action": kind, "status": status, "effect": effect, "driver_result": parsed}
+            if status == "error":
+                error = parsed.get("error") or {}
+                row["error"] = f"refused: {error.get('code') or 'refused'} {error.get('hint') or ''}".strip()
+                results.append(row)
+                break
+            results.append(row)
         except Exception as exc:
             results.append({"action": kind, "status": "error", "error": f"{type(exc).__name__}: {exc}"})
             break
     if screenshot_path is None:
-        candidate = run_dir / f"desktop-{time.time_ns()}-final.png"
         try:
-            completed = subprocess.run(
-                _cua_action_command(
-                    binary, {"action": "screenshot"}, candidate, session_id
-                ),
-                cwd=run_dir,
-                stdin=subprocess.DEVNULL,
-                capture_output=True,
-                text=True,
-                timeout=60,
-                check=False,
-                env=env,
-            )
-            if completed.returncode == 0 and candidate.exists():
-                screenshot_path = candidate
+            result = driver.call("get_desktop_state", {"session": session_id})
+            screenshot_path = _save_desktop_screenshot(result, run_dir / f"desktop-{time.time_ns()}-final.png")
         except Exception:
             pass
     return results, screenshot_path
-
-
-def _desktop_decision_hint(
-    task: str,
-    actions: list[dict[str, Any]],
-    *,
-    results: list[dict[str, Any]] | None = None,
-) -> dict[str, Any] | None:
-    mode = os.environ.get("NARAD_JEV_COMPUTER_MODE", "shadow").strip().lower()
-    if mode == "off":
-        return None
-    try:
-        from decision_contracts import compact_decision, desktop_admission_v1, desktop_verify_v1
-        from decision_engine import jev_status
-
-        if not jev_status().get("available"):
-            return {"status": "unavailable", "mode": mode, "error": "Jev is not configured"}
-        state = {
-            "goal": task[:1200],
-            "actions": actions[:24],
-            "driver_results": (results or [])[:24],
-        }
-        decision = desktop_verify_v1(state) if results is not None else desktop_admission_v1(state)
-        hint = compact_decision(decision)
-        hint["mode"] = mode
-        return hint
-    except Exception as exc:
-        return {
-            "status": "error",
-            "mode": mode,
-            "error": f"{type(exc).__name__}: {exc}"[:300],
-        }
 
 
 def _execute_pyautogui_actions(
@@ -1752,7 +1723,6 @@ def _desktop_use(
             error="desktop_target_unavailable",
             readiness=readiness,
         )
-    decision_hint = _desktop_decision_hint(task, actions)
     needs_confirmation = any(_action_requires_confirmation(action, "desktop") for action in actions)
     summary = f"Desktop action plan prepared with {len(actions)} action(s)."
     if dry_run:
@@ -1774,7 +1744,6 @@ def _desktop_use(
                 "task": task,
                 "profile_id": owner_profile_id,
                 "target_id": (grant or {}).get("target_id"),
-                "decision_hint": decision_hint,
             },
             requires_confirmation=needs_confirmation,
             session_id=session_id,
@@ -1809,7 +1778,7 @@ def _desktop_use(
         consumed = gate.proposal
     result = _run_desktop_batch(
         task=task, session_id=session_id, actions=actions, owner_profile_id=owner_profile_id,
-        grant=grant, readiness=readiness, decision_hint=decision_hint,
+        grant=grant, readiness=readiness,
     )
     if consumed is not None:
         import anumati
@@ -1851,7 +1820,6 @@ def _execute_desktop_proposal(proposal: Any) -> dict[str, Any]:
             owner_profile_id=owner,
             grant=grant,
             readiness=readiness,
-            decision_hint=None,
         )
 
 
@@ -1863,7 +1831,6 @@ def _run_desktop_batch(
     owner_profile_id: str,
     grant: dict[str, Any],
     readiness: dict[str, Any],
-    decision_hint: dict[str, Any] | None,
 ) -> dict[str, Any]:
     engine = str(readiness["selected_provider"])
     gate_error = _dharma_gate(
@@ -1895,7 +1862,12 @@ def _run_desktop_batch(
             mime_type="image/png",
             description="Desktop state after the approved action batch.",
         ))
-    verification_hint = _desktop_decision_hint(task, actions, results=results)
+    # The driver's own Effect contract (confirmed / partial / unverifiable /
+    # suspected_noop / refused) is the verification; nothing else judges it.
+    effects: dict[str, int] = {}
+    for item in results:
+        if item.get("effect"):
+            effects[str(item["effect"])] = effects.get(str(item["effect"]), 0) + 1
     unverified = sum(item["status"] == "unverified" for item in results)
     summary = f"Executed {sum(item['status'] in {'ok', 'unverified'} for item in results)} desktop action(s)."
     if unverified:
@@ -1924,8 +1896,7 @@ def _run_desktop_batch(
             "task": task,
             "profile_id": owner_profile_id,
             "target_id": (grant or {}).get("target_id"),
-            "decision_hint": decision_hint,
-            "verification_hint": verification_hint,
+            "effects": effects,
         },
         requires_confirmation=False,
         session_id=session_id,
@@ -2826,5 +2797,11 @@ def shutdown_computer_use() -> None:
         from browser_skill_adapter import shutdown_browser_skill_sessions
 
         shutdown_browser_skill_sessions()
+    except Exception:
+        pass
+    try:
+        from cua_session import shutdown as shutdown_cua_session
+
+        shutdown_cua_session()
     except Exception:
         pass

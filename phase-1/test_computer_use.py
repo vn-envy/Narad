@@ -21,7 +21,7 @@ import computer_use_skill
 import interaction_targets
 from computer_use_skill import (
     _action_requires_confirmation,
-    _cua_action_command,
+    _cua_action_call,
     _normalise_actions,
     _validate_url,
     computer_use,
@@ -141,28 +141,27 @@ class ComputerUseContractTests(unittest.TestCase):
         self.assertTrue(payload["requires_confirmation"])
         self.assertFalse(payload["readiness"]["enabled"])
 
-    def test_cua_commands_use_exact_typed_desktop_targets(self) -> None:
-        screenshot = Path("/tmp/narad-cua-test.png")
-        click = _cua_action_command(
-            "/usr/local/bin/cua-driver",
-            {"action": "click", "x": 10, "y": 20, "button": "left"},
-            screenshot,
-        )
-        capture = _cua_action_command(
-            "/usr/local/bin/cua-driver",
-            {"action": "screenshot"},
-            screenshot,
-        )
+    def test_cua_calls_use_exact_typed_desktop_targets_and_explicit_delivery(self) -> None:
+        import cua_session
 
-        self.assertEqual(click[:3], ["/usr/local/bin/cua-driver", "call", "click"])
-        click_payload = json.loads(click[3])
-        capture_payload = json.loads(capture[3])
-        self.assertEqual(click_payload["target"], {"kind": "desktop", "display_id": "primary"})
-        self.assertEqual(click_payload["delivery_mode"], "foreground")
-        self.assertEqual(capture[:3], ["/usr/local/bin/cua-driver", "call", "get_desktop_state"])
-        self.assertEqual(capture_payload["screenshot_out_file"], str(screenshot))
-        self.assertNotIn("switch", click)
-        self.assertNotIn("permissions", click)
+        tool, click = _cua_action_call({"action": "click", "x": 10, "y": 20, "button": "left"})
+        capture_tool, capture = _cua_action_call({"action": "screenshot"})
+
+        self.assertEqual(tool, "click")
+        self.assertEqual(click["target"], {"kind": "desktop", "display_id": "primary"})
+        self.assertEqual(click["delivery_mode"], "foreground")
+        self.assertEqual(capture_tool, "get_desktop_state")
+        self.assertNotIn("screenshot_out_file", capture)  # the image comes back inline, not via a file
+        for action in (
+            {"action": "type", "text": "hi"}, {"action": "press", "key": "Enter"},
+            {"action": "hotkey", "keys": ["cmd", "s"]}, {"action": "scroll", "x": 1, "y": 2},
+            {"action": "drag", "x1": 1, "y1": 2, "x2": 3, "y2": 4},
+        ):
+            name, arguments = _cua_action_call(action)
+            self.assertEqual(arguments["delivery_mode"], "foreground", action)
+            # Every argument is one Narad's tool table declares (and the self-check verifies).
+            self.assertLessEqual(set(arguments), set(cua_session.TOOLS[name]), action)
+        self.assertIsNone(_cua_action_call({"action": "wait"}))
 
     def test_desktop_drag_is_supported_and_confirmation_gated(self) -> None:
         actions = _normalise_actions(
@@ -231,7 +230,6 @@ class CuaDriverAdapterTests(unittest.TestCase):
     binary = "/usr/local/bin/cua-driver"
 
     def test_scroll_sends_direction_amount_and_point(self) -> None:
-        screenshot = Path("/tmp/narad-cua-test.png")
         cases = [
             ({"delta_y": 360}, "down", 3),
             ({"delta_y": -240}, "up", 2),
@@ -242,11 +240,8 @@ class CuaDriverAdapterTests(unittest.TestCase):
             ({}, "down", 5),
         ]
         for extra, direction, amount in cases:
-            command = _cua_action_command(
-                self.binary, {"action": "scroll", "x": 100, "y": 200, **extra}, screenshot
-            )
-            self.assertEqual(command[:3], [self.binary, "call", "scroll"])
-            payload = json.loads(command[3])
+            tool, payload = _cua_action_call({"action": "scroll", "x": 100, "y": 200, **extra})
+            self.assertEqual(tool, "scroll")
             self.assertEqual(
                 {key: payload[key] for key in ("x", "y", "direction", "amount", "by")},
                 {"x": 100.0, "y": 200.0, "direction": direction, "amount": amount, "by": "line"},
@@ -255,7 +250,7 @@ class CuaDriverAdapterTests(unittest.TestCase):
             self.assertNotIn("delta_x", payload)
             self.assertNotIn("delta_y", payload)
         with self.assertRaises(ValueError):
-            _cua_action_command(self.binary, {"action": "scroll", "delta_y": 240}, screenshot)
+            _cua_action_call({"action": "scroll", "delta_y": 240})
 
     def _cua_status(self, permission_stdout: str) -> tuple[dict, list]:
         calls: list = []
@@ -268,9 +263,11 @@ class CuaDriverAdapterTests(unittest.TestCase):
                 return SimpleNamespace(returncode=0, stdout="Daemon is running\n", stderr="")
             return SimpleNamespace(returncode=0, stdout=permission_stdout, stderr="")
 
+        import cua_session
+
         with patch.dict(
             os.environ, {"NARAD_ENABLE_DESKTOP_CONTROL": "1", "NARAD_DESKTOP_PROVIDER": "cua"}
-        ), patch.object(computer_use_skill.shutil, "which", return_value=self.binary), patch.object(
+        ), patch.object(cua_session.shutil, "which", return_value=self.binary), patch.object(
             computer_use_skill.subprocess, "run", side_effect=fake_run
         ):
             status = computer_use_skill._desktop_driver_status()
@@ -307,11 +304,12 @@ class CuaDriverAdapterTests(unittest.TestCase):
             {"effect": "suspected_noop", "route": "global_input"},
             {"platform": "macos"},
         ])
-        envs: list = []
+        called: list = []
 
-        def fake_run(command, **kwargs):
-            envs.append(kwargs.get("env") or {})
-            return SimpleNamespace(returncode=0, stdout=json.dumps(next(outputs)), stderr="")
+        class FakeSession:
+            def call(self, tool, arguments, **_):
+                called.append((tool, arguments))
+                return {"structuredContent": next(outputs)}
 
         readiness = {
             "available": True,
@@ -331,10 +329,8 @@ class CuaDriverAdapterTests(unittest.TestCase):
         ), patch.object(
             interaction_targets, "resolve_interaction_target", return_value={"target_id": "target_host"}
         ), patch.object(
-            computer_use_skill, "_desktop_decision_hint", return_value=None
-        ), patch.object(
             computer_use_skill, "_dharma_gate", return_value=None
-        ), patch.object(computer_use_skill.subprocess, "run", side_effect=fake_run):
+        ), patch("cua_session.session", return_value=FakeSession()):
             payload = _approved_call(
                 "Scroll the document",
                 environment="desktop",
@@ -349,7 +345,9 @@ class CuaDriverAdapterTests(unittest.TestCase):
         self.assertEqual(payload["status"], "unverified")
         self.assertIn("could not verify 2", payload["summary"])
         self.assertNotIn("complete", payload["ui"]["summary"])
-        self.assertTrue(all(env.get("CUA_DRIVER_RS_TELEMETRY_ENABLED") == "false" for env in envs))
+        self.assertEqual(payload["provenance"]["effects"], {"confirmed": 1, "unverifiable": 1, "suspected_noop": 1})
+        # One persistent session served every action: no process per action.
+        self.assertEqual([tool for tool, _ in called], ["move_cursor", "click", "scroll", "get_desktop_state"])
 
     def test_pyautogui_fallback_requires_the_same_desktop_grant(self) -> None:
         readiness = {"available": True, "reason": None, "selected_provider": "pyautogui", "adapters": {}}
@@ -361,8 +359,6 @@ class CuaDriverAdapterTests(unittest.TestCase):
             computer_use_skill, "_desktop_driver_status", return_value=readiness
         ), patch.object(
             computer_use_skill, "_execute_pyautogui_actions", executed
-        ), patch.object(
-            computer_use_skill, "_desktop_decision_hint", return_value=None
         ), patch.object(computer_use_skill, "_dharma_gate", return_value=None):
             with patch.object(interaction_targets, "resolve_interaction_target", return_value=None):
                 denied = computer_use(
