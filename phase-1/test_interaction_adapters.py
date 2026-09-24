@@ -183,6 +183,110 @@ class BrowserSkillAdapterTests(unittest.TestCase):
         self.assertEqual(allowed[0]["status"], "ok")
         self.assertEqual(session.last_url, "https://accounts.example.com/home")
 
+    def test_signed_in_redirect_to_a_refused_address_goes_back_and_stops(self) -> None:
+        calls: list[list[str]] = []
+
+        def fake_run(args: list[str], **_: object):
+            calls.append(args)
+            if args[0] == "navigate":
+                return {"tab_id": 7, "url": args[1], "final_url": "http://169.254.169.254/latest/meta-data"}
+            if args[0] == "navigate-back":
+                return {"tab_id": 7, "final_url": "https://93.184.216.34/start"}
+            return {"effect_state": "committed"}
+
+        with tempfile.TemporaryDirectory() as directory, patch.object(
+            browser_skill_adapter, "_run", side_effect=fake_run
+        ):
+            session = self._session(directory)
+            results = browser_skill_adapter.execute_browser_skill_actions(
+                session.session_id,
+                [{"action": "navigate", "url": "https://93.184.216.34/login"}, {"action": "click", "ref": "e2"}],
+                owner_profile_id="alice",
+            )
+
+        self.assertEqual([row["status"] for row in results], ["refused"])
+        self.assertFalse(results[0]["session_closed"])
+        self.assertIn("169.254.169.254", results[0]["error"])
+        self.assertEqual(calls, [
+            ["navigate", "https://93.184.216.34/login", "--session", "bsk-1"],
+            ["navigate-back", "--session", "bsk-1"],
+        ])
+        self.assertEqual(session.last_url, "https://93.184.216.34/start")
+        self.assertIn(session.session_id, browser_skill_adapter._SESSIONS)
+
+    def test_signed_in_click_onto_a_refused_address_closes_the_session(self) -> None:
+        calls: list[list[str]] = []
+
+        def fake_run(args: list[str], **_: object):
+            calls.append(args)
+            if args[0] == "click":
+                return {"effect_state": "committed", "final_url": "http://127.0.0.1:8000/threads/latest"}
+            if args[0] == "navigate-back":
+                raise browser_skill_adapter.BrowserSkillError("no earlier page")
+            return {}
+
+        with tempfile.TemporaryDirectory() as directory, patch.object(
+            browser_skill_adapter, "_run", side_effect=fake_run
+        ):
+            session = self._session(directory)
+            session.last_url = "https://93.184.216.34/inbox"
+            results = browser_skill_adapter.execute_browser_skill_actions(
+                session.session_id,
+                [{"action": "click", "ref": "e2"}, {"action": "click", "ref": "e3"}],
+                owner_profile_id="alice",
+            )
+
+        self.assertEqual([row["status"] for row in results], ["refused"])
+        self.assertTrue(results[0]["session_closed"])
+        self.assertEqual(calls[-1], ["session", "stop", "bsk-1"])
+        self.assertNotIn(session.session_id, browser_skill_adapter._SESSIONS)
+        self.assertEqual(session.last_url, "https://93.184.216.34/inbox")
+
+    def test_signed_in_computer_use_returns_a_refusal_without_reading_the_page(self) -> None:
+        observe = Mock(return_value={
+            "url": "https://93.184.216.34/inbox",
+            "title": "Signed-in Chromium",
+            "text": '  @e2 button "Next"',
+            "interactive_elements": [],
+            "fields": [],
+            "screenshot_path": None,
+        })
+        refused = {
+            "index": 1, "action": "click", "status": "refused", "effect_state": "committed",
+            "error": "Stopped: the browser was sent to an address Narad does not allow.",
+        }
+        grant = {"external_id": "browser-a"}
+        with profile_scope("alice"), patch.object(
+            interaction_targets, "resolve_interaction_target", return_value=grant
+        ), patch.object(
+            browser_skill_adapter,
+            "open_browser_skill_session",
+            side_effect=[(SimpleNamespace(session_id="signed_test"), False),
+                         (SimpleNamespace(session_id="signed_new"), True)],
+        ), patch.object(browser_skill_adapter, "observe_browser_skill_session", observe), patch.object(
+            browser_skill_adapter,
+            "execute_browser_skill_actions",
+            side_effect=[[{**refused, "session_closed": False}], [{**refused, "session_closed": True}]],
+        ):
+            clicked = computer_use_skill.computer_use(
+                "Open the next page",
+                session_id="signed_test",
+                browser_context="signed_in",
+                actions=[{"action": "click", "ref": "e2"}],
+                dry_run=False,
+            )
+            opened = computer_use_skill.computer_use(
+                "Open my bank", start_url="https://93.184.216.34/login", browser_context="signed_in", dry_run=False
+            )
+
+        for payload in (clicked, opened):
+            self.assertEqual((payload["status"], payload["error"]), ("blocked", "navigation_refused"))
+            self.assertIn("Stopped:", payload["summary"])
+            self.assertEqual(payload["observation"], {})
+        self.assertIn("went back", clicked["summary"])
+        self.assertIn("session was closed", opened["summary"])
+        observe.assert_called_once()  # only the observation before the click
+
     def test_signed_in_downloads_stay_in_the_session_downloads_folder(self) -> None:
         calls: list[list[str]] = []
 

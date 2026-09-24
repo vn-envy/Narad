@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import json
 import os
 import subprocess
 import sys
@@ -225,6 +226,120 @@ class BrowserReachTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 asyncio.run(manager._navigate(page, "https://short.example/r", 30))
         self.assertEqual(page.url, "about:blank")
+
+
+class _Tab:
+    """A Playwright page stand-in: its history move lands where the context says."""
+
+    def __init__(self, context: SimpleNamespace, url: str) -> None:
+        self.context, self.url = context, url
+        context.pages.append(self)
+
+    async def go_back(self, **kwargs) -> None:
+        if self.context.in_new_tab:
+            _Tab(self.context, self.context.lands_on)
+        else:
+            self.url = self.context.lands_on
+
+    async def goto(self, url, **kwargs) -> None:
+        self.url = url
+
+    async def close(self) -> None:
+        self.context.pages.remove(self)
+
+    async def evaluate(self, *args, **kwargs):
+        return {"text": "", "interactive": [], "fields": []} if args and "maxElements" in args[0] else ""
+
+    async def title(self) -> str:
+        return ""
+
+    async def wait_for_timeout(self, *args) -> None:
+        return None
+
+
+class IsolatedBrowserLandingTests(unittest.TestCase):
+    """Where a page lands after any action gets the same URL policy as navigate."""
+
+    def setUp(self) -> None:
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.manager = computer_use_skill.BrowserSessionManager()
+        self.run = patch.object(
+            self.manager, "_call", side_effect=lambda coroutine, timeout_s=0: asyncio.run(coroutine)
+        )
+        self.run.start()
+
+    def tearDown(self) -> None:
+        self.run.stop()
+        self.tempdir.cleanup()
+
+    def _session(self, lands_on: str, *, in_new_tab: bool = False):
+        context = SimpleNamespace(pages=[], lands_on=lands_on, in_new_tab=in_new_tab)
+        session = computer_use_skill._BrowserSession(
+            session_id="browser_t",
+            owner_profile_id="alice",
+            context=context,
+            page=_Tab(context, "https://example.com/start"),
+            run_dir=Path(self.tempdir.name),
+            task="Check the page",
+            start_url="",
+        )
+        self.manager._sessions[session.session_id] = session
+        return session
+
+    def _execute(self, actions: list[dict]) -> dict:
+        return self.manager.execute(
+            "browser_t", actions, owner_profile_id="alice", confirmed=False, timeout_s=30
+        )
+
+    def test_a_history_move_to_a_refused_address_is_blanked_and_stops_the_batch(self) -> None:
+        session = self._session("http://127.0.0.1:8000/threads/latest?user_id=default")
+        result = self._execute([{"action": "back"}, {"action": "back"}])
+
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["error"], "navigation_refused")
+        self.assertEqual([row["status"] for row in result["action_results"]], ["refused"])
+        self.assertIn("127.0.0.1", result["reason"])
+        self.assertNotIn("/threads/latest", json.dumps(result))
+        self.assertEqual(session.page.url, "about:blank")
+        trace = (Path(self.tempdir.name) / "trace.jsonl").read_text(encoding="utf-8")
+        self.assertIn("navigation_refused", trace)
+
+    def test_a_new_tab_on_a_refused_address_is_closed(self) -> None:
+        session = self._session("http://192.168.1.1/admin", in_new_tab=True)
+        result = self._execute([{"action": "back"}])
+
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(len(session.context.pages), 1)
+        self.assertEqual(session.page.url, "https://example.com/start")
+
+    def test_a_late_redirect_is_caught_before_acting_or_observing(self) -> None:
+        session = self._session("https://example.com/next")
+        session.page.url = "http://169.254.169.254/latest/meta-data"
+        result = self._execute([{"action": "back"}])
+        self.assertEqual((result["status"], result["action_results"]), ("blocked", []))
+        self.assertEqual(session.page.url, "about:blank")
+
+        session.page.url = "http://10.0.0.1/router"
+        observation = self.manager.observe("browser_t", owner_profile_id="alice", include_screenshot=False)
+        self.assertEqual(observation["url"], "about:blank")
+        self.assertIn("10.0.0.1", observation["navigation_refused"])
+
+    def test_computer_use_reports_a_refused_landing_clearly(self) -> None:
+        manager = Mock()
+        manager.open.return_value = (SimpleNamespace(session_id="browser_t"), False)
+        manager.execute.return_value = {"status": "ok", "action_results": [], "requires_confirmation": False}
+        manager.observe.return_value = {"url": "about:blank", "navigation_refused": "Stopped: refused"}
+        with patch.object(computer_use_skill, "_BROWSER_MANAGER", manager):
+            late = computer_use_skill.computer_use(
+                "Next page", session_id="browser_t", actions=[{"action": "back"}], dry_run=False
+            )
+            manager.open.side_effect = computer_use_skill.NavigationRefused("Stopped: redirected")
+            start = computer_use_skill.computer_use("Open", start_url="https://93.184.216.34/r", dry_run=False)
+
+        self.assertEqual((late["status"], late["error"]), ("blocked", "navigation_refused"))
+        self.assertEqual((start["status"], start["error"], start["summary"]), (
+            "blocked", "navigation_refused", "Stopped: redirected",
+        ))
 
 
 class PerTargetSerializationTests(unittest.TestCase):

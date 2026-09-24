@@ -169,6 +169,31 @@ def _validate_url(url: str) -> str:
     return parsed.geturl()
 
 
+# Blank tabs and Chromium's own error page: nothing was fetched for them.
+_BLANK_PAGE_URLS = frozenset({
+    "about:blank", "chrome://newtab/", "chrome://new-tab-page/", "chrome-error://chromewebdata/",
+})
+
+
+class NavigationRefused(ValueError):
+    """The browser reached an address the URL policy refuses and was taken off it."""
+
+
+def _landed_url_refusal(url: str) -> str | None:
+    """Why a page may not stay where it actually landed (None: it may).
+
+    ``_validate_url`` checks an address before navigating; a redirect, a link,
+    a history move or a new tab can still end somewhere it would refuse, so
+    the final address gets the same policy."""
+    if not url or url in _BLANK_PAGE_URLS:
+        return None
+    try:
+        _validate_url(url)
+    except ValueError as exc:
+        return f"Stopped: the browser was sent to an address Narad does not allow. {exc}"
+    return None
+
+
 def _upload_path(value: Any) -> Path:
     """A file the active profile may hand to a web form (never Narad's secrets)."""
     from host_access import path_access_error
@@ -537,16 +562,33 @@ class BrowserSessionManager:
     async def _navigate(self, page: Any, url: str, timeout_s: int) -> None:
         url = _validate_url(url)
         await page.goto(url, wait_until="domcontentloaded", timeout=min(timeout_s * 1000, 60_000))
-        try:
-            # A public URL may redirect to a private one; never show its content.
-            _validate_url(page.url)
-        except ValueError:
+        # A public URL may redirect to a private one; never show its content.
+        refusal = _landed_url_refusal(page.url)
+        if refusal:
             await page.goto("about:blank")
-            raise
+            raise NavigationRefused(refusal)
         try:
             await page.wait_for_load_state("networkidle", timeout=3_000)
         except Exception:
             pass
+
+    async def _leave_refused_pages(self, session: _BrowserSession) -> str | None:
+        """Take every tab off an address the URL policy refuses, before anything
+        reads it: close a refused popup, blank the last tab. Returns the refusal."""
+        refusal: str | None = None
+        for page in list(session.context.pages):
+            reason = _landed_url_refusal(page.url)
+            if reason is None:
+                continue
+            refusal = refusal or reason
+            if len(session.context.pages) > 1:
+                await page.close()
+            else:
+                await page.goto("about:blank")
+        if refusal:
+            session.page = session.context.pages[-1]
+            self._record(session, "navigation_refused", {"reason": refusal})
+        return refusal
 
     async def _open_async(
         self,
@@ -685,6 +727,8 @@ print(json.dumps(result, indent=2))
         *,
         include_screenshot: bool,
     ) -> dict[str, Any]:
+        # A late script or meta redirect can move the page after the last check.
+        refusal = await self._leave_refused_pages(session)
         page = session.page
         data = await page.evaluate(
             """({maxElements, maxText}) => {
@@ -744,7 +788,7 @@ print(json.dumps(result, indent=2))
                 {"path": str(screenshot_path), "url": page.url},
             )
         signals = _injection_signals(str(data.get("text", "")))
-        return {
+        observation = {
             "url": page.url,
             "title": await page.title(),
             "viewport": dict(_DEFAULT_VIEWPORT),
@@ -754,6 +798,9 @@ print(json.dumps(result, indent=2))
             "prompt_injection_signals": signals,
             "screenshot_path": str(screenshot_path) if screenshot_path else None,
         }
+        if refusal:
+            observation["navigation_refused"] = refusal
+        return observation
 
     def observe(
         self,
@@ -972,6 +1019,19 @@ print(json.dumps(result, indent=2))
                 raise KeyError(f"Unknown or expired browser session: {session_id}")
             if session.owner_profile_id != owner_profile_id:
                 raise PermissionError("This browser session belongs to another Narad profile")
+
+            def _refused(reason: str, results: list[dict[str, Any]]) -> dict[str, Any]:
+                return {
+                    "status": "blocked",
+                    "requires_confirmation": False,
+                    "reason": reason,
+                    "error": "navigation_refused",
+                    "action_results": results,
+                }
+
+            refusal = await self._leave_refused_pages(session)
+            if refusal:
+                return _refused(refusal, [])
             page_text = await session.page.evaluate("() => (document.body?.innerText || '').slice(0, 7000)")
             injection = _injection_signals(str(page_text))
             if injection and not confirmed and any(
@@ -1013,6 +1073,11 @@ print(json.dumps(result, indent=2))
                         }
                 try:
                     results.append(await self._execute_action(session, action, timeout_s))
+                    # A click, submit, key press or history move can navigate too.
+                    refusal = await self._leave_refused_pages(session)
+                except NavigationRefused as exc:
+                    refusal = str(exc)
+                    results.append({"action": action["action"], "status": "refused", "error": refusal})
                 except Exception as exc:
                     results.append({
                         "action": action["action"],
@@ -1020,6 +1085,12 @@ print(json.dumps(result, indent=2))
                         "error": f"{type(exc).__name__}: {exc}",
                     })
                     break
+                if refusal:
+                    if results[-1]["status"] == "ok":
+                        results[-1] = {
+                            **results[-1], "status": "refused", "error": refusal, "url": session.page.url,
+                        }
+                    return _refused(refusal, results)
             return {
                 "status": "ok" if all(item["status"] == "ok" for item in results) else "partial",
                 "requires_confirmation": False,
@@ -1683,6 +1754,38 @@ def _signed_action_requires_confirmation(
     )
 
 
+def _signed_navigation_refused(
+    *,
+    session_id: str,
+    task: str,
+    results: list[dict[str, Any]],
+    planned: list[dict[str, Any]],
+    created: bool,
+    owner_profile_id: str,
+) -> dict[str, Any]:
+    """The signed-in tab landed on a refused address; nothing was read from it."""
+    refused = next(item for item in results if item.get("status") == "refused")
+    summary = str(refused.get("error") or "Stopped: the browser reached an address Narad does not allow.")
+    summary += (
+        " The signed-in session was closed; start a new one to continue."
+        if refused.get("session_closed")
+        else " The browser went back to the previous page."
+    )
+    return _browser_envelope(
+        session_id=session_id,
+        task=task,
+        observation=None,
+        action_results=results,
+        planned_actions=planned,
+        status="blocked",
+        summary=summary,
+        error="navigation_refused",
+        session_created=created,
+        owner_profile_id=owner_profile_id,
+        engine="browser_skill",
+    )
+
+
 def _signed_browser_use(
     *,
     task: str,
@@ -1733,6 +1836,15 @@ def _signed_browser_use(
                 owner_profile_id=owner_profile_id,
                 timeout_s=timeout_s,
             )
+            if navigation and navigation[0].get("status") == "refused":
+                return _signed_navigation_refused(
+                    session_id=session.session_id,
+                    task=task,
+                    results=navigation,
+                    planned=actions,
+                    created=created,
+                    owner_profile_id=owner_profile_id,
+                )
             if not navigation or navigation[0].get("status") != "ok":
                 reason = navigation[0].get("error") if navigation else "navigation failed"
                 raise BrowserSkillError(str(reason))
@@ -1854,6 +1966,15 @@ def _signed_browser_use(
             owner_profile_id=owner_profile_id,
             timeout_s=timeout_s,
         ) if planned else []
+        if any(item.get("status") == "refused" for item in results):
+            return _signed_navigation_refused(
+                session_id=session.session_id,
+                task=task,
+                results=results,
+                planned=planned,
+                created=created,
+                owner_profile_id=owner_profile_id,
+            )
         observation = observe_browser_skill_session(
             session.session_id, owner_profile_id=owner_profile_id
         )
@@ -2082,6 +2203,11 @@ def computer_use(
             owner_profile_id=owner_profile_id,
             timeout_s=timeout_s,
         )
+        late_refusal = observation.get("navigation_refused")
+        if late_refusal and action_result["status"] not in {"confirmation_required", "blocked"}:
+            action_result = {
+                **action_result, "status": "blocked", "reason": late_refusal, "error": "navigation_refused",
+            }
         if action_result["status"] in {"confirmation_required", "blocked"}:
             return _browser_envelope(
                 session_id=session.session_id,
@@ -2092,6 +2218,7 @@ def computer_use(
                 status=action_result["status"],
                 summary=str(action_result.get("reason", "Action batch needs confirmation.")),
                 requires_confirmation=bool(action_result.get("requires_confirmation")),
+                error=action_result.get("error"),
                 session_created=created,
                 owner_profile_id=owner_profile_id,
             )
@@ -2115,6 +2242,20 @@ def computer_use(
         return envelope(status="error", summary=str(exc), error="browser_session_not_found")
     except PermissionError as exc:
         return envelope(status="blocked", summary=str(exc), error="browser_session_forbidden")
+    except NavigationRefused as exc:
+        # The start URL redirected somewhere refused: the page was blanked, and a
+        # session opened for it was closed.
+        return envelope(
+            status="blocked",
+            summary=str(exc),
+            error="navigation_refused",
+            provenance={
+                "engine": "playwright",
+                "session_id": resolved_session_id,
+                "profile_id": owner_profile_id,
+            },
+            session_id=resolved_session_id,
+        )
     except Exception as exc:
         return envelope(
             status="error",

@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from computer_use_skill import _upload_path, _validate_url
+from computer_use_skill import _landed_url_refusal, _upload_path, _validate_url
 
 from narad_config import ARTIFACTS_DIR
 from profile_context import current_profile_id, validate_profile_id
@@ -355,6 +355,24 @@ def _command_for_action(
     raise ValueError(f"BrowserSkill does not support action {kind!r}")
 
 
+def _leave_refused_page(session: BrowserSkillSession) -> bool:
+    """Go back from a page the URL policy refuses. If that does not land on an
+    allowed page, stop the session so nothing reads the tab. True: still open."""
+    try:
+        payload = _run(["navigate-back", "--session", session.bsk_session_id], timeout_s=20)
+        back_url = str(payload.get("final_url") or "") if isinstance(payload, dict) else ""
+        if back_url and _landed_url_refusal(back_url) is None:
+            session.last_url = back_url
+            return True
+    except BrowserSkillError:
+        pass
+    try:
+        close_browser_skill_session(session.session_id, owner_profile_id=session.owner_profile_id)
+    except (BrowserSkillError, KeyError, PermissionError):
+        pass
+    return False
+
+
 def execute_browser_skill_actions(
     session_id: str,
     actions: list[dict[str, Any]],
@@ -374,6 +392,19 @@ def execute_browser_skill_actions(
                 effect_state = str(payload.get("effect_state") or effect_state)
                 # Redirects settle on final_url; history moves report only final_url.
                 final_url = str(payload.get("final_url") or "")
+                # The URL was checked before navigating; where it landed gets
+                # the same policy (a redirect, link or history move).
+                refusal = _landed_url_refusal(final_url)
+                if refusal:
+                    results.append({
+                        "index": index,
+                        "action": action["action"],
+                        "status": "refused",
+                        "effect_state": effect_state,
+                        "error": refusal,
+                        "session_closed": not _leave_refused_page(session),
+                    })
+                    break
                 if action["action"] == "navigate":
                     session.last_url = final_url or str(payload.get("url") or action.get("url") or "")
                 elif final_url:
