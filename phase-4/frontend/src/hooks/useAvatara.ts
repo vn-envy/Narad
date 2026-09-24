@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { toast } from 'sonner'
 import { apiPath, apiUrl, apiFetch } from '@/lib/api'
+import { emitDocumentReview } from '@/lib/document-review'
 
 export type AvatarName = 'Matsya' | 'Rama' | 'Krishna' | 'Parashurama'
 
@@ -1253,6 +1254,12 @@ export function useAvatara(userId = 'default') {
 
             case 'workflow_updated': {
               emitWorkflowRuntimeEvent(evt.type, evt.data)
+              break
+            }
+
+            case 'document_review': {
+              // extract_fields made a review; the chat shows a card for it.
+              emitDocumentReview(evt.data)
               break
             }
 
