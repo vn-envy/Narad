@@ -31,7 +31,9 @@ log = logging.getLogger("narad.pilot_metrics")
 
 # Bump when docs/PILOT_CONSENT_AND_METRICS.md changes what is stored or shared;
 # everyone is asked to accept the new version.
-CONSENT_VERSION = "2026-09-24"
+CONSENT_VERSION = "2026-09-24.2"
+CONSENT_DOCUMENT = "docs/PILOT_CONSENT_AND_METRICS.md"
+CONSENT_LANGUAGES = ("en", "hi")
 
 OUTCOMES = ("answered", "error", "stopped")
 RATINGS = ("up", "down")
@@ -61,8 +63,9 @@ _APPROVAL_PREVIEW = re.compile(
     r"'status':\s*'(?:preview|confirmation_required)'|'requires_confirmation':\s*True"
 )
 
-# Egress ledger sources that belong to a chat turn; background learners
-# (tapas, sankalpa, guru, scheduler) are reported separately.
+# Egress ledger rows carry the turn_id of the chat turn that made them
+# (privacy_gateway.set_turn_id). Older rows have none; for those, the turn's
+# time window and these sources stand in (background learners are excluded).
 _TURN_EGRESS_SOURCES = frozenset({"agent", "memory"})
 
 _TOKEN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:+-]{0,63}$")
@@ -174,10 +177,12 @@ class TurnRecorder:
         workflow_run_id: str | None = None,
         attachments: int = 0,
         images: int = 0,
+        turn_id: str | None = None,
         clock: Callable[[], float] = time.monotonic,
         wall: Callable[[], float] = time.time,
     ) -> None:
-        self.turn_id = uuid.uuid4().hex[:16]
+        # /chat passes the id it stamps on the turn's egress rows.
+        self.turn_id = turn_id or uuid.uuid4().hex[:16]
         self.profile_id = profile_id
         self.session_id = session_id
         self._clock = clock
@@ -308,7 +313,7 @@ class TurnRecorder:
         done_ms = self.done_ms if self.done_ms is not None else self._elapsed_ms()
         ended_at = self.started_at + done_ms / 1000
         outcome, reason = self.outcome(cancelled=cancelled, crashed=crashed)
-        egress = turn_egress(self.profile_id, self.started_at, ended_at)
+        egress = turn_egress(self.profile_id, self.started_at, ended_at, turn_id=self.turn_id)
         record = {
             "v": 1,
             "t": round(ended_at, 3),
@@ -371,13 +376,18 @@ class TurnQueue(asyncio.Queue):
             log.warning("pilot metrics turn record failed: %s", exc)
 
 
-def turn_egress(profile_id: str, started: float, ended: float) -> dict[str, int]:
-    """Cloud calls this profile made while the turn ran, by trust tier.
+def turn_egress(
+    profile_id: str, started: float, ended: float, *, turn_id: str | None = None
+) -> dict[str, int]:
+    """Cloud calls one chat turn made, by trust tier (`web`: search engines and sites).
 
-    Read from the tail of the profile's privacy egress ledger. Approximate when
-    one profile runs two turns at once; background learners are excluded.
+    Read from the tail of the profile's privacy egress ledger. A row stamped
+    with a turn_id counts exactly when it is this turn's, whatever its source.
+    A row without one (written before turn stamping) counts when it falls in
+    the turn's time window and came from the chat run itself; that fallback
+    is approximate when one profile runs two turns at once.
     """
-    counts = {"trusted": 0, "redact": 0, "blocked": 0, "cloud_llm_calls": 0}
+    counts = {"trusted": 0, "redact": 0, "web": 0, "blocked": 0, "cloud_llm_calls": 0}
     path = _profile_dir(profile_id) / "privacy" / "egress.jsonl"
     try:
         with path.open("rb") as handle:
@@ -397,13 +407,17 @@ def turn_egress(profile_id: str, started: float, ended: float) -> dict[str, int]
             continue
         if stamp < started - 1:
             break
-        if stamp > ended + 1 or row.get("source") not in _TURN_EGRESS_SOURCES:
+        stamped = row.get("turn_id")
+        if stamped:
+            if stamped != turn_id:
+                continue
+        elif stamp > ended + 1 or row.get("source") not in _TURN_EGRESS_SOURCES:
             continue
         if row.get("blocked"):
             counts["blocked"] += 1
             continue
         tier = row.get("tier")
-        if tier in ("trusted", "redact"):
+        if tier in ("trusted", "redact", "web"):
             counts[tier] += 1
             if row.get("source") == "agent":
                 counts["cloud_llm_calls"] += 1
@@ -417,6 +431,7 @@ def start_turn(
     workflow_run_id: str | None = None,
     attachments: int = 0,
     images: int = 0,
+    turn_id: str | None = None,
 ) -> TurnQueue:
     return TurnQueue(TurnRecorder(
         profile_id=profile_id,
@@ -424,6 +439,7 @@ def start_turn(
         workflow_run_id=workflow_run_id,
         attachments=attachments,
         images=images,
+        turn_id=turn_id,
     ))
 
 
@@ -497,7 +513,18 @@ def record_voice(
         log.debug("voice metric not recorded: %s", exc)
 
 
+def _is_owner(profile_id: str) -> bool:
+    try:
+        from family_profiles import get_profile
+
+        return bool((get_profile(profile_id) or {}).get("is_owner"))
+    except Exception:
+        return False
+
+
 def consent_status(profile_id: str) -> dict[str, Any]:
+    """The person's decision on the current sheet. The owner, who runs the pilot
+    and signs the owner's promise, is always considered consented."""
     path = _profile_dir(profile_id) / "consent.json"
     try:
         stored = json.loads(path.read_text(encoding="utf-8"))
@@ -505,15 +532,39 @@ def consent_status(profile_id: str) -> dict[str, Any]:
         stored = {}
     stored = stored if isinstance(stored, dict) else {}
     accepted = bool(stored.get("accepted")) and stored.get("version") == CONSENT_VERSION
+    owner = _is_owner(profile_id)
     return {
         "profile": profile_id,
         "current_version": CONSENT_VERSION,
         "version": stored.get("version"),
         "accepted": bool(stored.get("accepted")),
         "decided_at": stored.get("decided_at"),
-        "needs_consent": not accepted,
-        "document": "docs/PILOT_CONSENT_AND_METRICS.md",
+        "owner": owner,
+        "needs_consent": not (accepted or owner),
+        "document": CONSENT_DOCUMENT,
     }
+
+
+# The consent screen shows Part A straight from the document, so the sheet
+# people sign on paper and the one they accept in the app are the same text.
+# Each language's screen text sits between <!-- consent-screen:<lang> --> and
+# <!-- /consent-screen:<lang> -->; <!-- print-only --> blocks (signature
+# lines, blanks the owner fills in by hand) are left out.
+def consent_sheet(lang: str = "en") -> str:
+    """Part A of the consent document in *lang* as Markdown ('' if missing)."""
+    if lang not in CONSENT_LANGUAGES:
+        lang = "en"
+    try:
+        text = (Path(__file__).resolve().parent / CONSENT_DOCUMENT).read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    match = re.search(
+        rf"<!-- consent-screen:{lang} -->(.*?)<!-- /consent-screen:{lang} -->", text, re.S
+    )
+    if not match:
+        return ""
+    sheet = re.sub(r"<!-- print-only -->.*?<!-- /print-only -->", "", match.group(1), flags=re.S)
+    return re.sub(r"\n{3,}", "\n\n", sheet).strip()
 
 
 def record_consent(profile_id: str, *, version: str, accepted: bool) -> dict[str, Any]:
@@ -698,10 +749,11 @@ def profile_summary(profile_id: str, *, days: int = 7, now: float | None = None,
         "turn_egress": {
             "turns_all_local": sum(
                 1 for t in turns
-                if not any((t.get("egress") or {}).get(k) for k in ("trusted", "redact"))
+                if not any((t.get("egress") or {}).get(k) for k in ("trusted", "redact", "web"))
             ),
             "trusted": sum(int((t.get("egress") or {}).get("trusted") or 0) for t in turns),
             "redact": sum(int((t.get("egress") or {}).get("redact") or 0) for t in turns),
+            "web": sum(int((t.get("egress") or {}).get("web") or 0) for t in turns),
             "blocked": sum(int((t.get("egress") or {}).get("blocked") or 0) for t in turns),
         },
         "egress": egress_summary(profile_id, since=since),

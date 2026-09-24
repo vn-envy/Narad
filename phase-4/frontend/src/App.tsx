@@ -6,6 +6,7 @@ import { ChatPanel }            from './components/ChatPanel'
 import { AwarenessBar }         from './components/AwarenessBar'
 import { FamilyProfileGate }    from './components/FamilyProfileGate'
 import { HostOfflineBanner, HostOfflineScreen } from './components/HostOffline'
+import { ConsentGate }          from './components/ConsentGate'
 import { OnboardingFlow }       from './components/OnboardingFlow'
 import { HostUnreachableError, isUnreachableStatus } from './lib/host-status'
 import { disablePush, fetchInbox, setAppBadge, syncPushSubscription } from './lib/notifications'
@@ -140,24 +141,23 @@ export default function App() {
     return <FamilyProfileGate onAuthenticated={setActiveProfileSession} />
   }
 
+  const switchProfile = () => {
+    // Someone else may use this phone next: it stops getting this
+    // profile's notifications (quickly, even if the Mac is slow to answer).
+    const signedOut = profileSession.profile.user_id
+    const forget = Promise.race([
+      disablePush(signedOut).catch(() => undefined),
+      new Promise(resolve => window.setTimeout(resolve, 1500)),
+    ])
+    void forget.finally(() => {
+      clearProfileSession()
+      setActiveProfileSession(null)
+    })
+  }
   return (
-    <NaradSession
-      key={profileSession.profile.user_id}
-      profile={profileSession.profile}
-      onSwitchProfile={() => {
-        // Someone else may use this phone next: it stops getting this
-        // profile's notifications (quickly, even if the Mac is slow to answer).
-        const signedOut = profileSession.profile.user_id
-        const forget = Promise.race([
-          disablePush(signedOut).catch(() => undefined),
-          new Promise(resolve => window.setTimeout(resolve, 1500)),
-        ])
-        void forget.finally(() => {
-          clearProfileSession()
-          setActiveProfileSession(null)
-        })
-      }}
-    />
+    <ConsentGate key={profileSession.profile.user_id} profile={profileSession.profile} onSwitchProfile={switchProfile}>
+      <NaradSession profile={profileSession.profile} onSwitchProfile={switchProfile} />
+    </ConsentGate>
   )
 }
 

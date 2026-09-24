@@ -16,6 +16,7 @@ import { MahatiLogo } from './MahatiLogo'
 import { ZigzagBank } from './Motifs'
 import { GuruMessage } from './GuruCards'
 import { ApprovalCard, type ApprovalChange } from './ApprovalCard'
+import { MessageFooter } from './MessageFooter'
 import { cn } from '@/lib/utils'
 import {
   Archive,
@@ -905,6 +906,7 @@ export function ChatPanel({
                     avatarLatencies={msg.avatarLatencies}
                   />
                 )}
+                {msg.role === 'assistant' && <MessageFooter message={msg} userId={userId} />}
               </div>
             </div>
           )
