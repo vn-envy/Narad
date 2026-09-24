@@ -49,6 +49,7 @@ from runtime_contract import (
 from text_stream import DeltaStream, visible_text
 
 import privacy_gateway
+import workflow_evidence as _workflow_evidence
 
 # Context var holding the SSE queue for the current request. server.py sets this
 # before the outer agent runs; _make_avatar_tool reads it to emit step events live.
@@ -786,6 +787,11 @@ def _make_avatar_tool(agent: LlmAgent, user_id: str = "default") -> FunctionTool
                                     except Exception:
                                         _response_obj = {"result": str(_response_obj)}
                                 _result_preview = _preview_result(_response_obj)
+                                # A turn bound to a path keeps this real result as
+                                # stage evidence (never what the model says about it).
+                                _workflow_evidence.record_tool_result(
+                                    part.function_response.name, _response_obj
+                                )
                                 if _is_tool_envelope(_response_obj):
                                     _collected_artifacts.extend(
                                         item
@@ -1307,6 +1313,9 @@ from web_enrichment_skill import enrich_web_research as _enrich_web_research
 from web_enrichment_skill import exa_contents as _exa_contents
 from web_enrichment_skill import exa_search as _exa_search
 from web_enrichment_skill import firecrawl_extract as _firecrawl_extract
+
+from workflow_tools import report_stage_result as _report_stage_result  # noqa: E402
+from workflow_tools import track_application as _track_application  # noqa: E402
 
 _browse_url.__name__ = "browse_url"
 
@@ -1846,6 +1855,7 @@ matsya = LlmAgent(
     before_agent_callback=_reset_matsya_retrieval_budget,
     before_tool_callback=_guard_matsya_retrieval,
     tools=[
+        FunctionTool(_report_stage_result),
         FunctionTool(_web_search),
         FunctionTool(_browse_url),
         FunctionTool(_http_request),
@@ -2054,6 +2064,16 @@ For trend queries ("how have my headaches been", "am I getting worse"):
 
 NOTE: NEVER diagnose. Health DATA logging → here (Rama). Health GUIDANCE + TRIAGE → Krishna.
 
+━━━ PATHS ━━━
+
+In a turn that starts with [NARAD WORKFLOW CONTEXT], work only the current stage and end with
+report_stage_result (the context lists the finish line and the fields to report).
+track_application(company, role, status, link, next_step, date) — the Career path's tracker:
+  one call per shortlisted role, and again whenever an application's status changes.
+extract_fields(path, "bank_statement" | "lab_report") — a photo or PDF attached in this chat;
+  its values are saved only after the person confirms them on the review screen, so never say
+  they are saved. A bank CSV → import_csv.
+
 ━━━ FINANCIAL DECISION ANALYSIS ━━━
 
 Activate for: "should I take this job at lower salary", "is it worth subscribing to X",
@@ -2085,6 +2105,9 @@ rama = LlmAgent(
     ),
     instruction=_RAMA_PROMPT + _FORMAT_RULES,
     tools=[
+        FunctionTool(_report_stage_result),
+        FunctionTool(_track_application),
+        FunctionTool(_extract_fields),
         FunctionTool(_search_google_mail),
         FunctionTool(_search_google_drive),
         FunctionTool(_upload_google_drive),
@@ -2427,6 +2450,7 @@ krishna = LlmAgent(
     ),
     instruction=_KRISHNA_PROMPT + _FORMAT_RULES,
     tools=[
+        FunctionTool(_report_stage_result),
         FunctionTool(_compose_email),
         FunctionTool(_send_email),
         FunctionTool(_search_google_mail),
@@ -2779,6 +2803,7 @@ parashurama = LlmAgent(
     ),
     instruction=_PARASHURAMA_PROMPT + _FORMAT_RULES,
     tools=[
+        FunctionTool(_report_stage_result),
         FunctionTool(_read_file),
         FunctionTool(_write_script),
         FunctionTool(_run_shell),

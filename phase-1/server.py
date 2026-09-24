@@ -279,6 +279,7 @@ from model_config import AVATAR_MODELS, refresh_avatar_models
 from prerouter import PreRoute, TurnFacts
 from prerouter import enabled as _prerouter_enabled
 from prerouter import route_turn as _preroute_turn
+from prerouter import suggest_path as _suggest_path
 from runtime_contract import (
     agent_contract_map as _agent_contract_map,
 )
@@ -295,6 +296,7 @@ from runtime_contract import (
 from text_stream import DeltaStream, ThinkingFilter, visible_text
 from yantra import Tracer
 
+import workflow_evidence as _workflow_evidence
 from conversation_memory import (
     append_turn as _append_thread_turn,
 )
@@ -1688,18 +1690,75 @@ def _workflow_context_for_turn(req: ChatRequest, session_id: str) -> str:
 
     A stale client can still send the workflow_run_id of a path bound to
     another chat thread. That turn must neither see the path's context nor
-    advance its stage, so the id is dropped for the rest of the turn.
+    advance its stage, so the id is dropped for the rest of the turn. A turn
+    that names no path gets the open path bound to its thread, if any: a path
+    started from a chat card continues on every device without the client
+    tracking it.
     """
+    from workflow_engine import WorkflowSessionMismatch, bound_run_for_session, build_workflow_context
+
+    if not req.workflow_run_id:
+        req.workflow_run_id = bound_run_for_session(req.user_id, session_id)
     if not req.workflow_run_id:
         return ""
-    from workflow_engine import WorkflowSessionMismatch, build_workflow_context
-
     try:
         return build_workflow_context(req.workflow_run_id, user_id=req.user_id, session_id=session_id)
     except WorkflowSessionMismatch as exc:
         logging.getLogger("narad.server").warning("Workflow context skipped: %s", exc)
         req.workflow_run_id = None
         return ""
+
+
+def _path_offer_for_turn(
+    req: ChatRequest,
+    session_id: str,
+    attachments: list[dict[str, Any]],
+    working_state: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """The `path_suggestion` card for this turn, or None.
+
+    At most one offer per path per thread (a "Not now" is not asked again),
+    only for a path that can run here, and "resume" when the person already
+    has that path open. Starting or resuming is the person's tap, never ours.
+    """
+    import workflow_engine
+
+    match = _suggest_path(TurnFacts(query=req.query, attachments=attachments))
+    if match is None or match.workflow_id in ((working_state or {}).get("path_offers") or []):
+        return None
+    pack = workflow_engine.get_pack(match.workflow_id)
+    if not pack or workflow_engine._pack_readiness(pack)["status"] == "unavailable":
+        return None
+    offer: dict[str, Any] = {
+        "workflow_id": pack["id"],
+        "title": pack["title"],
+        "eyebrow": pack.get("eyebrow", ""),
+        "accent": pack.get("accent", ""),
+        "session_id": session_id,
+        "reason": match.reason,
+        "phrase": match.phrase,
+        "action": "start",
+    }
+    open_run = next(
+        (run for run in workflow_engine.list_workflow_runs(user_id=req.user_id, workflow_id=pack["id"], limit=10)
+         if run.status not in {"completed", "cancelled"}),
+        None,
+    )
+    if open_run:
+        stage = workflow_engine._stage(pack, open_run.current_stage_id) or {}
+        offer.update({
+            "action": "resume",
+            "run_id": open_run.run_id,
+            "run_title": open_run.title,
+            "stage_title": stage.get("title", ""),
+            "progress_percent": workflow_engine.workflow_run_payload(open_run, include_history=False)["progress_percent"],
+        })
+    else:
+        prefill = workflow_engine.intake_prefill(pack["id"], user_id=req.user_id)["values"]
+        offer["first_questions"] = [
+            item["question"] for item in workflow_engine.intake_questions(pack, prefill)
+        ]
+    return offer
 
 
 async def _run_agent_task(
@@ -1728,7 +1787,8 @@ async def _run_agent_task(
     learning_workspace: dict[str, Any] | None = None
     learning_artifact_request: tuple[str, str] | None = None
     workflow_context = ""
-    workflow_tool_artifacts: list[dict[str, Any]] = []
+    workflow_turn_token = None
+    path_offer: dict[str, Any] | None = None
     workflow_tool_citations: list[dict[str, Any]] = []
     attachment_context = ""
     attachment_history: list[dict[str, Any]] = []
@@ -1797,6 +1857,11 @@ async def _run_agent_task(
         if workflow_context:
             working_context = "\n\n".join(
                 block for block in [workflow_context, working_context] if block.strip()
+            )
+            # Tool results of this turn become the stage's evidence (and the
+            # avatars' report_stage_result knows which run it reports on).
+            workflow_turn_token = _workflow_evidence.bind_turn(
+                req.workflow_run_id, user_id=req.user_id, session_id=session_id
             )
         learning_artifact_offer_pending = bool(
             restored_working_state.get("learning_artifact_offer_pending")
@@ -2158,6 +2223,16 @@ async def _run_agent_task(
                 check_answer=guru_verdict is not None,
             ))
 
+        # Intent → path: a message that looks like one of the six paths gets a
+        # card offering to start or resume it in this thread. Never auto-started.
+        if not req.workflow_run_id and not learning_workspace_id and guru_verdict is None:
+            try:
+                path_offer = await asyncio.to_thread(
+                    _path_offer_for_turn, req, session_id, attachment_history, restored_working_state
+                )
+            except Exception as exc:
+                logging.getLogger("narad.server").debug("Path offer skipped: %s", exc)
+
         # Jev shadows the existing supervisor concurrently. It records what a
         # fast typed router would have chosen without delaying or overriding
         # the production route; confidence thresholds can be calibrated from
@@ -2424,6 +2499,14 @@ async def _run_agent_task(
         if workflow_context:
             effective_query = f"{workflow_context}\n\nUser request for this stage:\n{effective_query}"
             avatar_task = f"{workflow_context}\n\nUser request for this stage:\n{avatar_task}"
+        elif path_offer:
+            offer_line = (
+                f"[PATH OFFER] The app shows a card below your answer offering to "
+                f"{path_offer['action']} the {path_offer['title']} path for this. Answer the request as usual; "
+                "one short closing sentence may point to the card. Never say a path has started."
+            )
+            effective_query = f"{offer_line}\n\n{effective_query}"
+            avatar_task = f"{offer_line}\n\n{avatar_task}"
 
         # ── G6.2: deliver the Gurukul packet to the model ─────────────────────
         # working_context only informs token budgeting (choose_model_and_plan);
@@ -2576,23 +2659,17 @@ async def _run_agent_task(
                                 workspace_id=learning_workspace_id,
                                 resources=citations,
                             )
+                    # Artifacts reach a path stage as tool receipts (verified on
+                    # disk); citations are kept with the stage as they are.
                     if payload.get("type") == "tool_ui":
                         tool_payload = payload.get("data", {}).get("payload", {})
-                        artifacts = tool_payload.get("artifacts", []) if isinstance(tool_payload, dict) else []
                         citations = tool_payload.get("citations", []) if isinstance(tool_payload, dict) else []
-                        if isinstance(artifacts, list):
-                            workflow_tool_artifacts.extend(item for item in artifacts if isinstance(item, dict))
                         if isinstance(citations, list):
                             workflow_tool_citations.extend(item for item in citations if isinstance(item, dict))
                     if payload.get("type") == "avatar_done":
                         avatar_result = payload.get("data", {}).get("result", {})
                         if isinstance(avatar_result, dict):
-                            artifacts = avatar_result.get("artifacts", [])
                             citations = avatar_result.get("citations", [])
-                            if isinstance(artifacts, list):
-                                workflow_tool_artifacts.extend(
-                                    item for item in artifacts if isinstance(item, dict)
-                                )
                             if isinstance(citations, list):
                                 workflow_tool_citations.extend(
                                     item for item in citations if isinstance(item, dict)
@@ -2664,20 +2741,23 @@ async def _run_agent_task(
         learning_artifact_offer_pending = _learning_artifact_offer_pending(narad_response_text)
 
         workflow_payload: dict[str, Any] | None = None
-        if req.workflow_run_id and narad_response_text.strip():
+        if req.workflow_run_id and workflow_context:
             try:
                 from workflow_engine import record_chat_stage_result as _record_workflow_result
                 from workflow_engine import workflow_run_payload as _workflow_run_payload
 
-                # Off the loop: a step that needs approval also notifies (Vahana file I/O).
+                # The reply's text never completes a stage: the turn's tool
+                # receipts become evidence and the stage owner's
+                # report_stage_result (already applied) is what can finish it.
+                turn_evidence = _workflow_evidence.current_turn()
                 workflow_run = await asyncio.to_thread(
                     _record_workflow_result,
                     req.workflow_run_id,
                     user_id=req.user_id,
                     session_id=session_id,
-                    response_text=narad_response_text,
-                    artifacts=workflow_tool_artifacts,
                     citations=workflow_tool_citations,
+                    receipts=list(turn_evidence.receipts) if turn_evidence else [],
+                    reported=bool(turn_evidence and turn_evidence.reported),
                 )
                 workflow_payload = _workflow_run_payload(workflow_run, include_history=False)
                 await queue.put(json.dumps({
@@ -2712,6 +2792,9 @@ async def _run_agent_task(
                 )
 
         tracer.session_done()
+        if path_offer:
+            # A card under the answer: Start / Not now. Nothing starts without the tap.
+            await queue.put(json.dumps({"type": "path_suggestion", "data": path_offer}))
         receipt_meta = await _turn_privacy_receipt(queue)
         _append_thread_turn(
             user_id=req.user_id,
@@ -2789,6 +2872,11 @@ async def _run_agent_task(
                 ),
                 "active_artifact": active_artifact_session or (restored_working_state or {}).get("active_artifact"),
                 "workflow_run_id": req.workflow_run_id or (restored_working_state or {}).get("workflow_run_id"),
+                # One path offer per path per thread: a "Not now" is not asked again.
+                "path_offers": list(dict.fromkeys([
+                    *((restored_working_state or {}).get("path_offers") or []),
+                    *([path_offer["workflow_id"]] if path_offer else []),
+                ]))[-6:],
                 "runtime_epoch_id": runtime_epoch.epoch_id,
                 "runtime_epoch_model": selected_model,
                 "runtime_epoch_turn_count": runtime_epoch.turn_count,
@@ -2834,6 +2922,8 @@ async def _run_agent_task(
     finally:
         if caffeinate is not None:
             caffeinate.terminate()
+        if workflow_turn_token is not None:
+            _workflow_evidence.unbind_turn(workflow_turn_token)
         await queue.put(None)  # sentinel — signals _drain_queue to stop
         _active_tasks.pop((req.user_id, session_id), None)
 

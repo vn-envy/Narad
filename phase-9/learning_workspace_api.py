@@ -136,8 +136,8 @@ def _sync_guided_checkpoint(run_id: Optional[str], result: dict, *, user_id: str
     if not run_id:
         return None
     from workflow_engine import (
-        complete_current_stage,
         get_workflow_run,
+        record_guided_progress,
         record_workflow_checkpoint,
     )
 
@@ -156,36 +156,26 @@ def _sync_guided_checkpoint(run_id: Optional[str], result: dict, *, user_id: str
         "feedback": grade.get("feedback"),
         "progress": progress,
     }
-    if run.current_stage_id == "diagnostic" and action in {"answer", "skip"}:
-        run = complete_current_stage(
-            run_id,
-            summary="Initial understanding checked; the paced lesson is now underway.",
-            output=details,
-        )
-    else:
-        run = record_workflow_checkpoint(
-            run_id,
-            summary=f"Guided learning checkpoint: {action}.",
-            details=details,
-            event_type="guided_learning_checkpoint",
-        )
+    # The graded answer (or skip) is the evidence: the Teach stages' done_when
+    # accepts the guided loop's events, so the engine decides what finishes.
+    run = record_workflow_checkpoint(
+        run_id,
+        summary=f"Guided learning checkpoint: {action}.",
+        details=details,
+        event_type="guided_learning_checkpoint",
+    )
+    if action in {"answer", "skip"}:
+        run = record_guided_progress(run_id, user_id=user_id, event=action, details=details)
 
     step = result.get("step") if isinstance(result.get("step"), dict) else {}
     if step.get("kind") == "complete":
-        completion_summaries = {
-            "lesson": "The paced lesson sequence was completed.",
-            "check": "Understanding checks were completed across the syllabus.",
-            "reinforce": "Misconceptions were reinforced during the guided loop.",
-            "review": "Mastery was recorded and the next spaced review is scheduled.",
-        }
         for _ in range(8):
             if not run or run.status == "completed" or not run.current_stage_id:
                 break
-            run = complete_current_stage(
-                run_id,
-                summary=completion_summaries.get(run.current_stage_id, "Teaching stage completed."),
-                output={"source": "guided_teach", "progress": progress},
-            )
+            before = run.current_stage_id
+            run = record_guided_progress(run_id, user_id=user_id, event="complete", details={"progress": progress})
+            if run.current_stage_id == before:
+                break
     return run
 
 

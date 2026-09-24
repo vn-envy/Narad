@@ -52,6 +52,7 @@ import risk_policy
 import smriti_core
 import vahana
 import workflow_engine
+import workflow_evidence
 from profile_context import profile_scope
 
 _ALLOWED = SimpleNamespace(allowed=True, reasons=[])
@@ -773,12 +774,14 @@ def test_reject_and_edit_over_http(family, gmail) -> None:
 def test_a_path_step_is_approved_through_its_proposal(family, monkeypatch) -> None:
     monkeypatch.setattr(workflow_engine, "WORKFLOW_DB", profile_context.PROFILES_DIR.parent / "workflows.db")
     monkeypatch.setattr(workflow_engine, "_capability_flags", lambda: {"planning": True, "search": True, "computer": True})
+    monkeypatch.setattr(workflow_evidence, "ARTIFACTS_DIR", profile_context.PROFILES_DIR.parent / "artifacts")
+    import path_fixtures  # stages finish only on evidence: walk them with real receipts and files
+
     run = workflow_engine.start_workflow_run(
         "career", user_id="asha",
         inputs={"target_role": "Analyst", "locations": "Pune", "experience": "Five years", "timezone": "Asia/Kolkata"},
     )
-    for _stage in ("market_scan", "shortlist", "tailor"):
-        run = workflow_engine.complete_current_stage(run.run_id, summary="done")
+    run = path_fixtures.walk(run, until="apply")
     run = workflow_engine.request_stage_confirmation(run.run_id, summary="Submit application to Example Co")
     proposal_id = run.state["confirmation"]["proposal_id"]
 

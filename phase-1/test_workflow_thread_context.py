@@ -91,7 +91,16 @@ def test_chat_turn_from_another_thread_drops_the_stale_workflow_id() -> None:
     assert run.run_id in context
     assert bound.workflow_run_id == run.run_id
 
-    assert server._workflow_context_for_turn(server.ChatRequest(query="hi", user_id="asha"), "thread-a") == ""
+    # A turn that names no path gets the open path bound to its own thread (the
+    # server keeps the binding, so every device continues it) and nothing elsewhere.
+    unnamed = server.ChatRequest(query="and the next one?", user_id="asha")
+    assert run.run_id in server._workflow_context_for_turn(unnamed, "thread-a")
+    assert unnamed.workflow_run_id == run.run_id
+    elsewhere = server.ChatRequest(query="hi", user_id="asha")
+    assert server._workflow_context_for_turn(elsewhere, "thread-c") == ""
+    assert elsewhere.workflow_run_id is None
+    # Another profile's thread of the same name never reaches Asha's path.
+    assert server._workflow_context_for_turn(server.ChatRequest(query="hi", user_id="bob"), "thread-a") == ""
 
 
 def test_another_profiles_run_still_fails_loudly() -> None:

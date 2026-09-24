@@ -2,7 +2,9 @@
 """Exercise one real model turn inside a durable Narad workflow.
 
 The default case stops before any confirmation-gated browser action. It is
-safe to run against a developer server with synthetic inputs.
+safe to run against a developer server with synthetic inputs. The market scan
+passes only if a live search really ran and Matsya reported the stage done
+with its roles (report_stage_result); a confident reply alone does not.
 """
 
 from __future__ import annotations
@@ -111,6 +113,9 @@ def main() -> int:
             None,
         ),
         "citation_count": len(run.get("state", {}).get("citations", [])),
+        # The stage advances only on evidence plus Matsya's report_stage_result;
+        # when it did not, this says which part of the finish line is missing.
+        "still_missing": (run.get("next_action") or {}).get("missing", []),
     }
     print(json.dumps(report, indent=2))
 

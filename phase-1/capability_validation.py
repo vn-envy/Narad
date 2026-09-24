@@ -68,13 +68,13 @@ _TOOL_FAMILIES = {
 
 _WORKFLOW_GAPS: dict[str, list[str]] = {
     "career": [
-        "Application tracking uses durable project tasks but has no ATS-specific application record yet.",
+        "The application tracker is Narad's own (track_application); it does not sync with job boards.",
     ],
     "health": [
         "Daily adherence, sleep, energy, and activity still lack one structured tracker schema.",
     ],
     "travel": [
-        "Browser booking is available, but price normalization and reservation records are not dedicated tools.",
+        "The price watch records a Kriya task's answer as text; fares are not normalised into records yet.",
     ],
     "teach": [
         "Grounded resource refresh is available through Matsya but is not yet a first-class stage in every lesson run.",
