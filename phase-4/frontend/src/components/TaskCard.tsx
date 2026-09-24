@@ -147,15 +147,12 @@ function useLiveFrame(taskId: string, on: boolean, everyMs: number): string | nu
 
 function StatusChip({ task }: { task: KriyaTask }) {
   return (
-    <span className="inline-flex items-center gap-1.5">
-      <span
-        className="text-chip px-2 py-1 rounded organic-border inline-flex items-center gap-1.5 uppercase"
-        style={{ color: 'var(--sindoor)', borderColor: 'rgba(var(--rgb-sindoor), 0.30)', background: 'rgba(var(--rgb-sindoor), 0.07)' }}
-      >
-        <Globe size={13} />
+    <span className="inline-flex items-center gap-2">
+      <span className="n-chip">
+        <Globe size={14} aria-hidden="true" />
         Task
       </span>
-      <span className="font-mono text-[10px] uppercase tracking-wider" style={{ color: accentFor(task) }}>
+      <span className="n-status" style={{ color: accentFor(task) }}>
         {TASK_STATUS_LABELS[task.status] ?? task.status}
       </span>
     </span>
@@ -167,8 +164,8 @@ function Detail({ task }: { task: KriyaTask }) {
   const text = isTaskActive(task) ? task.detail : task.result?.summary || task.detail
   if (!text) return null
   return (
-    <p className="flex items-start gap-2 text-[13px] leading-snug break-words" style={{ color: 'var(--ink-70)' }} aria-live="polite">
-      {working && <Loader size={13} className="animate-spin shrink-0 mt-[3px]" />}
+    <p className="flex items-start gap-2 text-[14.5px] leading-snug break-words" style={{ color: 'var(--ink-70)' }} aria-live="polite">
+      {working && <Loader size={15} className="animate-spin shrink-0 mt-[2px]" aria-hidden="true" />}
       <span className="min-w-0">{text}</span>
     </p>
   )
@@ -177,7 +174,7 @@ function Detail({ task }: { task: KriyaTask }) {
 function Result({ task }: { task: KriyaTask }) {
   if (isTaskActive(task) || !task.result?.answer) return null
   return (
-    <div className="rounded px-3 py-2 text-[13px] leading-snug break-words" style={{ background: 'var(--surface-2)', border: 'var(--folk-border)', color: 'var(--kajal)' }}>
+    <div className="rounded-lg px-3 py-2.5 text-[14.5px] leading-snug break-words" style={{ background: 'var(--surface-2)', border: 'var(--folk-border)', color: 'var(--kajal)' }}>
       {task.result.answer}
     </div>
   )
@@ -230,8 +227,8 @@ function FrameBox({
           {src ? (
             <img src={src} alt={label} className="w-full h-full object-contain select-none" draggable={false} />
           ) : (
-            <div className="w-full h-full flex items-center justify-center gap-2 text-[11px]" style={{ color: 'var(--ink-55)' }}>
-              <Loader size={13} className="animate-spin" /> Connecting to the page…
+            <div role="status" className="w-full h-full flex items-center justify-center gap-2 text-[13px]" style={{ color: 'var(--ink-55)' }}>
+              <Loader size={15} className="animate-spin" aria-hidden="true" /> Connecting to the page…
             </div>
           )}
           {dot && (
@@ -254,7 +251,7 @@ function FrameBox({
           className="inline-flex items-center justify-center rounded-full"
           style={{
             position: 'absolute', right: 8, bottom: 8, width: 48, height: 48, border: 0,
-            background: 'rgba(var(--rgb-kajal), 0.72)', color: 'var(--paper)',
+            background: 'rgba(var(--rgb-kajal), 0.72)', color: '#fcfaf2',
           }}
         >
           {zoomed ? <Minimize2 size={17} /> : <ZoomIn size={17} />}
@@ -281,24 +278,19 @@ function StopButton({ task, onChange, large }: { task: KriyaTask; onChange: (nex
   }
   return (
     <div className={large ? 'w-full' : 'flex-1'}>
+      {/* On the card Stop is outlined, so Watch is the one filled button; on
+          the task screen it is the screen's main control. */}
       <button
         type="button"
         onClick={() => void stop()}
         disabled={busy || task.cancel_requested}
-        className="w-full rounded-[10px] font-bold inline-flex items-center justify-center gap-2"
-        style={{
-          minHeight: large ? 56 : 48,
-          fontSize: large ? 15 : 13,
-          border: 0,
-          background: 'var(--kesari)',
-          color: '#fff',
-          opacity: busy || task.cancel_requested ? 0.7 : 1,
-        }}
+        className={large ? 'n-btn n-btn-block' : 'n-btn n-btn-danger n-btn-block'}
+        style={large ? { minHeight: 56, fontSize: 16, border: 0, background: 'var(--kesari)', color: '#fff', fontWeight: 700 } : undefined}
       >
-        {busy || task.cancel_requested ? <Loader size={16} className="animate-spin" /> : <Square size={15} fill="currentColor" />}
+        {busy || task.cancel_requested ? <Loader size={17} className="animate-spin" aria-hidden="true" /> : <Square size={15} fill="currentColor" aria-hidden="true" />}
         {task.cancel_requested ? 'Stopping…' : 'Stop'}
       </button>
-      {error && <p className="mt-1.5 text-[12px]" role="alert" style={{ color: 'var(--kesari)' }}>{error}</p>}
+      {error && <p className="mt-1.5 text-[13.5px]" role="alert" style={{ color: 'var(--kesari)' }}>{error}</p>}
     </div>
   )
 }
@@ -310,18 +302,18 @@ export function TaskCard({ task: incoming }: { task: KriyaTask }) {
   const frame = useLiveFrame(task.id, showFrame, CARD_FRAME_MS)
   const active = isTaskActive(task)
   return (
-    <div
-      className="folk-card folk-shadow rounded-[4px_16px_16px_16px] px-4 py-3.5 w-full flex flex-col gap-2.5"
-      style={{ borderLeft: `3px solid ${accentFor(task)}`, color: 'var(--kajal)' }}
+    <section
+      className="n-card flex flex-col gap-2.5"
+      style={{ ['--card-accent' as string]: accentFor(task) }}
       aria-label={`Task: ${task.goal}`}
     >
-      <div className="flex items-center gap-2 flex-wrap">
+      <div className="n-card-head">
         <StatusChip task={task} />
         {active && task.step > 0 && (
-          <span className="ml-auto font-mono text-[10px]" style={{ color: 'var(--ink-55)' }}>Step {task.step}</span>
+          <span className="ml-auto text-[12.5px]" style={{ color: 'var(--ink-55)' }}>Step {task.step}</span>
         )}
       </div>
-      <p className="text-[14px] leading-snug font-semibold break-words">{task.goal}</p>
+      <p className="n-card-title" style={{ marginTop: 0 }}>{task.goal}</p>
       <Detail task={task} />
       {showFrame && (
         <button type="button" onClick={() => openTaskScreen(task.id)} className="block w-full text-left" aria-label="Watch the page live">
@@ -330,24 +322,18 @@ export function TaskCard({ task: incoming }: { task: KriyaTask }) {
       )}
       {task.status === 'waiting_approval' && task.approval && <ApprovalCard proposal={task.approval} />}
       <Result task={task} />
-      <div className="flex gap-2 pt-1">
+      <div className="n-card-actions" style={{ marginTop: 2 }}>
         <button
           type="button"
           onClick={() => openTaskScreen(task.id)}
-          className="flex-1 rounded-[10px] text-[13px] font-semibold inline-flex items-center justify-center gap-1.5"
-          style={{
-            minHeight: 48,
-            border: task.status === 'waiting_help' ? 0 : '1px solid var(--ink-12)',
-            background: task.status === 'waiting_help' ? 'var(--sindoor)' : 'var(--surface)',
-            color: task.status === 'waiting_help' ? '#fff' : 'var(--kajal)',
-          }}
+          className={task.status === 'waiting_help' ? 'n-btn n-btn-accent flex-1' : active ? 'n-btn n-btn-primary flex-1' : 'n-btn flex-1'}
         >
-          {task.status === 'waiting_help' ? <Hand size={15} /> : <Maximize2 size={14} />}
+          {task.status === 'waiting_help' ? <Hand size={16} aria-hidden="true" /> : <Maximize2 size={15} aria-hidden="true" />}
           {task.status === 'waiting_help' ? 'Open live view' : active ? 'Watch live' : 'Steps'}
         </button>
         <StopButton task={task} onChange={setTask} />
       </div>
-    </div>
+    </section>
   )
 }
 
@@ -373,10 +359,10 @@ function StepList({ events }: { events: TaskEvent[] }) {
         const Icon = EVENT_ICONS[event.kind] ?? CircleCheck
         const failed = event.kind === 'failed' || /→ (did not work|not done|refused)/.test(event.summary)
         return (
-          <li key={event.id} className="flex items-start gap-2 text-[12.5px] leading-snug">
-            <Icon size={13} className="shrink-0 mt-[2px]" style={{ color: failed ? 'var(--kesari)' : 'var(--ink-55)' }} />
+          <li key={event.id} className="flex items-start gap-2.5 text-[14px] leading-snug">
+            <Icon size={15} aria-hidden="true" className="shrink-0 mt-[2px]" style={{ color: failed ? 'var(--kesari)' : 'var(--ink-55)' }} />
             <span className="min-w-0 break-words" style={{ color: 'var(--ink-70)' }}>
-              {event.step ? <span className="font-mono text-[10px] mr-1.5" style={{ color: 'var(--ink-55)' }}>{event.step}</span> : null}
+              {event.step ? <span className="font-mono text-[11.5px] mr-1.5" style={{ color: 'var(--ink-55)' }}>{event.step}</span> : null}
               {event.summary}
             </span>
           </li>
@@ -414,14 +400,14 @@ function HelpPanel({ task, onChange }: { task: KriyaTask; onChange: (next: Kriya
       setBusy(null)
     }
   }
-  const small = 'rounded-[10px] text-[12.5px] font-semibold inline-flex items-center justify-center gap-1.5 flex-1'
-  const smallStyle: CSSProperties = { minHeight: 44, border: '1px solid var(--ink-12)', background: 'var(--surface)', color: 'var(--kajal)' }
+  const small = 'n-btn n-btn-sm flex-1 px-2'
+  const smallStyle: CSSProperties = {}
   return (
     <div className="flex flex-col gap-2.5 rounded px-3 py-3" style={{ background: 'rgba(var(--rgb-sindoor), 0.06)', border: '1px solid rgba(var(--rgb-sindoor), 0.22)' }}>
-      <p className="text-[13px] leading-snug font-semibold" style={{ color: 'var(--kajal)' }}>{task.help?.reason || task.detail}</p>
+      <p className="text-[15px] leading-snug font-semibold" style={{ color: 'var(--kajal)' }}>{task.help?.reason || task.detail}</p>
       {!expired && (
         <>
-          <p className="text-[12px] leading-snug" style={{ color: 'var(--ink-70)' }}>
+          <p className="text-[14px] leading-snug" style={{ color: 'var(--ink-70)' }}>
             Tap a field on the page above, then type here. Narad never saves what you type.
           </p>
           <form
@@ -443,10 +429,9 @@ function HelpPanel({ task, onChange }: { task: KriyaTask; onChange: (next: Kriya
               spellCheck={false}
               placeholder="Type into the page"
               aria-label="Type into the page"
-              className="flex-1 min-w-0 rounded px-3 text-[14px] outline-none"
-              style={{ minHeight: 44, background: 'var(--surface)', border: '1px solid var(--ink-12)', color: 'var(--kajal)' }}
+              className="n-field flex-1 min-w-0 outline-none"
             />
-            <button type="submit" disabled={!text || busy !== null} className="rounded-[10px] inline-flex items-center justify-center" style={{ minWidth: 48, minHeight: 44, border: 0, background: 'var(--kajal)', color: 'var(--paper)' }} aria-label="Send the text">
+            <button type="submit" disabled={!text || busy !== null} className="n-btn n-btn-primary" style={{ minWidth: 48, padding: 0 }} aria-label="Send the text">
               {busy === 'type' ? <Loader size={15} className="animate-spin" /> : <Send size={15} />}
             </button>
           </form>
@@ -470,13 +455,13 @@ function HelpPanel({ task, onChange }: { task: KriyaTask; onChange: (next: Kriya
         type="button"
         onClick={() => void proceed()}
         disabled={busy !== null}
-        className="w-full rounded-[10px] text-[14px] font-bold inline-flex items-center justify-center gap-2"
-        style={{ minHeight: 52, border: 0, background: 'var(--tulsi)', color: '#fff' }}
+        className="n-btn n-btn-go n-btn-block"
+        style={{ minHeight: 52, fontSize: 15 }}
       >
         {busy === 'continue' ? <Loader size={16} className="animate-spin" /> : <Play size={15} fill="currentColor" />}
         {expired ? 'Ask me again' : "I'm done, continue"}
       </button>
-      {error && <p className="text-[12px]" role="alert" style={{ color: 'var(--kesari)' }}>{error}</p>}
+      {error && <p className="text-[13.5px]" role="alert" style={{ color: 'var(--kesari)' }}>{error}</p>}
     </div>
   )
 }
@@ -505,10 +490,10 @@ export function TaskScreen({ task: incoming, onClose }: { task: KriyaTask; onClo
           <X size={20} />
         </button>
         <StatusChip task={task} />
-        {host && <span className="ml-auto font-mono text-[10px] truncate" style={{ color: 'var(--ink-55)', maxWidth: '40%' }}>{host}</span>}
+        {host && <span className="ml-auto text-[12.5px] truncate pr-1" style={{ color: 'var(--ink-55)', maxWidth: '40%' }}>{host}</span>}
       </div>
       <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-3" style={{ maxWidth: 720, width: '100%', margin: '0 auto' }}>
-        <p className="text-[15px] leading-snug font-semibold break-words" style={{ color: 'var(--kajal)' }}>{task.goal}</p>
+        <p className="text-[17px] leading-snug font-semibold break-words" style={{ color: 'var(--kajal)' }}>{task.goal}</p>
         {!helping && <Detail task={task} />}
         {live && (
           <FrameBox
@@ -519,13 +504,13 @@ export function TaskScreen({ task: incoming, onClose }: { task: KriyaTask; onClo
             label={helping ? 'The page: tap where you want to click' : 'The page the task is working on'}
           />
         )}
-        {tapError && <p className="text-[12px]" role="alert" style={{ color: 'var(--kesari)' }}>{tapError}</p>}
+        {tapError && <p className="text-[13.5px]" role="alert" style={{ color: 'var(--kesari)' }}>{tapError}</p>}
         {helping && <HelpPanel task={task} onChange={setTask} />}
         {task.status === 'waiting_approval' && task.approval && <ApprovalCard proposal={task.approval} />}
         <Result task={task} />
         {task.events && task.events.length > 0 && (
           <div className="pt-1">
-            <span className="label-section">Steps</span>
+            <h2 className="n-section-label" style={{ margin: '4px 0 0' }}>Steps</h2>
             <div className="mt-2"><StepList events={task.events} /></div>
           </div>
         )}
@@ -602,8 +587,8 @@ export function TaskSheet() {
   if (!task) {
     return (
       <div role="dialog" aria-modal="true" aria-label="Task" onClick={close} style={{ position: 'fixed', inset: 0, zIndex: 60, background: 'var(--paper)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <p className="text-[13px] flex items-center gap-2" style={{ color: error ? 'var(--kesari)' : 'var(--ink-55)' }}>
-          {error ? error : <><Loader size={15} className="animate-spin" /> Loading the task…</>}
+        <p role={error ? 'alert' : 'status'} className="text-[14.5px] flex items-center gap-2 px-6 text-center" style={{ color: error ? 'var(--kesari)' : 'var(--ink-55)' }}>
+          {error ? error : <><Loader size={16} className="animate-spin" aria-hidden="true" /> Loading the task…</>}
         </p>
       </div>
     )

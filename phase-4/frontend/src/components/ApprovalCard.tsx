@@ -61,7 +61,7 @@ function expiry(expiresAt: string, now: number): { label: string; expired: boole
 }
 
 function SurfaceIcon({ surface }: { surface: string }) {
-  const size = 13
+  const size = 14
   if (surface === 'email') return <Mail size={size} />
   if (surface === 'phone') return <Smartphone size={size} />
   if (surface === 'desktop') return <Monitor size={size} />
@@ -81,11 +81,11 @@ function hostOf(url?: string): string {
 function Field({ label, value }: { label: string; value?: string }) {
   if (!value) return null
   return (
-    <div className="flex gap-2 text-[12.5px] leading-snug">
-      <span className="font-mono text-[10px] uppercase tracking-wider pt-[3px] w-[52px] shrink-0" style={{ color: 'var(--ink-55)' }}>
+    <div className="flex gap-2 text-[14px] leading-snug">
+      <span className="font-mono text-[12px] uppercase tracking-wide pt-[2px] w-[64px] shrink-0" style={{ color: 'var(--ink-55)' }}>
         {label}
       </span>
-      <span className="min-w-0 break-words" style={{ color: 'var(--kajal)' }}>{value}</span>
+      <span className="min-w-0 break-words" style={{ color: 'var(--kajal)', overflowWrap: 'anywhere' }}>{value}</span>
     </div>
   )
 }
@@ -98,8 +98,10 @@ function EmailPreview({ preview }: { preview: ApprovalPreview }) {
       <Field label="Subject" value={preview.subject} />
       {preview.body && (
         <div
-          className="mt-1.5 rounded px-3 py-2 text-[12.5px] leading-relaxed whitespace-pre-wrap break-words overflow-y-auto"
-          style={{ maxHeight: 180, background: 'var(--surface-2)', border: 'var(--folk-border)' }}
+          className="mt-1.5 rounded-lg px-3 py-2.5 text-[14px] leading-relaxed whitespace-pre-wrap break-words overflow-y-auto"
+          style={{ maxHeight: 200, background: 'var(--surface-2)', border: 'var(--folk-border)' }}
+          tabIndex={0}
+          aria-label="Email text"
         >
           {preview.body}
         </div>
@@ -117,7 +119,7 @@ function ScreenPreview({ preview }: { preview: ApprovalPreview }) {
       {preview.signed_in && <Field label="Browser" value="Your signed-in browser" />}
       {preview.warning && (
         <div
-          className="flex gap-2 items-start rounded px-3 py-2 text-[12px] leading-snug"
+          className="flex gap-2 items-start rounded-lg px-3 py-2 text-[13.5px] leading-snug"
           style={{ background: 'rgba(var(--rgb-sindoor), 0.08)', color: 'var(--kesari)', border: '1px solid rgba(var(--rgb-sindoor), 0.25)' }}
         >
           <ShieldAlert size={14} className="shrink-0 mt-px" />
@@ -135,7 +137,7 @@ function ScreenPreview({ preview }: { preview: ApprovalPreview }) {
               <img src={shot} alt="The page as it will be submitted" loading="lazy" onError={() => setFailed(true)} className="w-full h-full object-contain" />
             </a>
           ) : (
-            <div className="w-full h-full flex items-center justify-center text-[11px]" style={{ color: 'var(--ink-55)' }}>
+            <div className="w-full h-full flex items-center justify-center text-[13px]" style={{ color: 'var(--ink-55)' }}>
               Screenshot unavailable
             </div>
           )}
@@ -153,7 +155,7 @@ function OtherPreview({ proposal }: { proposal: ApprovalProposal }) {
         <Field label="Sends" value={[preview.method, hostOf(preview.url)].filter(Boolean).join(' to ')} />
         <Field label="Address" value={preview.url} />
         {preview.body && (
-          <div className="mt-1 text-[12.5px] leading-relaxed whitespace-pre-wrap break-words overflow-y-auto" style={{ maxHeight: 160, color: 'var(--ink-70)' }}>
+          <div className="mt-1 text-[14px] leading-relaxed whitespace-pre-wrap break-words overflow-y-auto" style={{ maxHeight: 160, color: 'var(--ink-70)' }}>
             {preview.body}
           </div>
         )}
@@ -166,7 +168,7 @@ function OtherPreview({ proposal }: { proposal: ApprovalProposal }) {
         <Field label="Path" value={preview.run_title} />
         <Field label="Step" value={preview.stage_title} />
         {preview.text && (
-          <div className="mt-1 text-[12.5px] leading-relaxed whitespace-pre-wrap break-words overflow-y-auto" style={{ maxHeight: 160, color: 'var(--ink-70)' }}>
+          <div className="mt-1 text-[14px] leading-relaxed whitespace-pre-wrap break-words overflow-y-auto" style={{ maxHeight: 160, color: 'var(--ink-70)' }}>
             {preview.text}
           </div>
         )}
@@ -199,8 +201,8 @@ function EditForm({
     subject: proposal.preview.subject ?? '',
     body: proposal.preview.body ?? '',
   })
-  const input = 'w-full rounded px-3 text-[14px] outline-none'
-  const inputStyle = { minHeight: 44, background: 'var(--surface)', border: '1px solid var(--ink-12)', color: 'var(--kajal)' }
+  const input = 'n-field outline-none'
+  const inputStyle = {}
   const set = (key: keyof ApprovalEdit) => (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
     setDraft(current => ({ ...current, [key]: event.target.value }))
   return (
@@ -213,20 +215,20 @@ function EditForm({
     >
       {(['to', 'cc', 'subject'] as const).map(key => (
         <label key={key} className="flex flex-col gap-1">
-          <span className="font-mono text-[10px] uppercase tracking-wider" style={{ color: 'var(--ink-55)' }}>{key}</span>
+          <span className="text-[13px] font-semibold capitalize" style={{ color: 'var(--ink-70)' }}>{key}</span>
           <input className={input} style={inputStyle} value={draft[key]} onChange={set(key)} inputMode={key === 'subject' ? 'text' : 'email'} />
         </label>
       ))}
       <label className="flex flex-col gap-1">
-        <span className="font-mono text-[10px] uppercase tracking-wider" style={{ color: 'var(--ink-55)' }}>body</span>
-        <textarea className={`${input} py-2 leading-relaxed`} style={{ ...inputStyle, minHeight: 140 }} value={draft.body} onChange={set('body')} />
+        <span className="text-[13px] font-semibold" style={{ color: 'var(--ink-70)' }}>Message</span>
+        <textarea className={`${input} leading-relaxed`} style={{ ...inputStyle, minHeight: 160 }} value={draft.body} onChange={set('body')} />
       </label>
       <div className="flex gap-2 pt-1">
-        <button type="button" onClick={onCancel} disabled={busy} className="flex-1 rounded-[10px] text-[13px] font-semibold" style={{ minHeight: 48, border: '1px solid var(--ink-12)', background: 'var(--surface)', color: 'var(--kajal)' }}>
+        <button type="button" onClick={onCancel} disabled={busy} className="n-btn flex-1">
           Cancel
         </button>
-        <button type="submit" disabled={busy} className="flex-[2] rounded-[10px] text-[13px] font-semibold inline-flex items-center justify-center gap-2" style={{ minHeight: 48, border: 0, background: 'var(--kajal)', color: 'var(--paper)' }}>
-          {busy ? <Loader size={15} className="animate-spin" /> : <Check size={15} />}
+        <button type="submit" disabled={busy} className="n-btn n-btn-primary flex-[2]">
+          {busy ? <Loader size={16} className="animate-spin" aria-hidden="true" /> : <Check size={16} aria-hidden="true" />}
           Save changes
         </button>
       </div>
@@ -250,14 +252,14 @@ function Outcome({ proposal, expired }: { proposal: ApprovalProposal; expired: b
   const detail = status === 'rejected' ? proposal.decision_reason : proposal.result?.summary
   return (
     <div className="flex items-start gap-2.5 py-1" role="status" aria-live="polite">
-      <span className="shrink-0 mt-0.5 inline-flex items-center justify-center rounded-full" style={{ width: 22, height: 22, background: outcome.colour, color: 'var(--paper)' }}>
+      <span aria-hidden="true" className="shrink-0 mt-0.5 inline-flex items-center justify-center rounded-full" style={{ width: 24, height: 24, background: outcome.colour, color: '#fff' }}>
         {outcome.icon === 'running' ? <Loader size={13} className="animate-spin" />
           : outcome.icon === 'done' ? <Check size={13} />
           : <X size={13} />}
       </span>
       <div className="min-w-0">
-        <p className="text-[13px] font-semibold" style={{ color: outcome.colour }}>{outcome.label}</p>
-        {detail && <p className="text-[12px] leading-snug mt-0.5 break-words" style={{ color: 'var(--ink-70)' }}>{detail}</p>}
+        <p className="text-[14.5px] font-semibold" style={{ color: outcome.colour }}>{outcome.label}</p>
+        {detail && <p className="text-[13.5px] leading-snug mt-0.5 break-words" style={{ color: 'var(--ink-70)' }}>{detail}</p>}
       </div>
     </div>
   )
@@ -356,31 +358,28 @@ export function ApprovalCard({ proposal: incoming, onChange }: { proposal: Appro
   const accent = open ? 'var(--sindoor)' : RUNNING.has(proposal.status) || proposal.status === 'executed' ? 'var(--tulsi)' : 'var(--loha)'
 
   return (
-    <div
-      className="folk-card folk-shadow rounded-[4px_16px_16px_16px] px-4 py-3.5 w-full"
-      style={{ borderLeft: `3px solid ${accent}`, color: 'var(--kajal)' }}
+    <section
+      className="n-card"
+      style={{ ['--card-accent' as string]: accent }}
       aria-label={`Approval: ${proposal.summary}`}
     >
-      <div className="flex items-center gap-2 flex-wrap">
-        <span
-          className="text-chip px-2 py-1 rounded organic-border inline-flex items-center gap-1.5 uppercase"
-          style={{ color: 'var(--sindoor)', borderColor: 'rgba(var(--rgb-sindoor), 0.30)', background: 'rgba(var(--rgb-sindoor), 0.07)' }}
-        >
+      <div className="n-card-head">
+        <span className="n-chip">
           <SurfaceIcon surface={proposal.surface} />
           {proposal.risk_label || proposal.risk_class}
         </span>
-        <span className="font-mono text-[10px] uppercase tracking-wider" style={{ color: 'var(--ink-55)' }}>
+        <span className="n-status" style={open ? { color: 'var(--sindoor)' } : undefined}>
           {open ? 'Needs your OK' : 'Approval'}
         </span>
         {pending && expiryText && (
-          <span className="ml-auto inline-flex items-center gap-1 font-mono text-[10px]" style={{ color: expired ? 'var(--kesari)' : 'var(--ink-55)' }}>
-            <Clock size={11} />
+          <span className="ml-auto inline-flex items-center gap-1 text-[12.5px]" style={{ color: expired ? 'var(--kesari)' : 'var(--ink-55)' }}>
+            <Clock size={13} aria-hidden="true" />
             {expiryText}
           </span>
         )}
       </div>
 
-      <p className="mt-2 text-[14px] leading-snug font-semibold break-words">{proposal.summary}</p>
+      <p className="n-card-title">{proposal.summary}</p>
 
       <div className="mt-2.5">
         {editing ? (
@@ -395,17 +394,16 @@ export function ApprovalCard({ proposal: incoming, onChange }: { proposal: Appro
       </div>
 
       {!editing && (
-        <div className="mt-3 pt-3 flex flex-col justify-center" style={{ borderTop: '1px dashed var(--ink-12)', minHeight: FOOTER_MIN_HEIGHT }}>
+        <div className="n-card-actions flex-col justify-center" style={{ minHeight: FOOTER_MIN_HEIGHT }}>
           {open ? (
             <div className="flex gap-2">
               <button
                 type="button"
                 onClick={() => void decide('reject')}
                 disabled={busy !== null}
-                className="flex-1 rounded-[10px] text-[13px] font-semibold inline-flex items-center justify-center gap-1.5"
-                style={{ minHeight: 48, border: '1px solid var(--ink-12)', background: 'var(--surface)', color: 'var(--kajal)' }}
+                className="n-btn flex-1 px-2"
               >
-                {busy === 'reject' ? <Loader size={15} className="animate-spin" /> : <X size={15} />}
+                {busy === 'reject' ? <Loader size={16} className="animate-spin" aria-hidden="true" /> : <X size={16} aria-hidden="true" />}
                 Reject
               </button>
               {proposal.editable && (
@@ -413,10 +411,9 @@ export function ApprovalCard({ proposal: incoming, onChange }: { proposal: Appro
                   type="button"
                   onClick={() => setEditing(true)}
                   disabled={busy !== null}
-                  className="flex-1 rounded-[10px] text-[13px] font-semibold inline-flex items-center justify-center gap-1.5"
-                  style={{ minHeight: 48, border: '1px solid var(--ink-12)', background: 'var(--surface)', color: 'var(--kajal)' }}
+                  className="n-btn flex-1 px-2"
                 >
-                  <Pencil size={14} />
+                  <Pencil size={15} aria-hidden="true" />
                   Edit
                 </button>
               )}
@@ -424,20 +421,19 @@ export function ApprovalCard({ proposal: incoming, onChange }: { proposal: Appro
                 type="button"
                 onClick={() => void decide('approve')}
                 disabled={busy !== null}
-                className="flex-[1.6] rounded-[10px] text-[13.5px] font-bold inline-flex items-center justify-center gap-1.5"
-                style={{ minHeight: 48, border: 0, background: 'var(--tulsi)', color: '#fff' }}
+                className="n-btn n-btn-go flex-[1.5] px-2"
               >
-                {busy === 'approve' ? <Loader size={15} className="animate-spin" /> : <ShieldCheck size={15} />}
+                {busy === 'approve' ? <Loader size={16} className="animate-spin" aria-hidden="true" /> : <ShieldCheck size={16} aria-hidden="true" />}
                 Approve
               </button>
             </div>
           ) : (
             <Outcome proposal={proposal} expired={expired} />
           )}
-          {error && <p className="mt-2 text-[12px]" role="alert" style={{ color: 'var(--kesari)' }}>{error}</p>}
+          {error && <p className="mt-2 text-[13.5px]" role="alert" style={{ color: 'var(--kesari)' }}>{error}</p>}
         </div>
       )}
-    </div>
+    </section>
   )
 }
 
@@ -516,7 +512,7 @@ export function ApprovalSheet({ onChange }: { onChange?: ApprovalChange }) {
       aria-modal="true"
       aria-label="Approval"
       onClick={close}
-      style={{ position: 'fixed', inset: 0, zIndex: 60, background: 'rgba(var(--rgb-kajal), 0.40)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
+      style={{ position: 'fixed', inset: 0, zIndex: 60, background: 'rgba(0,0,0,0.42)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
     >
       <div
         onClick={event => event.stopPropagation()}
@@ -528,11 +524,12 @@ export function ApprovalSheet({ onChange }: { onChange?: ApprovalChange }) {
           background: 'var(--paper)',
           borderRadius: '18px 18px 0 0',
           padding: '8px 14px calc(16px + env(safe-area-inset-bottom))',
-          boxShadow: '0 -12px 40px -12px rgba(var(--rgb-kajal), 0.35)',
+          boxShadow: '0 -12px 40px -12px rgba(0,0,0,0.4)',
         }}
       >
+        <div aria-hidden="true" className="mx-auto mt-1 rounded-full" style={{ width: 36, height: 4, background: 'var(--ink-20)' }} />
         <div className="flex items-center justify-between">
-          <span className="label-section">Narad needs your OK</span>
+          <span className="text-[16px] font-semibold" style={{ color: 'var(--kajal)' }}>Narad needs your OK</span>
           <button type="button" onClick={close} aria-label="Close" className="inline-flex items-center justify-center rounded-full" style={{ width: 48, height: 48, color: 'var(--ink-70)' }}>
             <X size={20} />
           </button>
@@ -546,10 +543,10 @@ export function ApprovalSheet({ onChange }: { onChange?: ApprovalChange }) {
             }}
           />
         ) : error ? (
-          <p className="text-[13px] py-6 text-center" style={{ color: 'var(--kesari)' }}>{error}</p>
+          <p className="text-[14.5px] py-6 text-center" role="alert" style={{ color: 'var(--kesari)' }}>{error}</p>
         ) : (
-          <div className="folk-card rounded-[4px_16px_16px_16px] flex items-center justify-center gap-2 text-[12px]" style={{ height: 220, color: 'var(--ink-55)' }}>
-            <Loader size={15} className="animate-spin" /> Loading the approval…
+          <div role="status" className="n-card flex items-center justify-center gap-2 text-[14px]" style={{ height: 220, color: 'var(--ink-55)' }}>
+            <Loader size={16} className="animate-spin" aria-hidden="true" /> Loading the approval…
           </div>
         )}
       </div>
