@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -14,12 +15,18 @@ from learning_workspace_api import learning_router
 
 import learning_workspace
 import narad_paths  # noqa: F401
+import profile_context
+import vahana
 import workflow_engine
 
 
 @pytest.fixture()
 def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.setattr(workflow_engine, "WORKFLOW_DB", tmp_path / "workflows.db")
+    # A finished path notifies its person (task_done): keep that inbox and ledger here.
+    monkeypatch.setattr(vahana, "INBOX_DIR", tmp_path / "inbox")
+    monkeypatch.setattr(profile_context, "PROFILES_DIR", tmp_path / "profiles")
+    monkeypatch.setitem(sys.modules, "karma_log", SimpleNamespace(log_karma=lambda *args, **kwargs: None))
     monkeypatch.setattr(learning_workspace, "LEARNING_DIR", tmp_path / "learning")
     monkeypatch.setattr(
         workflow_engine,

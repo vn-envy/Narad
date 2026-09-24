@@ -3517,6 +3517,200 @@ async def post_inbox_mark_read(req: InboxMarkReadRequest, request: Request):
     return mark_read(req.user_id, req.ids)
 
 
+# ── Web Push, notification preferences, care circles (Stage B) ──────────────
+# Every route acts on the caller's own profile (a body user_id may only repeat
+# it). Device, preference and circle files live under profiles/<id>/.
+
+class PushSubscribeRequest(BaseModel):
+    user_id: str = ""
+    subscription: dict[str, Any]
+    device_label: str = ""
+
+
+class PushEndpointRequest(BaseModel):
+    user_id: str = ""
+    endpoint: str = ""
+
+
+@app.get("/push/vapid-public-key")
+async def get_push_vapid_public_key(request: Request):
+    import vahana_push
+
+    _assert_profile_match(request, None)
+    return {
+        "public_key": await asyncio.to_thread(vahana_push.public_key),
+        "available": vahana_push.webpush_available(),
+    }
+
+
+@app.post("/push/subscribe")
+async def post_push_subscribe(req: PushSubscribeRequest, request: Request):
+    import vahana_push
+
+    profile_id = _assert_profile_match(request, req.user_id)
+    try:
+        device = await asyncio.to_thread(
+            vahana_push.add_device,
+            profile_id,
+            req.subscription,
+            req.device_label,
+            user_agent=request.headers.get("user-agent", ""),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"status": "subscribed", "device": vahana_push.public_device(device)}
+
+
+@app.delete("/push/subscribe")
+async def delete_push_subscribe(req: PushEndpointRequest, request: Request):
+    import vahana_push
+
+    profile_id = _assert_profile_match(request, req.user_id)
+    removed = await asyncio.to_thread(vahana_push.remove_device, profile_id, req.endpoint)
+    return {"status": "removed" if removed else "not_found", "removed": removed}
+
+
+@app.get("/push/devices")
+async def get_push_devices(request: Request):
+    import vahana_push
+
+    profile_id = _assert_profile_match(request, None)
+    devices = await asyncio.to_thread(vahana_push.live_devices, profile_id)
+    return {
+        "devices": [vahana_push.public_device(device) for device in devices],
+        "available": vahana_push.webpush_available(),
+    }
+
+
+@app.post("/push/test")
+async def post_push_test(req: PushEndpointRequest, request: Request):
+    import vahana_push
+
+    profile_id = _assert_profile_match(request, req.user_id)
+    results = await asyncio.to_thread(vahana_push.send_test, profile_id, req.endpoint or None)
+    return {"sent": sum(1 for row in results if row["status"] == "sent"), "results": results}
+
+
+class QuietHoursUpdate(BaseModel):
+    enabled: Optional[bool] = None
+    start: Optional[str] = None
+    end: Optional[str] = None
+
+
+class NotificationPreferencesUpdate(BaseModel):
+    user_id: str = ""
+    lock_screen_details: Optional[bool] = None
+    medicine_in_quiet_hours: Optional[bool] = None
+    quiet_hours: Optional[QuietHoursUpdate] = None
+    timezone: Optional[str] = None
+
+
+@app.get("/notifications/preferences")
+async def get_notification_preferences(request: Request):
+    from vahana import load_preferences
+
+    profile_id = _assert_profile_match(request, None)
+    return await asyncio.to_thread(load_preferences, profile_id)
+
+
+@app.put("/notifications/preferences")
+async def put_notification_preferences(req: NotificationPreferencesUpdate, request: Request):
+    from vahana import update_preferences
+
+    profile_id = _assert_profile_match(request, req.user_id)
+    changes = req.model_dump(exclude={"user_id"}, exclude_none=True)
+    try:
+        return await asyncio.to_thread(update_preferences, profile_id, changes)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+class CareCircleGrant(BaseModel):
+    carer: str
+    kinds: list[str] = Field(default_factory=list)
+
+
+class CareCircleUpdate(BaseModel):
+    user_id: str = ""
+    grants: list[CareCircleGrant] = Field(default_factory=list)
+
+
+def _own_profile_session(request: Request, claimed_user_id: str | None = None) -> str:
+    """Only the person themself, signed in to their own profile, shares their
+    notifications. A host credential naming a profile (the owner on the Mac)
+    cannot grant on someone's behalf."""
+    profile_id = _assert_profile_match(request, claimed_user_id)
+    if not getattr(request.state, "profile_authenticated", False):
+        raise HTTPException(status_code=403, detail="Sign in to your own profile to change who sees your notifications")
+    return profile_id
+
+
+@app.get("/care-circle")
+async def get_care_circle(request: Request):
+    import care_circle
+
+    subject = _assert_profile_match(request, None)
+    grants = await asyncio.to_thread(care_circle.load_circle, subject)
+    return {
+        "subject": subject,
+        "grants": [{**grant, "carer_name": care_circle.display_name(grant["carer"])} for grant in grants],
+        "kinds": [{"id": kind, "label": label} for kind, label in care_circle.SHAREABLE_KINDS.items()],
+    }
+
+
+@app.put("/care-circle")
+async def put_care_circle(req: CareCircleUpdate, request: Request):
+    import care_circle
+
+    subject = _own_profile_session(request, req.user_id)
+    try:
+        grants = await asyncio.to_thread(
+            care_circle.set_circle, subject, [grant.model_dump() for grant in req.grants]
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {
+        "subject": subject,
+        "grants": [{**grant, "carer_name": care_circle.display_name(grant["carer"])} for grant in grants],
+    }
+
+
+@app.get("/care-circle/shared-with-me")
+async def get_care_circle_shared_with_me(request: Request):
+    import care_circle
+
+    carer = _assert_profile_match(request, None)
+    return {"carer": carer, "shared": await asyncio.to_thread(care_circle.shared_with, carer)}
+
+
+@app.delete("/care-circle/shared-with-me/{subject_id}")
+async def leave_care_circle(subject_id: str, request: Request):
+    import care_circle
+
+    carer = _own_profile_session(request)
+    try:
+        left = await asyncio.to_thread(care_circle.leave, carer, subject_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if not left:
+        raise HTTPException(status_code=404, detail="You are not in that care circle")
+    return {"status": "left", "subject": subject_id}
+
+
+@app.get("/sw.js", include_in_schema=False)
+async def get_service_worker():
+    """The PWA service worker, never cached by the browser or Cloudflare's edge,
+    so a new build reaches phones on their next update check."""
+    path = Path(__file__).resolve().parent.parent / "phase-4" / "frontend" / "dist" / "sw.js"
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Not Found")
+    return FileResponse(
+        path,
+        media_type="text/javascript",
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+    )
+
+
 # ── Cost ledger (M4.1) ─────────────────────────────────────────────────────────
 
 @app.get("/costs")

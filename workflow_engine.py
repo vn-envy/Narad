@@ -786,7 +786,27 @@ def complete_current_stage(
         _append_event(run, "stage_started", stage_id=next_stage, payload={"cycle": run.state.get("cycle", 1)})
     else:
         _append_event(run, "workflow_completed", stage_id=stage["id"], payload={"cycle": run.state.get("cycle", 1)})
+        _notify_completed(run)
     return run
+
+
+def _notify_completed(run: WorkflowRun) -> None:
+    """A finished path is a "task done" in the person's Activity, and reaches
+    any carer they share finished tasks with. Best-effort: never blocks completion."""
+    try:
+        from vahana import deliver
+
+        deliver(
+            kind="task_done",
+            title=f"Path complete: {run.title}",
+            body=f"{run.title} has reached the end of its path. Open Work > Paths to review what it produced.",
+            user_id=run.user_id,
+            source="workflow_engine.completed",
+            data={"workflow_id": run.workflow_id, "workflow_run_id": run.run_id},
+            summary=f"{run.title} is complete.",
+        )
+    except Exception:
+        pass
 
 
 def _start_new_cycle(run: WorkflowRun, pack: dict[str, Any], target: str) -> None:

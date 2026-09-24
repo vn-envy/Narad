@@ -25,6 +25,9 @@ dependencies = [
     "requests>=2.32.0",
     # Cloudflare Access JWT verification (phase-1/cf_access.py).
     "pyjwt[crypto]>=2.8",
+    # Self-hosted Web Push to family phones (vahana_push.py): MPL-2.0, with
+    # py-vapid (MPL-2.0) and http-ece (MIT).
+    "pywebpush>=2.0,<3",
     "pydantic>=2.6.0",
     "nest_asyncio>=1.6.0",
     "numpy>=1.26.0",

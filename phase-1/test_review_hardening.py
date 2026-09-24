@@ -402,7 +402,7 @@ class ProfileNotificationTests(_FamilyHome):
         pushed: list[str | None] = []
         stubs = {"google_workspace_skill": fake_gmail, "karma_log": SimpleNamespace(log_karma=lambda *a, **k: None)}
         with patch.object(vahana, "INBOX_DIR", inbox), \
-             patch.object(vahana, "_push_ntfy", side_effect=lambda event: pushed.append(event["profile_id"]) or False), \
+             patch.object(vahana, "_notify", side_effect=lambda event: pushed.append(event["profile_id"]) or {"queued": False}), \
              patch.dict(sys.modules, stubs):
             with profile_scope("bob"):
                 result = asyncio.run(asyncio.to_thread(mail_triage_skill.triage_inbox, 25, True))
