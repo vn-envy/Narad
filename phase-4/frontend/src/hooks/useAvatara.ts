@@ -176,6 +176,7 @@ export interface GuidedSessionMeta {
 
 export interface SendOptions {
   workflowRunId?: string | null
+  replyLanguage?: string | null
 }
 
 export type GuruPayload =
@@ -1221,6 +1222,7 @@ export function useAvatara(userId = 'default') {
           active_artifact_workspace_id: state.activeArtifactSession?.workspaceId ?? null,
           active_artifact_type: state.activeArtifactSession?.artifactType ?? null,
           workflow_run_id: options.workflowRunId ?? null,
+          reply_language: options.replyLanguage ?? null,
         }),
         signal: abortRef.current.signal,
       })

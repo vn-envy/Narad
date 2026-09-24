@@ -78,7 +78,7 @@ export function useTTS() {
     }
 
     try {
-      // Unified voice endpoint (Smallest.ai → VoxCPM → Kokoro); same
+      // Unified voice endpoint (Sarvam → VoxCPM → Kokoro); same
       // request/response shape as the old Sarvam /tts route.
       const res = await apiFetch('/voice/tts', {
         method: 'POST',

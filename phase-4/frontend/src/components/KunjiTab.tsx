@@ -77,8 +77,8 @@ const PREFIX_HINTS: Array<[string, string]> = [
   ['sk-ant-', 'anthropic'],
   ['AIza', 'google'],
   ['dsk-', 'deepseek'],
+  ['sk_', 'sarvam'], // underscore — never confused with OpenAI's "sk-"
   ['sk-', 'openai'],
-  ['eyJ', 'smallest'], // Smallest.ai keys are JWTs
 ]
 
 const INK = 'rgba(26,24,21,'

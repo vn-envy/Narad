@@ -1,25 +1,31 @@
 """
-Voice engine — tiered local-first TTS + STT for Narad.
+Voice engine — tiered TTS + STT for Narad, Sarvam first for Indian languages.
 
 Tiers (voice out), best available wins unless NARAD_TTS_ENGINE forces one:
-  1. smallest — Smallest.ai Waves cloud TTS. Preferred when SMALLEST_API_KEY
-                is connected (via Kunji). 5 distinct avatar voices, multilingual
-                (English + Hindi native). Local tiers remain as fallback.
-  2. voxcpm   — VoxCPM (pip: voxcpm). Highest local quality, zero-shot cloning,
-                needs GPU/MPS. Model id via NARAD_VOXCPM_MODEL.
-  3. kokoro   — Kokoro-82M (pip: kokoro). Tiny, CPU-fast, runs anywhere.
-                English + Hindi voices.
+  1. sarvam  — Sarvam Bulbul v3 cloud TTS. Used when SARVAM_API_KEY is connected
+               (via Kunji) AND the privacy gateway rates Sarvam `trusted`
+               (NARAD_PROVIDER_TIERS=sarvam=trusted): replies are read aloud
+               as-is, so only local or trusted providers may receive them.
+               11 Indian languages + Indian English, one voice per avatar.
+  2. voxcpm  — VoxCPM (pip: voxcpm). Highest local quality, zero-shot cloning,
+               needs GPU/MPS. Model id via NARAD_VOXCPM_MODEL.
+  3. kokoro  — Kokoro-82M (pip: kokoro). Tiny, CPU-fast, runs anywhere.
+               English + Hindi voices.
 
-Voice in:
-  faster-whisper (pip: faster-whisper), CPU int8 by default. Model size via
-  NARAD_WHISPER_MODEL (tiny/base/small/medium). If missing, the frontend
-  falls back to browser speech recognition.
+Voice in (first available wins unless NARAD_STT_ENGINE forces one):
+  1. sarvam  — Sarvam Saaras (REST, clips under 30 s) when connected and
+               trusted. NARAD_SARVAM_STT_MODE=codemix (default) keeps Hinglish as
+               spoken: Hindi in Devanagari, English words in Latin script.
+  2. whisper — faster-whisper (pip: faster-whisper), CPU int8. Model size via
+               NARAD_WHISPER_MODEL. If both are missing, the frontend falls back
+               to browser speech recognition.
 
 Everything imports lazily — the server runs fine with none of these installed.
 """
 
 from __future__ import annotations
 
+import base64
 import importlib.util
 import io
 import logging
@@ -42,32 +48,47 @@ KOKORO_VOICES: dict[str, dict[str, str]] = {
 }
 _KOKORO_LANG_CODE = {"en": "a", "hi": "h"}  # kokoro pipeline lang codes
 
-# Smallest.ai Waves — 5 distinct voices, one per avatar. Override any of them
-# with NARAD_SMALLEST_VOICE_<AVATAR> (e.g. NARAD_SMALLEST_VOICE_KRISHNA=raj).
-# If a preferred id is missing from the live catalog, the engine substitutes
-# the first unused catalog voice so avatars always stay distinct.
-SMALLEST_VOICES: dict[str, str] = {
-    "krishna":     "magnus",
-    "rama":        "aarav",
-    "parashurama": "james",
-    "hanuman":     "arnav",
-    "narad":       "raghav",
+# Sarvam Bulbul v3 speakers, one distinct voice per avatar. Override any of
+# them with NARAD_SARVAM_VOICE_<AVATAR> (lowercase speaker id, e.g. "kabir").
+SARVAM_VOICES: dict[str, str] = {
+    "narad":       "shubh",
+    "krishna":     "kabir",
+    "rama":        "aditya",
+    "parashurama": "ratan",
+    "hanuman":     "rohan",
 }
-# Unified TTS route (the old /waves/v1/lightning-v3.1/get_speech URLs were
-# retired 2026-07-14 and now return HTTP 410). Model is a body field.
-_SMALLEST_MODEL = os.environ.get("NARAD_SMALLEST_MODEL", "lightning_v3.1")
-_SMALLEST_BASE = "https://api.smallest.ai/waves/v1"
+# Narad language hints → Sarvam BCP-47 codes (Bulbul v3 and Saaras share them).
+SARVAM_LANGUAGES: dict[str, str] = {
+    "en": "en-IN", "hi": "hi-IN", "bn": "bn-IN", "gu": "gu-IN", "kn": "kn-IN",
+    "ml": "ml-IN", "mr": "mr-IN", "od": "od-IN", "or": "od-IN", "pa": "pa-IN",
+    "ta": "ta-IN", "te": "te-IN",
+}
+_SARVAM_BASE = os.environ.get("SARVAM_BASE_URL", "https://api.sarvam.ai").rstrip("/")
+_SARVAM_TTS_MODEL = os.environ.get("NARAD_SARVAM_TTS_MODEL", "bulbul:v3")
+_SARVAM_STT_MODEL = os.environ.get("NARAD_SARVAM_STT_MODEL", "saaras:v3")
+_SARVAM_CHUNK_CHARS = 1000  # bulbul:v3 accepts 2,500; smaller chunks return sooner
+_SARVAM_SAMPLE_RATE = 24_000
 
 
-def _raw_text_allowed(provider: str) -> bool:
+def _sarvam_key() -> str:
+    return os.environ.get("SARVAM_API_KEY", "").strip()
+
+
+def _raw_content_allowed(provider: str) -> bool:
+    """Speech and audio cannot be pseudonymised: only local or trusted providers."""
     try:
         import privacy_gateway
 
         return privacy_gateway.raw_allowed(provider)
     except Exception:
         return False
-_SMALLEST_CHUNK_CHARS = 240  # conservative per-request text size
-_SMALLEST_SAMPLE_RATE = 24_000
+
+
+def _gateway_allows(provider: str, source: str, chars: int = 0) -> bool:
+    import privacy_gateway
+
+    return privacy_gateway.allow_raw(provider, source=source, chars=chars)
+
 
 # Optional per-avatar reference audio for VoxCPM zero-shot cloning:
 #   $NARAD_VOICE_REF_DIR/<avatar>.wav  +  <avatar>.txt (its transcript)
@@ -107,7 +128,6 @@ class VoiceEngine:
         self._voxcpm: Any = None
         self._whisper: Any = None
         self._device: str | None = None
-        self._smallest_catalog: list[str] | None = None  # live voice ids, cached
 
     # ------------------------------------------------------------- capability
 
@@ -131,10 +151,8 @@ class VoiceEngine:
         """Available TTS engines, best first."""
         tiers: list[str] = []
         forced = os.environ.get("NARAD_TTS_ENGINE", "auto").lower()
-        if os.environ.get("SMALLEST_API_KEY", "").strip() and _raw_text_allowed("smallest"):
-            # Preferred when connected and trusted: replies are read aloud as-is,
-            # so the privacy gateway only allows local or trusted TTS providers.
-            tiers.append("smallest")
+        if _sarvam_key() and _raw_content_allowed("sarvam"):
+            tiers.append("sarvam")
         if _has("voxcpm") and self.device() != "cpu":
             tiers.append("voxcpm")
         if _has("kokoro"):
@@ -143,20 +161,35 @@ class VoiceEngine:
             return [t for t in tiers if t == forced]
         return tiers
 
+    def stt_tiers(self) -> list[str]:
+        """Available STT engines, best first."""
+        tiers: list[str] = []
+        forced = os.environ.get("NARAD_STT_ENGINE", "auto").lower()
+        if _sarvam_key() and _raw_content_allowed("sarvam"):
+            tiers.append("sarvam")
+        if _has("faster_whisper"):
+            tiers.append("whisper")
+        if forced != "auto":
+            return [t for t in tiers if t == forced]
+        return tiers
+
     def stt_available(self) -> bool:
-        return _has("faster_whisper")
+        return bool(self.stt_tiers())
 
     def status(self) -> dict[str, Any]:
+        stt = self.stt_tiers()
         return {
             "device": self.device(),
             "tts": {
                 "tiers": self.tts_tiers(),
                 "active": (self.tts_tiers() or [None])[0],
+                "languages": sorted(SARVAM_LANGUAGES) if "sarvam" in self.tts_tiers() else ["en", "hi"],
             },
             "stt": {
-                "engine": "faster-whisper" if self.stt_available() else None,
-                "available": self.stt_available(),
-                "model": os.environ.get("NARAD_WHISPER_MODEL", "small"),
+                "tiers": stt,
+                "engine": stt[0] if stt else None,
+                "available": bool(stt),
+                "model": _SARVAM_STT_MODEL if stt[:1] == ["sarvam"] else os.environ.get("NARAD_WHISPER_MODEL", "small"),
             },
         }
 
@@ -171,12 +204,10 @@ class VoiceEngine:
         avatar = avatar.lower()
         for tier in self.tts_tiers():
             try:
-                if tier == "smallest":
-                    import privacy_gateway
-
-                    if not privacy_gateway.allow_raw("smallest", source="tts", chars=len(text)):
+                if tier == "sarvam":
+                    if not _gateway_allows("sarvam", "tts", len(text)):
                         continue
-                    return self._tts_smallest(text, avatar, lang)
+                    return self._tts_sarvam(text, avatar, lang)
                 if tier == "voxcpm":
                     return self._tts_voxcpm(text, avatar)
                 if tier == "kokoro":
@@ -184,56 +215,16 @@ class VoiceEngine:
             except Exception:  # noqa: BLE001 — degrade to next tier
                 logger.exception("TTS tier %s failed; trying next", tier)
         raise RuntimeError(
-            "no TTS engine available — connect a trusted Smallest.ai key or "
+            "no TTS engine available — connect a trusted Sarvam key or "
             "pip install 'narad-harness[voice]'"
         )
 
-    # ------------------------------------------------------- Smallest.ai Waves
+    # ------------------------------------------------------------ Sarvam Bulbul
 
-    def _smallest_voices_available(self) -> list[str]:
-        """Live voice-id catalog, fetched once. Empty list on any failure."""
-        if self._smallest_catalog is not None:
-            return self._smallest_catalog
-        voices: list[str] = []
-        try:
-            import httpx
-
-            # Catalog path uses the hyphenated model id (body field uses underscores).
-            catalog_model = _SMALLEST_MODEL.replace("_", "-", 1) if _SMALLEST_MODEL.startswith("lightning_") else _SMALLEST_MODEL
-            resp = httpx.get(
-                f"{_SMALLEST_BASE}/{catalog_model}/get_voices",
-                headers={"Authorization": f"Bearer {os.environ['SMALLEST_API_KEY'].strip()}"},
-                timeout=15,
-            )
-            if resp.status_code == 200:
-                payload = resp.json()
-                items = payload.get("voices", payload) if isinstance(payload, dict) else payload
-                if isinstance(items, list):
-                    voices = [
-                        v.get("voiceId") or v.get("voice_id") or v.get("id", "")
-                        for v in items
-                        if isinstance(v, dict)
-                    ]
-                    voices = [v for v in voices if v]
-        except Exception:  # noqa: BLE001 — catalog is a nicety, not a dependency
-            logger.exception("Smallest.ai voice catalog fetch failed")
-        self._smallest_catalog = voices
-        return voices
-
-    def _smallest_voice(self, avatar: str) -> str:
-        """env override > preferred map > first unused catalog voice. Always distinct."""
-        override = os.environ.get(f"NARAD_SMALLEST_VOICE_{avatar.upper()}", "").strip()
-        if override:
-            return override
-        preferred = SMALLEST_VOICES.get(avatar, SMALLEST_VOICES["narad"])
-        catalog = self._smallest_voices_available()
-        if not catalog or preferred in catalog:
-            return preferred
-        taken = set(SMALLEST_VOICES.values())
-        for candidate in catalog:
-            if candidate not in taken:
-                return candidate
-        return catalog[0]
+    @staticmethod
+    def _sarvam_voice(avatar: str) -> str:
+        override = os.environ.get(f"NARAD_SARVAM_VOICE_{avatar.upper()}", "").strip().lower()
+        return override or SARVAM_VOICES.get(avatar, SARVAM_VOICES["narad"])
 
     @staticmethod
     def _chunk_text(text: str, limit: int) -> list[str]:
@@ -257,41 +248,39 @@ class VoiceEngine:
             chunks.append(current)
         return chunks or [text[:limit]]
 
-    def _tts_smallest(self, text: str, avatar: str, lang: str) -> dict[str, Any]:
+    def _tts_sarvam(self, text: str, avatar: str, lang: str) -> dict[str, Any]:
         import httpx
         import numpy as np
 
-        key = os.environ["SMALLEST_API_KEY"].strip()
-        voice = self._smallest_voice(avatar)
+        voice = self._sarvam_voice(avatar)
+        language = SARVAM_LANGUAGES.get(lang, "en-IN")
         pcm_parts: list[Any] = []
         with httpx.Client(timeout=30) as client:
-            for chunk in self._chunk_text(text, _SMALLEST_CHUNK_CHARS):
+            for chunk in self._chunk_text(text, _SARVAM_CHUNK_CHARS):
                 resp = client.post(
-                    f"{_SMALLEST_BASE}/tts",
-                    headers={
-                        "Authorization": f"Bearer {key}",
-                        "Content-Type": "application/json",
-                        "Accept": "audio/wav",  # required — omitting it can return empty audio
-                    },
+                    f"{_SARVAM_BASE}/text-to-speech",
+                    headers={"api-subscription-key": _sarvam_key(), "Content-Type": "application/json"},
                     json={
                         "text": chunk,
-                        "voice_id": voice,
-                        "model": _SMALLEST_MODEL,
-                        "sample_rate": _SMALLEST_SAMPLE_RATE,
-                        "output_format": "wav",
-                        "language": "hi" if lang == "hi" else "en",
+                        "language_code": language,
+                        "speaker": voice,
+                        "model": _SARVAM_TTS_MODEL,
+                        "speech_sample_rate": _SARVAM_SAMPLE_RATE,
                     },
                 )
                 resp.raise_for_status()
-                with wave.open(io.BytesIO(resp.content), "rb") as w:
-                    frames = w.readframes(w.getnframes())
-                pcm_parts.append(np.frombuffer(frames, dtype="<i2"))
+                for encoded in resp.json().get("audios") or []:
+                    with wave.open(io.BytesIO(base64.b64decode(encoded)), "rb") as w:
+                        pcm_parts.append(np.frombuffer(w.readframes(w.getnframes()), dtype="<i2"))
+        if not pcm_parts:
+            raise RuntimeError("Sarvam returned no audio")
         pcm = np.concatenate(pcm_parts).astype("float32") / 32767.0
         return {
-            "audio": _pcm_to_wav(pcm, _SMALLEST_SAMPLE_RATE),
-            "engine": "smallest",
-            "sample_rate": _SMALLEST_SAMPLE_RATE,
+            "audio": _pcm_to_wav(pcm, _SARVAM_SAMPLE_RATE),
+            "engine": "sarvam",
+            "sample_rate": _SARVAM_SAMPLE_RATE,
             "voice": voice,
+            "language": language,
         }
 
     def _tts_kokoro(self, text: str, avatar: str, lang: str) -> dict[str, Any]:
@@ -351,22 +340,64 @@ class VoiceEngine:
 
     # ------------------------------------------------------------------- STT
 
-    def transcribe(self, audio_path: str) -> dict[str, Any]:
-        """Blocking. Returns {text, language, duration}."""
-        if not self.stt_available():
-            raise RuntimeError("faster-whisper not installed")
+    def transcribe(self, audio_path: str, lang: str | None = None) -> dict[str, Any]:
+        """Blocking. Returns {text, language, duration, engine}."""
+        tiers = self.stt_tiers()
+        if not tiers:
+            raise RuntimeError("no speech-to-text engine: connect a trusted Sarvam key or install faster-whisper")
+        for tier in tiers:
+            try:
+                if tier == "sarvam":
+                    if not _gateway_allows("sarvam", "stt", os.path.getsize(audio_path)):
+                        continue
+                    return self._stt_sarvam(audio_path, lang)
+                if tier == "whisper":
+                    return self._stt_whisper(audio_path, lang)
+            except Exception:  # noqa: BLE001 — degrade to next tier
+                logger.exception("STT tier %s failed; trying next", tier)
+        raise RuntimeError("speech-to-text failed on every engine")
+
+    def _stt_sarvam(self, audio_path: str, lang: str | None) -> dict[str, Any]:
+        import httpx
+
+        data = {
+            "model": _SARVAM_STT_MODEL,
+            "mode": os.environ.get("NARAD_SARVAM_STT_MODE", "codemix"),
+            "language_code": SARVAM_LANGUAGES.get(lang or "", "unknown"),
+        }
+        ext = os.path.splitext(audio_path)[1].lstrip(".").lower() or "webm"
+        with open(audio_path, "rb") as handle, httpx.Client(timeout=45) as client:
+            resp = client.post(
+                f"{_SARVAM_BASE}/speech-to-text",
+                headers={"api-subscription-key": _sarvam_key()},
+                data=data,
+                files={"file": (os.path.basename(audio_path), handle, f"audio/{ext}")},
+            )
+        resp.raise_for_status()
+        payload = resp.json()
+        return {
+            "text": str(payload.get("transcript") or "").strip(),
+            "language": payload.get("language_code"),
+            "duration": None,
+            "engine": "sarvam",
+        }
+
+    def _stt_whisper(self, audio_path: str, lang: str | None) -> dict[str, Any]:
         with self._lock:
             if self._whisper is None:
                 from faster_whisper import WhisperModel
 
                 size = os.environ.get("NARAD_WHISPER_MODEL", "small")
                 self._whisper = WhisperModel(size, device="cpu", compute_type="int8")
-        segments, info = self._whisper.transcribe(audio_path, vad_filter=True)
+        segments, info = self._whisper.transcribe(
+            audio_path, vad_filter=True, language=lang if lang in ("en", "hi") else None
+        )
         text = " ".join(seg.text.strip() for seg in segments).strip()
         return {
             "text": text,
             "language": getattr(info, "language", None),
             "duration": round(getattr(info, "duration", 0.0), 2),
+            "engine": "whisper",
         }
 
 

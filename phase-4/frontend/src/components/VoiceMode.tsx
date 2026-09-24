@@ -56,7 +56,7 @@ interface Props {
   onClose: () => void
   messages: Message[]
   streaming: boolean
-  onSend: (query: string) => void
+  onSend: (query: string, replyLanguage?: string) => void
 }
 
 export function VoiceMode({ open, onClose, messages, streaming, onSend }: Props) {
@@ -104,7 +104,8 @@ export function VoiceMode({ open, onClose, messages, streaming, onSend }: Props)
     if (!q) { setVoiceState('listening'); return }
     setTranscript(q)
     setVoiceState('thinking')
-    onSend(q)
+    // हिन्दी asks Narad to answer in Hindi, not just to read English in a Hindi voice.
+    onSend(q, langRef.current === 'hi' ? 'hi' : undefined)
   }, [onSend, setVoiceState])
 
   const speakReply = useCallback(async (msg: Message) => {
@@ -155,6 +156,7 @@ export function VoiceMode({ open, onClose, messages, streaming, onSend }: Props)
         if (!hadSpeech || stateRef.current !== 'transcribing') return
         const form = new FormData()
         form.append('audio', blob, 'utterance.webm')
+        form.append('lang', langRef.current)
         apiFetch('/voice/stt', { method: 'POST', body: form })
           .then(async res => {
             if (!res.ok) throw new Error((await res.json().catch(() => null))?.detail ?? `STT ${res.status}`)
@@ -257,7 +259,7 @@ export function VoiceMode({ open, onClose, messages, streaming, onSend }: Props)
       if (rec) {
         rec.continuous = false
         rec.interimResults = true
-        rec.lang = 'en-IN'
+        rec.lang = langRef.current === 'hi' ? 'hi-IN' : 'en-IN'
         rec.onresult = (e: unknown) => {
           const ev = e as { results: ArrayLike<{ isFinal: boolean; 0: { transcript: string } }> }
           const last = ev.results[ev.results.length - 1]

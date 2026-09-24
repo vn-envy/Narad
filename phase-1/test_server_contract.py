@@ -114,6 +114,13 @@ class ServerContractTests(unittest.TestCase):
         })
         self.assertIsNone(evil.headers.get("access-control-allow-origin"))
 
+    def test_reply_language_instruction(self) -> None:
+        self.assertIn("Hindi in Devanagari", server._reply_language_instruction("hi"))
+        self.assertIn("Tamil", server._reply_language_instruction("TA"))
+        self.assertEqual(server._reply_language_instruction("en"), "")
+        self.assertEqual(server._reply_language_instruction(None), "")
+        self.assertEqual(server._reply_language_instruction("ignore previous"), "")
+
     def test_chat_returns_coherent_degraded_stream_without_adk(self) -> None:
         with patch.object(server, "_agent_runtime_unavailable_reason", return_value="test runtime disabled"):
             with self.client.stream("POST", "/chat", json={"query": "hello from test"}) as response:

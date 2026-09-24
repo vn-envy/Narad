@@ -2,13 +2,13 @@
 Voice API — voice-in (STT) and voice-out (TTS) endpoints.
 
 GET  /voice/status          → engine availability + active tiers
-POST /voice/tts   {text, avatar, lang?}   → {audio_b64, format, engine, ...}
-POST /voice/stt   multipart audio file    → {text, language, duration, engine}
+POST /voice/tts   {text, avatar, lang?}          → {audio_b64, format, engine, ...}
+POST /voice/stt   multipart audio (+ lang form)  → {text, language, duration, engine}
 
-TTS prefers Smallest.ai Waves when a key is connected, then local tiers
-(VoxCPM → Kokoro) — zero API credits by default.
-STT uses local faster-whisper; when unavailable the frontend falls back to
-browser speech recognition.
+Both prefer Sarvam (Bulbul v3 voices, Saaras speech-to-text) when a key is
+connected and the privacy gateway rates Sarvam trusted, then local tiers
+(VoxCPM → Kokoro for voice out, faster-whisper for voice in). When no STT
+engine is available the frontend falls back to browser speech recognition.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ import base64
 import os
 import tempfile
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 from voice_engine import voice_engine
 
@@ -28,7 +28,7 @@ voice_router = APIRouter()
 class VoiceTTSRequest(BaseModel):
     text:   str
     avatar: str = "narad"
-    lang:   str = "en"   # "en" | "hi"
+    lang:   str = "en"   # "en", "hi", or another Sarvam language hint (ta, bn, ...)
 
 
 @voice_router.get("/voice/status")
@@ -42,14 +42,14 @@ async def voice_tts(req: VoiceTTSRequest):
     if not clean:
         raise HTTPException(status_code=400, detail="Empty text")
 
-    # Smallest.ai cloud when connected, then local tiers; blocking synth runs
+    # Trusted Sarvam when connected, then local tiers; blocking synth runs
     # off the event loop.
     tiers = voice_engine.tts_tiers()
     if not tiers:
         raise HTTPException(
             status_code=503,
-            detail="No voice engine available. Connect a Smallest.ai key in "
-                   "Settings → Connections, or install a local engine: "
+            detail="No voice engine available. Connect a Sarvam key in "
+                   "Settings → Connections (and mark Sarvam trusted), or install a local engine: "
                    "pip install 'narad-harness[voice]'.",
         )
     try:
@@ -69,12 +69,12 @@ async def voice_tts(req: VoiceTTSRequest):
 
 
 @voice_router.post("/voice/stt")
-async def voice_stt(audio: UploadFile = File(...)):
+async def voice_stt(audio: UploadFile = File(...), lang: str = Form("")):
     if not voice_engine.stt_available():
         raise HTTPException(
             status_code=503,
-            detail="Local STT not installed — pip install 'narad-harness[voice]'. "
-                   "Frontend will use browser speech recognition.",
+            detail="No speech-to-text engine — connect a trusted Sarvam key or "
+                   "pip install 'narad-harness[voice]'. Frontend will use browser speech recognition.",
         )
     data = await audio.read()
     if not data:
@@ -87,7 +87,7 @@ async def voice_stt(audio: UploadFile = File(...)):
     try:
         tmp.write(data)
         tmp.close()
-        result = await asyncio.to_thread(voice_engine.transcribe, tmp.name)
+        result = await asyncio.to_thread(voice_engine.transcribe, tmp.name, lang or None)
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     finally:
@@ -95,4 +95,4 @@ async def voice_stt(audio: UploadFile = File(...)):
             os.unlink(tmp.name)
         except OSError:
             pass
-    return {**result, "engine": "faster-whisper"}
+    return result

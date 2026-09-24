@@ -275,7 +275,7 @@ def tool_family_status() -> dict[str, dict[str, Any]]:
         from voice_engine import voice_engine
         tts_ok = bool(voice_engine.tts_tiers())
         tts_reason = None if tts_ok else (
-            "No TTS engine — connect a Smallest.ai key or install a local engine"
+            "No TTS engine — connect a trusted Sarvam key or install a local engine"
         )
     except Exception as _tts_exc:  # noqa: BLE001 — availability probe only
         tts_ok, tts_reason = False, str(_tts_exc)

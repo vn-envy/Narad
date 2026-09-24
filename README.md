@@ -253,7 +253,14 @@ To change a provider's tier, use `NARAD_PROVIDER_TIERS` (for example `nebius=tru
 
 ## Voice
 
-Voice is optional and can remain fully local:
+With a Sarvam key connected in Kunji, voice mode speaks and listens in Indian languages:
+- **Voice out:** Bulbul v3, with a distinct voice for each avatar, in Hindi, 9 other Indian languages and Indian English.
+- **Voice in:** Saaras speech-to-text in `codemix` mode, so Hinglish arrives as it was spoken ("मेरा phone number बदल दो").
+- **Hindi replies:** turning on the हिन्दी toggle makes Narad *answer* in Hindi, not just read English aloud in a Hindi voice.
+
+Speech can't be pseudonymised, so the privacy gateway sends it to Sarvam only when Sarvam is rated `trusted`: `NARAD_PROVIDER_TIERS=sarvam=trusted`, which the family pilot launcher sets. Do this only after opting out of training and setting minimum retention in the Sarvam dashboard.
+
+Voice can also stay fully local:
 
 ```bash
 source .venv/bin/activate
@@ -263,7 +270,7 @@ pip install -e ".[voice]"
 brew install espeak-ng ffmpeg
 ```
 
-Narad resolves an available engine and falls back gracefully. Voice input can use browser speech recognition when no local transcription engine is installed.
+Narad resolves an available engine and falls back gracefully: Sarvam, then VoxCPM/Kokoro for voice out, and Sarvam, then faster-whisper for voice in. When no transcription engine is available, voice input falls back to the browser's own speech recognition.
 
 ## Development
 

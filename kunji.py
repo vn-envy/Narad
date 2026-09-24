@@ -66,12 +66,12 @@ PROVIDERS: dict[str, dict[str, Any]] = {
         "key_page": "https://platform.openai.com/api-keys",
         "test_model": "gpt-4o-mini",
     },
-    "smallest": {
-        "label": "Smallest.ai (Waves voices)",
-        "env": "SMALLEST_API_KEY",
-        "prefixes": ("eyJ",),  # Smallest keys are JWTs
-        "key_page": "https://waves.smallest.ai/apikeys",
-        "test_model": "",  # not an LLM — test_key() has a dedicated TTS ping
+    "sarvam": {
+        "label": "Sarvam (Indian-language voice and speech-to-text)",
+        "env": "SARVAM_API_KEY",
+        "prefixes": ("sk_",),  # underscore, unlike OpenAI's "sk-"; select explicitly if it differs
+        "key_page": "https://dashboard.sarvam.ai/",
+        "test_model": "",  # not an LLM — test_key() has a dedicated language-ID ping
     },
     "exa": {
         "label": "Exa web research",
@@ -96,8 +96,8 @@ PROVIDERS: dict[str, dict[str, Any]] = {
     },
 }
 
-# longest/most-specific first; "smallest" last so sk-*/dsk-/AIza never mis-hit
-_PREFIX_ORDER = ("anthropic", "google", "deepseek", "openai", "smallest", "typesafe")
+# longest/most-specific first; "sk_" (Sarvam) never collides with "sk-" (OpenAI)
+_PREFIX_ORDER = ("anthropic", "google", "deepseek", "sarvam", "openai", "typesafe")
 
 
 def detect_provider_from_key(key: str) -> str | None:
@@ -284,8 +284,8 @@ def test_key(provider: str, key: str | None = None) -> tuple[bool, str]:
     if provider not in PROVIDERS:
         return False, f"unknown provider: {provider}"
     meta = PROVIDERS[provider]
-    if provider == "smallest":
-        return _test_smallest_key((key or "").strip() or get_key(provider) or "")
+    if provider == "sarvam":
+        return _test_sarvam_key((key or "").strip() or get_key(provider) or "")
     if provider == "exa":
         return _test_exa_key((key or "").strip() or get_key(provider) or "")
     if provider == "typesafe":
@@ -309,21 +309,22 @@ def test_key(provider: str, key: str | None = None) -> tuple[bool, str]:
         return False, f"test call failed: {type(exc).__name__}: {exc}"[:300]
 
 
-def _test_smallest_key(key: str) -> tuple[bool, str]:
-    """Smallest.ai is a TTS API, not an LLM — verify by listing the voice catalog."""
+def _test_sarvam_key(key: str) -> tuple[bool, str]:
+    """Sarvam is a speech API, not an LLM — verify with a one-word language-ID call."""
     if not key:
         return False, "no key to test"
     try:
         import httpx
 
-        resp = httpx.get(
-            "https://api.smallest.ai/waves/v1/lightning-v3.1/get_voices",
-            headers={"Authorization": f"Bearer {key}"},
+        resp = httpx.post(
+            "https://api.sarvam.ai/text-lid",
+            headers={"api-subscription-key": key, "Content-Type": "application/json"},
+            json={"input": "namaste"},
             timeout=15,
         )
         if resp.status_code == 200:
-            return True, "key verified against the Smallest.ai voice catalog"
-        return False, f"Smallest.ai returned HTTP {resp.status_code}"
+            return True, "key verified with a Sarvam language-ID call"
+        return False, f"Sarvam returned HTTP {resp.status_code}"
     except Exception as exc:  # network, DNS — land here honestly
         return False, f"test call failed: {type(exc).__name__}: {exc}"[:300]
 

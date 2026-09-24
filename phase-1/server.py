@@ -425,7 +425,7 @@ try:
 except Exception as _router_err:
     logging.getLogger("narad.server").warning("Product routers unavailable: %s", _router_err)
 
-# ── Voice (Smallest.ai + local-first STT/TTS) ────────────────────────────────
+# ── Voice (Sarvam + local STT/TTS) ────────────────────────────────
 try:
     from voice_api import voice_router
     app.include_router(voice_router)
@@ -1084,6 +1084,25 @@ class ChatRequest(BaseModel):
     active_artifact_workspace_id: Optional[str] = None
     active_artifact_type: Optional[str] = None
     workflow_run_id: Optional[str] = None
+    reply_language: Optional[str] = None  # e.g. "hi" from the voice-mode हिन्दी toggle
+
+
+_REPLY_LANGUAGES = {
+    "hi": "Hindi in Devanagari script",
+    "bn": "Bengali", "gu": "Gujarati", "kn": "Kannada", "ml": "Malayalam",
+    "mr": "Marathi", "pa": "Punjabi", "ta": "Tamil", "te": "Telugu",
+}
+
+
+def _reply_language_instruction(code: Optional[str]) -> str:
+    """One line asking for the reply in the person's language; '' for English/unknown."""
+    language = _REPLY_LANGUAGES.get((code or "").strip().lower())
+    if not language:
+        return ""
+    return (
+        f"[Reply language: answer in natural, conversational {language}. Keep names, "
+        "numbers, medicine names and technical terms as they are.]"
+    )
 
 
 @app.post("/chat/attachments")
@@ -2117,6 +2136,10 @@ async def _run_agent_task(
         # bounded, exact-reread-capable view of uploaded inputs and live URLs.
         if attachment_context:
             effective_query = f"{attachment_context}\n\n{effective_query}"
+
+        reply_language_line = _reply_language_instruction(req.reply_language)
+        if reply_language_line:
+            effective_query = f"{reply_language_line}\n\n{effective_query}"
 
         user_message = genai_types.Content(
             role="user", parts=[genai_types.Part(text=effective_query)]
