@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { toast } from 'sonner'
 import { apiPath, apiUrl, apiFetch, type ApprovalProposal } from '@/lib/api'
+import type { KriyaTask } from '@/lib/tasks'
 
 export type AvatarName = 'Matsya' | 'Rama' | 'Krishna' | 'Parashurama'
 
@@ -60,8 +61,9 @@ function storedTurnAttachments(turn: StoredThreadTurn): ChatAttachment[] | undef
 
 export interface Message {
   id: string
-  /** 'approval': an Anumati card, never a reply to speak, copy or replay. */
-  role: 'user' | 'assistant' | 'approval'
+  /** 'approval': an Anumati card, never a reply to speak, copy or replay.
+   *  'task': a Kriya task card (a background errand), likewise. */
+  role: 'user' | 'assistant' | 'approval' | 'task'
   text: string
   avatarsInvolved?: AvatarName[]
   sessionId?: string
@@ -76,6 +78,8 @@ export interface Message {
   guru?: GuruPayload
   /** Anumati: present when this message is an approval card, not prose. */
   approval?: ApprovalProposal
+  /** Kriya: present when this message is a task card, not prose. */
+  task?: KriyaTask
 }
 
 export interface SessionInfo {
@@ -390,6 +394,15 @@ function upsertApprovalMessage(
   }
   const next = [...messages]
   next[index] = { ...next[index], text: proposal.summary, approval: proposal }
+  return next
+}
+
+/** Put a task card in the chat, or refresh the one already showing that task. */
+function upsertTaskMessage(messages: Message[], task: KriyaTask): Message[] {
+  const index = messages.findIndex(m => m.task?.id === task.id)
+  if (index < 0) return [...messages, { id: `task-${task.id}`, role: 'task', text: task.goal, task }]
+  const next = [...messages]
+  next[index] = { ...next[index], text: task.goal, task }
   return next
 }
 
@@ -1281,6 +1294,15 @@ export function useAvatara(userId = 'default') {
               const proposal = evt.data as unknown as ApprovalProposal
               if (!proposal?.id) break
               setState(s => ({ ...s, messages: upsertApprovalMessage(s.messages, proposal) }))
+              break
+            }
+
+            case 'task_started':
+            case 'task_updated': {
+              // An errand now runs on the Mac by itself: show its card in the chat.
+              const task = evt.data as unknown as KriyaTask
+              if (!task?.id) break
+              setState(s => ({ ...s, messages: upsertTaskMessage(s.messages, task) }))
               break
             }
 

@@ -16,6 +16,7 @@ import { MahatiLogo } from './MahatiLogo'
 import { ZigzagBank } from './Motifs'
 import { GuruMessage } from './GuruCards'
 import { ApprovalCard, type ApprovalChange } from './ApprovalCard'
+import { TaskCard } from './TaskCard'
 import { cn } from '@/lib/utils'
 import {
   Archive,
@@ -744,6 +745,15 @@ export function ChatPanel({
             return (
               <div key={msg.id} className="w-full max-w-[92%] self-start">
                 <ApprovalCard proposal={msg.approval} onChange={onApprovalChange} />
+              </div>
+            )
+          }
+
+          // Kriya: an errand running on the Mac, with its live view and Stop.
+          if (msg.role === 'task' && msg.task) {
+            return (
+              <div key={msg.id} className="w-full max-w-[92%] self-start">
+                <TaskCard task={msg.task} />
               </div>
             )
           }
