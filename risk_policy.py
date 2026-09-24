@@ -130,9 +130,10 @@ LABEL_RULES: tuple[Rule, ...] = (
         "recharge", "donate", "purchase", "place (?:your |my |an )?order", "भुगतान(?: करें)?", "bhugtan",
         r"upi pay", r"pay via upi",
     )),
+    # A cart is reversible; paying for it is the commit.
+    Rule("cart", BENIGN, _phrases(r"add to (?:cart|basket|bag)", r"remove from (?:cart|basket|bag)")),
     Rule("buy", COMMIT, _phrases(
-        "buy", r"add to (?:cart|basket|bag)", "खरीदें", "खरीदो", "kharido", "khareedo", r"buy karo",
-        r"order karo", "ऑर्डर करें",
+        "buy", "खरीदें", "खरीदो", "kharido", "khareedo", r"buy karo", r"order karo", "ऑर्डर करें",
     )),
     Rule("book", COMMIT, _phrases(
         "book", r"book (?:now|it|this|ticket|tickets|flight|hotel|room|slot|appointment|a demo)",
