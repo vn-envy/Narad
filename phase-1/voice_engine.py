@@ -57,6 +57,15 @@ SMALLEST_VOICES: dict[str, str] = {
 # retired 2026-07-14 and now return HTTP 410). Model is a body field.
 _SMALLEST_MODEL = os.environ.get("NARAD_SMALLEST_MODEL", "lightning_v3.1")
 _SMALLEST_BASE = "https://api.smallest.ai/waves/v1"
+
+
+def _raw_text_allowed(provider: str) -> bool:
+    try:
+        import privacy_gateway
+
+        return privacy_gateway.raw_allowed(provider)
+    except Exception:
+        return False
 _SMALLEST_CHUNK_CHARS = 240  # conservative per-request text size
 _SMALLEST_SAMPLE_RATE = 24_000
 
@@ -122,8 +131,10 @@ class VoiceEngine:
         """Available TTS engines, best first."""
         tiers: list[str] = []
         forced = os.environ.get("NARAD_TTS_ENGINE", "auto").lower()
-        if os.environ.get("SMALLEST_API_KEY", "").strip():
-            tiers.append("smallest")  # preferred when connected; locals stay as fallback
+        if os.environ.get("SMALLEST_API_KEY", "").strip() and _raw_text_allowed("smallest"):
+            # Preferred when connected and trusted: replies are read aloud as-is,
+            # so the privacy gateway only allows local or trusted TTS providers.
+            tiers.append("smallest")
         if _has("voxcpm") and self.device() != "cpu":
             tiers.append("voxcpm")
         if _has("kokoro"):
@@ -161,6 +172,10 @@ class VoiceEngine:
         for tier in self.tts_tiers():
             try:
                 if tier == "smallest":
+                    import privacy_gateway
+
+                    if not privacy_gateway.allow_raw("smallest", source="tts", chars=len(text)):
+                        continue
                     return self._tts_smallest(text, avatar, lang)
                 if tier == "voxcpm":
                     return self._tts_voxcpm(text, avatar)
@@ -169,7 +184,7 @@ class VoiceEngine:
             except Exception:  # noqa: BLE001 — degrade to next tier
                 logger.exception("TTS tier %s failed; trying next", tier)
         raise RuntimeError(
-            "no TTS engine available — connect a Smallest.ai key or "
+            "no TTS engine available — connect a trusted Smallest.ai key or "
             "pip install 'narad-harness[voice]'"
         )
 

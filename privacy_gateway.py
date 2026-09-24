@@ -68,6 +68,8 @@ _DEFAULT_TIERS: dict[str, str] = {
     "cerebras": REDACT,
     "mimo": REDACT,
     "typesafe": REDACT,  # Jev decision API; retention terms unverified
+    "smallest": REDACT,  # Smallest.ai TTS; terms unconfirmed
+    "sarvam": REDACT,  # trains on inputs unless the account opts out
     "custom": REDACT,
     "unknown": REDACT,
     "xai": BLOCKED,
@@ -787,6 +789,28 @@ def completion(**kwargs: Any) -> Any:
         record_egress(model=model, source=source, tier=tier,
                       chars=len(json.dumps(messages, ensure_ascii=False, default=str)))
     return litellm.completion(**kwargs)
+
+
+def raw_allowed(provider: str) -> bool:
+    """Whether content that cannot be pseudonymised may go to `provider` at all."""
+    return provider_tier(provider) in (LOCAL, TRUSTED)
+
+
+def allow_raw(provider: str, *, source: str, chars: int = 0) -> bool:
+    """Gate audio, images and text read aloud: only `local` or `trusted` destinations.
+
+    Placeholders cannot be spoken or drawn, so `redact`-tier providers never
+    receive this content; the refusal is logged and the caller falls back.
+    """
+    tier = provider_tier(provider)
+    if tier == LOCAL:
+        return True
+    if tier == TRUSTED:
+        record_egress(model=provider, source=source, tier=tier, chars=chars)
+        return True
+    record_egress(model=provider, source=source, tier=tier,
+                  blocked="policy" if tier == BLOCKED else "raw_content")
+    return False
 
 
 def guard_payload(provider: str, payload: Any, *, source: str) -> Any:

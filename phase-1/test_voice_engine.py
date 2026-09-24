@@ -55,18 +55,32 @@ class VoiceEngineTest(unittest.TestCase):
         self.assertEqual(set(SMALLEST_VOICES), set(KOKORO_VOICES))
         self.assertEqual(len(set(SMALLEST_VOICES.values())), len(SMALLEST_VOICES))
 
-    def test_smallest_tier_first_when_key_present(self) -> None:
+    def test_smallest_tier_first_when_key_present_and_trusted(self) -> None:
         import os
-        old = os.environ.get("SMALLEST_API_KEY")
-        os.environ["SMALLEST_API_KEY"] = "eyJtest"
-        try:
-            tiers = VoiceEngine().tts_tiers()
-            self.assertEqual(tiers[0], "smallest")
-        finally:
-            if old is None:
-                os.environ.pop("SMALLEST_API_KEY", None)
-            else:
-                os.environ["SMALLEST_API_KEY"] = old
+        from unittest.mock import patch
+
+        with patch.dict(os.environ, {"SMALLEST_API_KEY": "eyJtest", "NARAD_PROVIDER_TIERS": "smallest=trusted"}):
+            self.assertEqual(VoiceEngine().tts_tiers()[0], "smallest")
+
+    def test_untrusted_smallest_never_receives_reply_text(self) -> None:
+        # Text read aloud cannot be pseudonymised, so a redact-tier TTS
+        # provider is skipped and the reply stays on the Mac.
+        import os
+        import tempfile
+        from unittest.mock import patch
+
+        import privacy_gateway
+
+        engine = VoiceEngine()
+        home = Path(tempfile.mkdtemp(prefix="narad-tts-privacy-"))
+        with patch.dict(os.environ, {"SMALLEST_API_KEY": "eyJtest", "NARAD_PROVIDER_TIERS": ""}), \
+             patch.object(privacy_gateway, "_privacy_dir", lambda profile_id=None: home), \
+             patch.object(engine, "tts_tiers", return_value=["smallest"]), \
+             patch.object(engine, "_tts_smallest", side_effect=AssertionError("sent to Smallest")):
+            self.assertNotIn("smallest", VoiceEngine().tts_tiers())
+            with self.assertRaises(RuntimeError):
+                engine.synthesize("Asha's lab report is ready", "krishna")
+        self.assertIn("raw_content", (home / "egress.jsonl").read_text())
 
     def test_smallest_tier_absent_without_key(self) -> None:
         import os
