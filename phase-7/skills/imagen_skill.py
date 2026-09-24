@@ -12,6 +12,7 @@ import os
 import uuid
 
 from narad_config import ARTIFACTS_DIR
+from tool_result import profile_run_path
 
 _SERVER_MEDIA_BASE = os.environ.get("MEDIA_URL_BASE", "http://localhost:8000/media")
 
@@ -76,15 +77,15 @@ def _generate_image_mimo(prompt: str) -> dict:
 
         img_bytes = _b64.b64decode(img_b64)
 
-        run_id = uuid.uuid4().hex[:8]
-        out_dir = ARTIFACTS_DIR / run_id
+        media_path = profile_run_path(uuid.uuid4().hex[:8])
+        out_dir = ARTIFACTS_DIR / media_path
         out_dir.mkdir(parents=True, exist_ok=True)
         img_path = out_dir / "image.png"
         img_path.write_bytes(img_bytes)
 
         return {
             "status": "ok",
-            "url": f"{_SERVER_MEDIA_BASE}/{run_id}/image.png",
+            "url": f"{_SERVER_MEDIA_BASE}/{media_path}/image.png",
             "path": str(img_path),
             "provider": "mimo",
         }
@@ -133,15 +134,15 @@ def generate_image(prompt: str) -> dict:
 
         img = response.generated_images[0].image
 
-        run_id = uuid.uuid4().hex[:8]
-        out_dir = ARTIFACTS_DIR / run_id
+        media_path = profile_run_path(uuid.uuid4().hex[:8])
+        out_dir = ARTIFACTS_DIR / media_path
         out_dir.mkdir(parents=True, exist_ok=True)
         img_path = out_dir / "image.png"
         img.save(str(img_path))
 
         return {
             "status": "ok",
-            "url":    f"{_SERVER_MEDIA_BASE}/{run_id}/image.png",
+            "url":    f"{_SERVER_MEDIA_BASE}/{media_path}/image.png",
             "path":   str(img_path),
         }
     except Exception as exc:

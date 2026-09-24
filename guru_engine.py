@@ -51,6 +51,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from learning_workspace import safe_workspace_id
 from narad_config import LEARNING_DIR
 
 
@@ -87,7 +88,7 @@ def _slug(value: str) -> str:
 
 
 def _workspace_dir(user_id: str, workspace_id: str) -> Path:
-    return LEARNING_DIR / user_id / workspace_id
+    return LEARNING_DIR / user_id / safe_workspace_id(workspace_id)
 
 
 def _syllabus_path(user_id: str, workspace_id: str) -> Path:

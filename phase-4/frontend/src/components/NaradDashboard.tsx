@@ -17,8 +17,9 @@ import { MadhubaniBorder } from './MadhubaniBorder'
 import { KunjiTab } from './KunjiTab'
 import { WorkflowPathsPanel } from './WorkflowPathsPanel'
 import { ProfileBadge } from './ProfileBadge'
+import { ProfileTab } from './ProfileTab'
 
-type SystemSection = 'status' | 'trace' | 'models'
+type SystemSection = 'status' | 'trace' | 'models' | 'profile'
 
 interface Props {
   surface: DashboardSurface
@@ -58,7 +59,7 @@ const SURFACE_META: Record<DashboardSurface, {
   system: {
     eyebrow: 'दृष्टि',
     label: 'System',
-    description: 'Runtime health, models, connections, and traces.',
+    description: 'Runtime health, models, connections, traces, and your profile.',
   },
 }
 
@@ -302,6 +303,7 @@ export function NaradDashboard({
                 { id: 'status', label: 'Status' },
                 { id: 'trace', label: 'Trace' },
                 { id: 'models', label: 'Connections' },
+                { id: 'profile', label: 'Profile' },
               ]}
             />
           </div>
@@ -363,6 +365,7 @@ export function NaradDashboard({
             />
           )}
           {systemSection === 'models' && <KunjiTab onOpenSetup={onOpenSetup} />}
+          {systemSection === 'profile' && <ProfileTab profile={profile} onSignedOut={onSwitchProfile} />}
         </SurfaceFrame>
       )}
 

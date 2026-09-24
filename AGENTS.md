@@ -246,9 +246,27 @@ actions are denied by default; every verdict lands in Karma. Policy file:
 Workflow stages provide durable progress directly; there is no parallel Kanban or Projects subsystem.
 
 ### Security Floor
-`NARAD_AUTH` modes local/strict/off; bearer token at `~/.narad/config/api_token`
-(chmod 600); localhost pass-through; CORS via `NARAD_ALLOWED_ORIGINS`; token-bucket
-rate limiting per user (10 req/min default, `NARAD_RATE_LIMIT` override, HTTP 429).
+Enforced in `phase-1/server.py`; regression tests in `phase-1/test_profile_security.py`
+and `phase-1/test_profile_isolation.py`.
+- **Auth modes** (`NARAD_AUTH`):
+  - `local` (default): direct loopback requests pass as the host; a request relayed by a tunnel or proxy (any forwarding header) is not local.
+  - `strict`: every request needs a profile session or the host bearer token (`~/.narad/config/api_token`, chmod 600). The exceptions are the sign-in gate, `/health`, the OAuth callbacks and the app shell.
+  - `off`: tests only.
+- **Profiles and PINs**: each person signs in with a 4–8 digit PIN (PBKDF2) and gets a signed 30-day session.
+  - Wrong PINs lock the profile after 5 tries and the client IP (IPv6 per /64) after 10, backing off from 30 s to 15 min (HTTP 429 with `Retry-After`).
+  - Each profile has a session epoch. A PIN change or "sign out everywhere" (`POST /profiles/{id}/revoke-sessions`) bumps it, and every older token stops working.
+  - Changing your own PIN needs the current one. The owner can reset a member's PIN (`POST /profiles/{id}/reset-pin`) and sign them out. In the app: System → Profile.
+- **Server-derived identity**: the session decides the profile. `?user_id=` is rewritten to it; a different id in a header, query, body or path gets 403, and omitting it means your own.
+- **Invite-only profiles**: `POST /profiles` needs the owner or a single-use invite code (72 h, stored hashed) from the owner's `POST /profiles/invites`. The owner's first PIN is set only on the Mac itself (`/profiles/bootstrap`, loopback only).
+- **Owner-only**: provider keys (`/connections*`, Kunji), the local model, tier choice, device and browser grants (`/interaction-targets`), invites, PIN resets, sutra accept/revert, and the host shell tools.
+- **Per-profile records**: sutras, andon, karma, sankalpa, costs, audit, search and provenance show each profile only its own records. The owner adds `?scope=all` to see everyone's. Records that name no profile predate profiles and are the owner's.
+- **Media**: `/media` reads take the session, or the HttpOnly `narad_media_session` cookie mirrored from it (path `/media`, SameSite=Lax, Secure over HTTPS).
+  - Captures and generated runs live under `computer-use/`, `phone-use/` and `runs/`, one folder per profile, and are served only to that profile. Older top-level run folders are served only to the owner.
+  - Everything is served sandboxed (CSP `sandbox allow-scripts`, `nosniff`); downloads never render.
+- **Cloudflare Access at the origin** (`phase-1/cf_access.py`, the `_cloudflare_access` middleware): with `NARAD_CF_ACCESS_TEAM_DOMAIN` and `NARAD_CF_ACCESS_AUD` set, every non-loopback request needs a valid Access JWT (RS256; audience and issuer checked). Anything else gets 403. `GET /health` stays open for uptime probes.
+- **Browser reach**: computer use refuses loopback, LAN, metadata and credentialed URLs unless the owner names a host in `NARAD_BROWSER_PRIVATE_HOSTS`. The check runs before navigating and again wherever the page lands after a redirect, link or history move.
+- **CORS** via `NARAD_ALLOWED_ORIGINS`. Chat is rate-limited per profile (token bucket, 10 req/min, `NARAD_RATE_LIMIT`, HTTP 429).
+- **Egress**: every model and embedding call leaves through the privacy gateway (see Privacy Gateway above).
 
 ### User Inputs & Visual-Output Routing
 Chat uploads are stored privately under `~/.narad/attachments/`. Images enter the

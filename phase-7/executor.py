@@ -9,7 +9,8 @@ Runs Parashurama-generated Python code in a subprocess with:
   - Bounded stdout/stderr capture (spooled to disk, not RAM)
   - Isolated output directory
 
-All generated files land in <ARTIFACTS_DIR>/<run_id>/
+All generated files land in <ARTIFACTS_DIR>/runs/<profile_id>/<run_id>/, owned
+by the active profile; the result's ``media_path`` is that folder under /media.
 The caller is responsible for moving or serving them.
 
 Threat model note: the AST check is a guardrail against careless or misled
@@ -30,6 +31,7 @@ import uuid
 from pathlib import Path
 
 from narad_config import ARTIFACTS_DIR as _OUTPUTS_DIR
+from tool_result import profile_run_path
 
 TIMEOUT_S = int(os.environ.get("EXECUTOR_TIMEOUT", "90"))
 _STDOUT_CAP = 4000   # chars returned to caller (contract)
@@ -207,10 +209,12 @@ def execute_code(
             "output_files": list[str],   # absolute paths to generated files
             "duration_s":   float,
             "run_id":       str,
+            "media_path":   str,   # runs/<profile_id>/<run_id>, relative to /media
         }
     """
     run_id = str(uuid.uuid4())[:8]
-    run_dir = _OUTPUTS_DIR / run_id
+    media_path = profile_run_path(run_id)
+    run_dir = _OUTPUTS_DIR / media_path
     run_dir.mkdir(parents=True, exist_ok=True)
 
     if output_dir is None:
@@ -225,6 +229,7 @@ def execute_code(
             "output_files": [],
             "duration_s":   0.0,
             "run_id":       run_id,
+            "media_path":   media_path,
         }
 
     # Mandatory Dharma gate — verdict lands in the Karma ledger. Fail closed:
@@ -248,6 +253,7 @@ def execute_code(
             "output_files": [],
             "duration_s":   0.0,
             "run_id":       run_id,
+            "media_path":   media_path,
         }
 
     # Wrap the user code so OUTPUT_DIR is available as a variable.
@@ -308,6 +314,7 @@ def execute_code(
                     "output_files": [],
                     "duration_s":   timeout_s,
                     "run_id":       run_id,
+                    "media_path":   media_path,
                 }
 
         duration = time.monotonic() - t0
@@ -326,6 +333,7 @@ def execute_code(
             "output_files": output_files,
             "duration_s":   round(duration, 2),
             "run_id":       run_id,
+            "media_path":   media_path,
         }
 
     except Exception as exc:
@@ -341,6 +349,7 @@ def execute_code(
             "output_files": [],
             "duration_s":   round(time.monotonic() - t0, 2),
             "run_id":       run_id,
+            "media_path":   media_path,
         }
     finally:
         for stale in (Path(script_path), stdout_path, stderr_path):

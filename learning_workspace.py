@@ -111,8 +111,20 @@ def _user_dir(user_id: str) -> Path:
     return path
 
 
+# Workspace ids arrive in query strings and JSON bodies. Only a plain name may
+# become a folder, so no id can climb into another profile's workspaces.
+WORKSPACE_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_-]{0,95}$"
+
+
+def safe_workspace_id(workspace_id: str) -> str:
+    value = str(workspace_id or "")
+    if not re.fullmatch(WORKSPACE_ID_PATTERN, value):
+        raise ValueError("Unknown learning workspace")
+    return value
+
+
 def _workspace_dir(user_id: str, workspace_id: str) -> Path:
-    return _user_dir(user_id) / workspace_id
+    return _user_dir(user_id) / safe_workspace_id(workspace_id)
 
 
 def _workspace_meta_path(user_id: str, workspace_id: str) -> Path:

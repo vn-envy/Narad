@@ -4,7 +4,7 @@ import asyncio
 from typing import Optional
 
 import guided_mode
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from guru_engine import (
@@ -14,6 +14,7 @@ from guru_engine import (
     load_learner_state,
 )
 from learning_workspace import (
+    WORKSPACE_ID_PATTERN,
     append_learning_record,
     create_learning_artifact,
     ensure_workspace,
@@ -56,7 +57,7 @@ class LearningGlossaryUpdate(BaseModel):
 
 
 class LearningArtifactCreate(BaseModel):
-    workspace_id: str
+    workspace_id: str = Field(pattern=WORKSPACE_ID_PATTERN)
     topic: str
     artifact_type: str
     teaching_context: str = ""
@@ -65,7 +66,7 @@ class LearningArtifactCreate(BaseModel):
 
 class LearningArtifactUpdate(BaseModel):
     instruction: str
-    workspace_id: Optional[str] = None
+    workspace_id: Optional[str] = Field(default=None, pattern=WORKSPACE_ID_PATTERN)
     record_ids: list[str] = Field(default_factory=list)
 
 
@@ -86,14 +87,14 @@ class GuidedStart(BaseModel):
 
 
 class GuidedAnswer(BaseModel):
-    workspace_id: str
+    workspace_id: str = Field(pattern=WORKSPACE_ID_PATTERN)
     answer: str = ""
     choice_index: Optional[int] = None
     workflow_run_id: Optional[str] = None
 
 
 class GuidedWorkspaceRef(BaseModel):
-    workspace_id: str
+    workspace_id: str = Field(pattern=WORKSPACE_ID_PATTERN)
     workflow_run_id: Optional[str] = None
 
 
@@ -266,7 +267,11 @@ async def get_learning_artifacts(workspace_id: str, user_id: str = "default", li
 
 
 @learning_router.get("/artifacts/{artifact_id}")
-async def get_learning_artifact(artifact_id: str, user_id: str = "default", workspace_id: Optional[str] = None):
+async def get_learning_artifact(
+    artifact_id: str,
+    user_id: str = "default",
+    workspace_id: Optional[str] = Query(default=None, pattern=WORKSPACE_ID_PATTERN),
+):
     artifact = load_artifact(user_id=user_id, artifact_id=artifact_id, workspace_id=workspace_id)
     if not artifact:
         raise HTTPException(status_code=404, detail="learning artifact not found")
@@ -335,7 +340,7 @@ async def get_learning_state(workspace_id: str, user_id: str = "default"):
 async def get_learning_artifact_version(
     artifact_id: str,
     version: int,
-    workspace_id: str,
+    workspace_id: str = Query(pattern=WORKSPACE_ID_PATTERN),
     user_id: str = "default",
 ):
     artifact = load_artifact_version(

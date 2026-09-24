@@ -30,6 +30,7 @@ from narad_config import (
     SESSION_CATALOG_DIR,
     SWAPNA_INBOX_DIR,
 )
+from profile_context import record_profile_id
 from smriti_core import architecture_scorecard
 
 
@@ -397,8 +398,8 @@ def _commitment_rows(user_id: str, session_id: str | None = None) -> list[dict[s
     return rows
 
 
-def _mutation_rows(session_id: str | None = None) -> list[dict[str, Any]]:
-    rows = _load_jsonl(KARMA_MUTATIONS_PATH)
+def _mutation_rows(user_id: str, session_id: str | None = None) -> list[dict[str, Any]]:
+    rows = [row for row in _load_jsonl(KARMA_MUTATIONS_PATH) if record_profile_id(row) == user_id]
     if session_id is None:
         return rows
     return [
@@ -431,7 +432,7 @@ def build_context_bundle(user_id: str, session_id: str) -> dict[str, Any] | None
     working = load_working_state(user_id, session_id) or {}
     commitments = _commitment_rows(user_id, session_id)
     session_mutations = sorted(
-        _mutation_rows(session_id),
+        _mutation_rows(user_id, session_id),
         key=lambda row: _parse_ts(row.get("ts")),
         reverse=True,
     )[:8]
@@ -533,7 +534,7 @@ def harness_overview(*, user_id: str = "default", selected_session_id: str | Non
     )
     context = build_context_bundle(user_id, active_session) if active_session else None
     swapna_rows = _swapna_rows(user_id)
-    mutation_rows = _mutation_rows()
+    mutation_rows = _mutation_rows(user_id)
     episode_total = _user_episode_count(user_id)
     commitment_total = len(_commitment_rows(user_id))
     source_counts = Counter(str(row.get("source") or "live") for row in sessions)

@@ -14,6 +14,9 @@ _SAFE_PROFILE_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,47}$")
 _current_profile_id: contextvars.ContextVar[str] = contextvars.ContextVar(
     "narad_profile_id", default="default"
 )
+# family_profiles bootstraps the owner as "default", whose files are the
+# pre-family global ones, so a log record that names no profile is the owner's.
+OWNER_PROFILE_ID = "default"
 
 
 def validate_profile_id(profile_id: str) -> str:
@@ -25,6 +28,11 @@ def validate_profile_id(profile_id: str) -> str:
 
 def current_profile_id() -> str:
     return _current_profile_id.get()
+
+
+def record_profile_id(record: dict, fallback: str = OWNER_PROFILE_ID) -> str:
+    """The profile a log record is about; records that name none are the owner's."""
+    return str(record.get("profile_id") or record.get("user_id") or fallback)
 
 
 def set_current_profile(profile_id: str) -> contextvars.Token[str]:

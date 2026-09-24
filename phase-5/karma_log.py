@@ -24,6 +24,8 @@ Schema (one JSON per line):
     "policy":            str | null   (e.g. dharma.swapna),
     "provenance_ids":    list[str] | null,
     "metadata":          dict | null,
+    "profile_id":        str          (the profile this event is about; older
+                                       rows have none and are the owner's),
   }
 """
 
@@ -37,7 +39,7 @@ from typing import Any
 
 from narad_config import KARMA_MUTATIONS_PATH as _KARMA_MUTATIONS_PATH
 from narad_config import KARMA_PATH as _KARMA_PATH
-from profile_context import profile_data_path
+from profile_context import current_profile_id, profile_data_path
 
 
 def _karma_mutations_path():
@@ -85,6 +87,7 @@ def log_karma(
             "avatar":   avatar,
             "detail":   detail[:200],
             "entity_type": entity_type,
+            "profile_id": current_profile_id(),
         }
         if triggered_by is not None:
             record["triggered_by"] = triggered_by
@@ -172,9 +175,9 @@ def load_karma(limit: int = 100) -> list[dict]:
     return events[:limit]
 
 
-def karma_summary() -> dict:
-    """Quick stats for the /karma endpoint."""
-    events = load_karma(limit=1000)
+def karma_summary(events: list[dict] | None = None) -> dict:
+    """Quick stats for the /karma endpoint (default: this profile's recent events)."""
+    events = load_karma(limit=1000) if events is None else events
     counts: dict[str, int] = {}
     for e in events:
         action = e.get("action", "unknown")

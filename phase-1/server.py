@@ -469,7 +469,8 @@ _FORWARDING_HEADERS = (
     "x-forwarded-host", "x-forwarded-proto",
 )
 _MEDIA_COOKIE = "narad_media_session"
-_PROFILE_MEDIA_ROOTS = ("computer-use", "phone-use")
+# Per-profile /media folders: captures, and generated runs (tool_result.PROFILE_RUNS_ROOT).
+_PROFILE_MEDIA_ROOTS = ("computer-use", "phone-use", "runs")
 
 
 def _load_or_create_api_token() -> str:
@@ -587,7 +588,7 @@ def _require_owner(request: Request) -> None:
 
 
 def _media_owner(path: str) -> str | None:
-    """Profile that owns a per-profile /media path (computer/phone-use captures)."""
+    """Profile that owns a per-profile /media path (captures, generated runs)."""
     import posixpath
 
     # Resolve exactly as StaticFiles.get_path does (empty segments from "//"
@@ -598,6 +599,15 @@ def _media_owner(path: str) -> str | None:
     if len(parts) >= 2 and parts[0] in _PROFILE_MEDIA_ROOTS:
         return parts[1]
     return None
+
+
+def _may_read_media(path: str, profile: dict) -> bool:
+    """A profile reads only its own captures and runs. Anything else under
+    /media predates per-profile runs (top-level run folders) and is the owner's."""
+    owner = _media_owner(path)
+    if owner is None:
+        return bool(profile.get("is_owner"))
+    return owner == str(profile.get("user_id") or "")
 
 
 def _force_query_user_id(request: Request, profile_id: str) -> None:
@@ -714,7 +724,7 @@ async def _bearer_auth(request, call_next):
             return _AuthJSONResponse({"detail": "Profile identity mismatch"}, status_code=403)
         if claimed_query and validate_profile_id(claimed_query) != profile_id:
             return _AuthJSONResponse({"detail": "Profile identity mismatch"}, status_code=403)
-        if media_read and _media_owner(path) not in (None, profile_id):
+        if media_read and not _may_read_media(path, profile):
             return _AuthJSONResponse({"detail": "Not Found"}, status_code=404)
         _force_query_user_id(request, profile_id)
         request.state.profile_id = profile_id
@@ -2734,37 +2744,103 @@ async def fork_harness_session(session_id: str, user_id: str = "default", title:
     return {"status": "ok", "session": record}
 
 
+# ── Per-profile log views ─────────────────────────────────────────────────────
+# Learning and audit records (sutras, andon, karma, sankalpa, costs, audit)
+# name the profile they are about. A family member sees only their own; so
+# does the owner by default, and every profile's with an explicit ?scope=all.
+# Records that name no profile predate profiles and are the owner's.
+
+def _log_scope(request: Request, scope: str | None, user_id: str | None = None) -> str | None:
+    """The profile whose records this request reads; None means every profile."""
+    if str(scope or "").strip().lower() == "all":
+        if not _is_owner_request(request):
+            raise HTTPException(status_code=403, detail="Only the Narad owner can see every profile's records")
+        return None
+    return _assert_profile_match(request, user_id)
+
+
+def _log_profile_ids() -> list[str]:
+    from family_profiles import list_profiles
+    from profile_context import OWNER_PROFILE_ID
+
+    return sorted({OWNER_PROFILE_ID, *(str(row["user_id"]) for row in list_profiles())})
+
+
+def _profile_log_rows(load: Any, profile_id: str | None) -> list[dict]:
+    """Rows of a per-profile log (``profile_data_path`` files), newest first.
+
+    Each row is stamped with the profile it is about: its own ``profile_id``,
+    else the profile whose file holds it. The owner's file is the pre-family
+    global one, where shared writers (Smriti's mutation ledger) also file
+    rows for other profiles, so every view reads it."""
+    from profile_context import OWNER_PROFILE_ID, profile_scope
+
+    sources = _log_profile_ids() if profile_id is None else sorted({OWNER_PROFILE_ID, profile_id})
+    rows: list[dict] = []
+    seen: set[str] = set()
+    for source in sources:
+        with profile_scope(source):
+            loaded = load()
+        for row in loaded:
+            about = str(row.get("profile_id") or source)
+            marker = str(row.get("id") or "")
+            if (profile_id is not None and about != profile_id) or (marker and marker in seen):
+                continue
+            if marker:
+                seen.add(marker)
+            rows.append({**row, "profile_id": about})
+    rows.sort(key=lambda row: str(row.get("ts") or ""), reverse=True)
+    return rows
+
+
 @app.get("/sutras")
-async def get_sutras():
+async def get_sutras(request: Request, scope: Optional[str] = None):
     from sutra_engine import COOLDOWN_HOURS, get_all_sutras
-    from tapas import PROMOTE_THRESHOLD, sutra_summary
+    from tapas import PROMOTE_THRESHOLD
+
+    sutras = _profile_log_rows(get_all_sutras, _log_scope(request, scope))
+    by_avatar: dict[str, int] = {}
+    for row in sutras:
+        avatar = str(row.get("avatar") or "unknown")
+        by_avatar[avatar] = by_avatar.get(avatar, 0) + 1
     return {
-        "summary": sutra_summary(),
+        "summary": {"total_active_sutras": len(sutras), "by_avatar": by_avatar},
         "settings": {
             "promote_threshold": PROMOTE_THRESHOLD,
             "cooldown_hours": COOLDOWN_HOURS,
             "auto_promote_after_hours": COOLDOWN_HOURS,
         },
-        "sutras": get_all_sutras(),
+        "sutras": sutras,
     }
 
 
+def _change_sutra(request: Request, sutra_id: str, change: Any) -> str:
+    """Accepting or reverting a learned rule changes how Narad behaves, so it is
+    the owner's call. The rule stays in the ledger of the profile it came from."""
+    from profile_context import profile_scope
+
+    _require_owner(request)
+    for profile_id in _log_profile_ids():
+        with profile_scope(profile_id):
+            if change(sutra_id):
+                return profile_id
+    raise HTTPException(status_code=404, detail="Sutra not found")
+
+
 @app.post("/sutras/{sutra_id}/accept")
-async def accept_sutra_endpoint(sutra_id: str):
+async def accept_sutra_endpoint(sutra_id: str, request: Request):
     from sutra_engine import accept_sutra
-    ok = accept_sutra(sutra_id)
-    if not ok:
-        raise HTTPException(status_code=404, detail="Sutra not found")
-    return {"ok": True, "sutra_id": sutra_id, "action": "accepted"}
+
+    profile_id = _change_sutra(request, sutra_id, accept_sutra)
+    return {"ok": True, "sutra_id": sutra_id, "action": "accepted", "profile_id": profile_id}
 
 
 @app.post("/sutras/{sutra_id}/revert")
-async def revert_sutra_endpoint(sutra_id: str):
+async def revert_sutra_endpoint(sutra_id: str, request: Request):
     from sutra_engine import revert_sutra
-    ok = revert_sutra(sutra_id)
-    if not ok:
-        raise HTTPException(status_code=404, detail="Sutra not found")
-    return {"ok": True, "sutra_id": sutra_id, "action": "reverted"}
+
+    profile_id = _change_sutra(request, sutra_id, revert_sutra)
+    return {"ok": True, "sutra_id": sutra_id, "action": "reverted", "profile_id": profile_id}
 
 
 @app.get("/tiers")
@@ -3335,26 +3411,32 @@ async def xai_oauth_disconnect(request: Request):
 
 
 @app.get("/karma")
-async def get_karma():
-    from karma_log import karma_summary
-    return karma_summary()
+async def get_karma(request: Request, scope: Optional[str] = None):
+    from karma_log import karma_summary, load_karma
+
+    events = _profile_log_rows(lambda: load_karma(limit=1000), _log_scope(request, scope))
+    return karma_summary(events[:1000])
 
 
 @app.get("/karma/mutations")
-async def get_karma_mutations(limit: int = 100):
+async def get_karma_mutations(request: Request, limit: int = 100, scope: Optional[str] = None):
     from karma_log import load_mutations
-    return {"mutations": load_mutations(limit=limit)}
+
+    events = _profile_log_rows(lambda: load_mutations(limit=limit), _log_scope(request, scope))
+    return {"mutations": events[:limit]}
 
 
 @app.get("/sankalpa")
-async def get_sankalpa(user_id: str = "default"):
+async def get_sankalpa(request: Request, user_id: str = "", scope: Optional[str] = None):
     from sankalpa import get_all_sankalpas, sankalpa_summary
 
     from smriti_core import load_commitments
+
+    profile_id = _log_scope(request, scope, user_id)
     return {
-        "summary":    sankalpa_summary(user_id),
-        "sankalpas":  get_all_sankalpas(user_id),
-        "commitments": load_commitments(user_id),
+        "summary":    sankalpa_summary(profile_id),
+        "sankalpas":  get_all_sankalpas(profile_id),
+        "commitments": load_commitments(profile_id),
     }
 
 
@@ -3378,15 +3460,19 @@ async def revert_sankalpa_endpoint(sankalpa_id: str, user_id: str = "default"):
 
 # Jaagruti Andon
 @app.get("/andon/log")
-async def get_andon_log(limit: int = 50):
+async def get_andon_log(request: Request, limit: int = 50, scope: Optional[str] = None):
     from andon import load_andon_log
-    return {"events": load_andon_log(limit=limit)}
+
+    events = _profile_log_rows(lambda: load_andon_log(limit=limit), _log_scope(request, scope))
+    return {"events": events[:limit]}
 
 
 @app.get("/andon/stats")
-async def get_andon_stats(days: int = 7):
-    from andon import andon_stats
-    return andon_stats(days=days)
+async def get_andon_stats(request: Request, days: int = 7, scope: Optional[str] = None):
+    from andon import andon_stats, load_andon_log
+
+    events = _profile_log_rows(lambda: load_andon_log(limit=500), _log_scope(request, scope))
+    return andon_stats(days=days, events=events)
 
 
 @app.get("/privacy/egress")
@@ -3434,18 +3520,20 @@ async def post_inbox_mark_read(req: InboxMarkReadRequest, request: Request):
 # ── Cost ledger (M4.1) ─────────────────────────────────────────────────────────
 
 @app.get("/costs")
-async def get_costs(request: Request, days: int = 7, user_id: Optional[str] = None):
+async def get_costs(
+    request: Request, days: int = 7, user_id: Optional[str] = None, scope: Optional[str] = None
+):
     """Trailing cost roll-up: totals, by_day, by_source (turn vs tapas_*), by_model."""
     from cost_ledger import summarize
-    resolved_user_id = user_id or _profile_from_request(request)
-    resolved_user_id = _assert_profile_match(request, resolved_user_id)
-    return summarize(days=days, user_id=resolved_user_id)
+    return summarize(days=days, user_id=_log_scope(request, scope, user_id))
 
 
 @app.get("/provenance/{entity_id}")
-async def get_provenance_endpoint(entity_id: str, user_id: str = "default"):
+async def get_provenance_endpoint(
+    entity_id: str, request: Request, user_id: str = "", scope: Optional[str] = None
+):
     from smriti_core import get_provenance
-    return get_provenance(entity_id, user_id=user_id)
+    return get_provenance(entity_id, user_id=_log_scope(request, scope, user_id))
 
 
 @app.get("/architecture/scorecard")
@@ -3529,14 +3617,21 @@ async def get_memory_tiers(user_id: str = "default"):
 
 @app.get("/search")
 async def unified_search(
+    request: Request,
     q: str,
-    user_id: str = "default",
+    user_id: str = "",
     limit: int = 20,
+    scope: Optional[str] = None,
 ):
-    """Search across memories, learned rules, and diagnostics."""
+    """Search across memories, learned rules, and diagnostics.
+
+    Memories are always the caller's own; ?scope=all (owner only) widens the
+    sutra, andon and audit results to every profile."""
     if not q or len(q.strip()) < 2:
         return []
 
+    user_id = _assert_profile_match(request, user_id)
+    log_profile = _log_scope(request, scope, user_id)
     results: list[dict] = []
     q_lower = q.lower()
 
@@ -3560,7 +3655,7 @@ async def unified_search(
     try:
         from sutra_engine import get_all_sutras  # type: ignore
         sutra_count = 0
-        for s in get_all_sutras():
+        for s in _profile_log_rows(get_all_sutras, log_profile):
             if q_lower in s.get("query", "").lower() or q_lower in s.get("result", "").lower():
                 results.append({
                     "id": s.get("id", ""),
@@ -3569,6 +3664,7 @@ async def unified_search(
                     "preview": s.get("query", "")[:120],
                     "ts": s.get("ts", ""),
                     "nav": "sutras",
+                    "profile_id": s["profile_id"],
                 })
                 sutra_count += 1
                 if sutra_count >= 5:
@@ -3580,7 +3676,7 @@ async def unified_search(
     try:
         from andon import load_andon_log  # type: ignore
         andon_count = 0
-        for e in load_andon_log(limit=50):
+        for e in _profile_log_rows(lambda: load_andon_log(limit=50), log_profile):
             if q_lower in e.get("task_preview", "").lower() or q_lower in e.get("trigger", "").lower():
                 results.append({
                     "id": e.get("id", ""),
@@ -3589,6 +3685,7 @@ async def unified_search(
                     "preview": f"{e.get('trigger','')} — {e.get('task_preview','')[:80]}",
                     "ts": e.get("ts", ""),
                     "nav": "ops",
+                    "profile_id": e["profile_id"],
                 })
                 andon_count += 1
                 if andon_count >= 3:
@@ -3598,30 +3695,30 @@ async def unified_search(
 
     # Audit log
     try:
-        import json as _json
-        _audit_path = Path.home() / ".narad" / "audit.jsonl"
-        if _audit_path.exists():
-            audit_count = 0
-            for raw in reversed(_audit_path.read_text().splitlines()):
-                raw = raw.strip()
-                if not raw:
-                    continue
-                entry = _json.loads(raw)
-                preview = entry.get("task_preview", "")
-                if q_lower in preview.lower() or q_lower in entry.get("avatar", "").lower():
-                    results.append({
-                        "id": f"audit_{len(results)}",
-                        "type": "audit",
-                        "avatar": entry.get("avatar", ""),
-                        "preview": preview[:120],
-                        "ts": entry.get("ts", ""),
-                        "nav": "audit",
-                        "event": entry.get("event", "invocation"),
-                        "matched_signals": entry.get("matched_signals"),
-                    })
-                    audit_count += 1
-                    if audit_count >= 3:
-                        break
+        from audit_trail import read_audit_log  # type: ignore
+
+        from profile_context import record_profile_id
+        audit_count = 0
+        for entry in read_audit_log():
+            about = record_profile_id(entry)
+            if log_profile is not None and about != log_profile:
+                continue
+            preview = entry.get("task_preview", "")
+            if q_lower in preview.lower() or q_lower in entry.get("avatar", "").lower():
+                results.append({
+                    "id": f"audit_{len(results)}",
+                    "type": "audit",
+                    "avatar": entry.get("avatar", ""),
+                    "preview": preview[:120],
+                    "ts": entry.get("ts", ""),
+                    "nav": "audit",
+                    "event": entry.get("event", "invocation"),
+                    "matched_signals": entry.get("matched_signals"),
+                    "profile_id": about,
+                })
+                audit_count += 1
+                if audit_count >= 3:
+                    break
     except Exception:
         pass
 
@@ -3634,23 +3731,21 @@ async def unified_search(
 
 @app.get("/audit")
 async def get_audit_log(
-    user_id: str = "default",
+    request: Request,
+    user_id: str = "",
     limit: int = 50,
     event: Optional[str] = None,
+    scope: Optional[str] = None,
 ):
     """Return recent audit invocation records from ~/.narad/audit.jsonl."""
-    import json as _json
-    _audit_path = Path.home() / ".narad" / "audit.jsonl"
-    if not _audit_path.exists():
-        return []
-    lines = [l.strip() for l in _audit_path.read_text().splitlines() if l.strip()]
+    from audit_trail import read_audit_log
+
+    from profile_context import record_profile_id
+
+    profile_id = _log_scope(request, scope, user_id)
     records: list[dict] = []
-    for raw in reversed(lines):
-        try:
-            entry = _json.loads(raw)
-        except Exception:
-            continue
-        if user_id and entry.get("user_id", "default") != user_id:
+    for entry in read_audit_log():
+        if profile_id is not None and record_profile_id(entry) != profile_id:
             continue
         if event and entry.get("event") != event:
             continue
