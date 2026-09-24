@@ -242,6 +242,10 @@ To replace a live `~/.narad`:
 - **Checking through Cloudflare Access:** add the `/health` Bypass policy (step 5 above). The check then reaches the Mac through the tunnel, instead of stopping at Access.
 - **The report:** `.venv/bin/python scripts/uptime_report.py` shows uptime over the last 7 days in waking hours. Waking hours are 07:00–23:00 by default; change them with `NARAD_WAKING_HOURS`. The pilot's gate is 99%.
 
+**Consent and feedback in the app.** After signing in, each family member sees Part A of the consent sheet, in English or Hindi, with **I agree** and **Not now**. Until they agree, `/chat`, `/voice/*` and uploads answer `403 consent_required`, so Narad processes nothing of theirs. The owner is never asked. `NARAD_REQUIRE_CONSENT=off` turns the check off, but leave it on for the pilot. Under each finished answer there is a quiet thumbs up and down. A thumbs down offers the fixed reasons as chips, and nothing typed is ever stored.
+
+**Crisis care.** A message showing suicidal intent or self-harm, in English, Hindi or Hinglish, is answered at once on the Mac, in the person's language, with Tele-MANAS (14416, 24x7), iCall and 112. It is never sent to a model. See `phase-1/crisis_care.py`.
+
 **Weekly scorecard.** `.venv/bin/python scripts/weekly_scorecard.py` prints a Markdown scorecard. It covers uptime, backups, the drill, consent, and each person's counts and outcomes, never prompts or replies. The owner can also open `/pilot/metrics?scope=all&format=markdown`. [Pilot consent and metrics](./docs/PILOT_CONSENT_AND_METRICS.md) has the consent sheet for each person, what every number means, and the weekly review.
 
 ### Google owner setup
@@ -315,7 +319,9 @@ For `redact` destinations:
 
 - **What gets replaced.** Names, phone numbers, emails and Indian identifiers become stable placeholders such as `<PERSON_1>`, for example Aadhaar (checksum-verified), PAN, UPI, IFSC, passport and card numbers. The detectors are fast rules, the family name list, and the local OpenMed PII model. Replies are restored on the Mac before anyone sees them. Search and HTTP tool arguments keep their placeholders.
 - **What blocks a call.** A leak check re-scans every payload before it is sent. If the OpenMed model is missing, or a payload can't be pseudonymised (for example an image), the call is refused. The turn then runs on the local model if one is installed; otherwise the call fails.
-- **Where calls are logged.** Each cloud call is appended to the caller's ledger at `GET /privacy/egress`.
+- **Where calls are logged.** Each cloud call is appended to the caller's ledger at `GET /privacy/egress`, including the search engines and websites Matsya's tools reach (tier `web`, with only the count of placeholders left in the search words).
+
+Every answer carries a **privacy receipt**. `/chat` stamps each ledger row written during a turn with the turn's id, and before `done` the turn sends a `privacy_receipt` event: which services saw something, their tier, what for (the answer, memory search, web search, voice…), and for `redact` providers how many names, phone numbers and IDs were replaced. Counts only, never values. The receipt is stored with the answer in the thread. In the app it is a small chip under each answer ("Stayed on your Mac", "Claude saw this", "DeepSeek saw this with 3 details replaced"), in Hindi when the answer is in Hindi. Tapping it explains what left the Mac and in what form, and links to **What left my Mac**, the person's own full list, newest first, grouped by day. Background learning (Tapas, Sankalpa) is never counted in a turn's receipt, but it is on that list.
 
 Install the local PII model on the host before routing family traffic to a `redact`-tier provider:
 

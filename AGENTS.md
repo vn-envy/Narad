@@ -223,8 +223,18 @@ a `route {avatar, reason, via}` event. For `redact`-tier providers,
 `privacy_gateway.StreamRestorer` restores placeholders split across chunks.
 
 ### Dharma (Policy Gates)
-Two layers. Input: `_dharma_gate(query)` in `server.py` blocks prompt injection, PII
-collection, and crisis phrases (with resources) before any avatar runs. Side effects:
+Two layers. Input, in `/chat` before any avatar runs:
+- **Crisis care** (`phase-1/crisis_care.py`): first-person suicidal intent or self-harm in English,
+  Hindi (Devanagari) or Hinglish gets an immediate, warm reply in the person's language with
+  Tele-MANAS 14416 (24x7), iCall 9152987821 and 112. It runs before consent, the rate limit and
+  model checks; the message never reaches a model and is not written to the thread (a later turn
+  would replay it to the brain); Karma gets an `input_gate` event with kind and language, never
+  the text. Exaggeration, idioms and news questions do not match (`test_crisis_care.py` table).
+- `_dharma_gate(query)` refuses prompt-injection markers (word-bounded). Identifiers such as
+  passport numbers are not refused: Travel needs them, and the privacy gateway pseudonymises
+  them for `redact` providers.
+
+Side effects:
 `dharma.gate_action()` gates `executor`, `email_send`, `browser_submit`, and `desktop_control` — unknown
 actions are denied by default; every verdict lands in Karma. Policy file:
 `~/.narad/config/dharma_policy.json`.
@@ -238,6 +248,15 @@ actions are denied by default; every verdict lands in Karma. Policy file:
   - a leak check fails closed;
   - replies are restored on the Mac.
 - Each cloud call is logged to `profiles/<id>/privacy/egress.jsonl`, served at `GET /privacy/egress`.
+  Matsya's search and web tools log a `web` row too (`record_tool_egress`: provider, and how many
+  placeholders stayed in the arguments; never the words).
+- **Turn stamps and receipts.** `/chat` makes one `turn_id` per turn (shared with the pilot record
+  and the `done` event) and sets it for the turn's task (`set_turn_id`); every ledger row the turn
+  writes carries it, through avatar tools, `asyncio.to_thread`, streaming and pre-routed turns.
+  Work that outlives the turn (Tapas, Sankalpa, the next lesson's syllabus) runs in
+  `context_outside_turn()`; background index threads start with an empty context. Before `done`,
+  the turn emits `privacy_receipt` (`privacy_receipt()`: providers, tiers, what for, replaced
+  counts by kind; counts only), which is also stored on the assistant turn in the thread.
 - Direct `litellm.completion`/`embedding` calls outside the gateway fail CI (`phase-1/test_privacy_gateway.py`).
 
 ### Runtime Quality
@@ -265,6 +284,7 @@ and `phase-1/test_profile_isolation.py`.
   - Everything is served sandboxed (CSP `sandbox allow-scripts`, `nosniff`); downloads never render.
 - **Cloudflare Access at the origin** (`phase-1/cf_access.py`, the `_cloudflare_access` middleware): with `NARAD_CF_ACCESS_TEAM_DOMAIN` and `NARAD_CF_ACCESS_AUD` set, every non-loopback request needs a valid Access JWT (RS256; audience and issuer checked). Anything else gets 403. `GET /health` stays open for uptime probes.
 - **Browser reach**: computer use refuses loopback, LAN, metadata and credentialed URLs unless the owner names a host in `NARAD_BROWSER_PRIVATE_HOSTS`. The check runs before navigating and again wherever the page lands after a redirect, link or history move.
+- **Consent**: with `NARAD_REQUIRE_CONSENT` on (the default), `/chat`, every `/voice/*` route and `/chat/attachments` answer 403 `{"code": "consent_required"}` until the profile accepts the current version of `docs/PILOT_CONSENT_AND_METRICS.md` (`POST /consent`). The owner is always considered consented. `GET /consent?part=a&lang=en|hi` serves Part A from the doc for the app's consent screen.
 - **CORS** via `NARAD_ALLOWED_ORIGINS`. Chat is rate-limited per profile (token bucket, 10 req/min, `NARAD_RATE_LIMIT`, HTTP 429).
 - **Egress**: every model and embedding call leaves through the privacy gateway (see Privacy Gateway above).
 

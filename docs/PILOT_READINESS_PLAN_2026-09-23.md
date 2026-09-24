@@ -53,6 +53,14 @@ Still open in Stage A:
 
 - **Still open:** live time-to-first-token on the Mac (Pariksha), the prompt diet, and caching.
 
+**Stage B progress (2026-09-24), trust you can see:**
+- **Exact per-turn egress.** `/chat` makes one `turn_id` per turn. The pilot record and the `done` event share it, and every egress ledger row the turn writes carries it, through avatar tools, streaming and pre-routed turns. Background learners run outside the turn: Tapas, Sankalpa, the next lesson's syllabus, and the memory index thread (which now also files under the right profile). `pilot_metrics.turn_egress` matches the exact id and falls back to the time window only for older rows. Matsya's search and web tools now log a `web` row with only the count of placeholders left in their arguments. `enrich_web_research` and `firecrawl_extract` joined the tools whose arguments keep placeholders.
+- **Privacy receipt on every answer.** The `privacy_receipt` event arrives before `done` and holds counts only. It is stored on the thread turn. In the app it is a chip under each answer, with a sheet that explains it, and a **What left my Mac** screen (`/privacy/egress`, grouped by day), in English or Hindi.
+- **Thumbs up and down.** A quiet control under each finished answer posts `POST /feedback` with the turn id. A thumbs down offers `FEEDBACK_REASONS` as chips. The chosen state survives a reload.
+- **Consent screen.** Part A of the consent sheet is served from the doc (`GET /consent?part=a&lang=en|hi`), with a Hindi translation for the parents, marked for the owner to check. The screen asks everyone except the owner. The server enforces it: `/chat`, `/voice/*` and uploads answer `403 consent_required` until the current version is accepted (`NARAD_REQUIRE_CONSENT`, on by default). Consent version is now `2026-09-24.2`.
+- **Crisis care in Hindi, Hinglish and English.** A table-driven set of first-person phrases, with negatives for exaggeration, idioms and news questions. The reply is immediate and warm, in the person's language: Tele-MANAS 14416 (24x7), iCall and 112. It is never sent to a model, and Karma gets a text-free `input_gate` event. The input gate no longer refuses passport numbers or SSNs, and its injection rule has word boundaries.
+- **Still open:** a fluent Hindi reader's check of the Hindi consent sheet; TTS calls are separate requests, so they appear on What left my Mac but not on an answer's receipt; care circles decide whether a crisis should ever reach a family member.
+
 ## Stack decisions (2026-09-24): Indic voice, Indic documents, local decision models
 
 These decisions come from two source-checked research passes, one on Sarvam and Indic open models, one on Jev, CUA-S1 and Laya. They put experience and functionality first, then privacy, then cost. Sarvam and Laya numbers are vendor-reported unless marked otherwise. Every Mac figure is an estimate until `scripts/bench_local_stack.py` has been run on the M5 Air.
@@ -326,7 +334,7 @@ Each phase is one reviewable PR (or a small stack). Exit gates are hard: a phase
   - Fix the `lstrip("www.")` domain check.
   - Validate URLs on signed-in navigate, and confine download paths.
   - Remove the hard-coded `confirmed=True`.
-  - Add word boundaries to the Dharma input regex so "className" stops tripping it; the "passport number" block is removed in Phase 3.
+  - Add word boundaries to the Dharma input regex so "className" stops tripping it; the "passport number" block is removed in Phase 3. *(Done in Stage B: the passport and SSN refusal is gone, since the privacy gateway pseudonymises identifiers.)*
 - **Vendor correctness**
   - bsk: read `data.effect_state`; set `BSK_AUTO_UPDATE=off`.
   - cua: fix scroll arguments; use `permissions status --json`; send an explicit `delivery_mode`; set `CUA_DRIVER_RS_TELEMETRY_ENABLED=false`; report versions in `/capabilities`.
@@ -514,8 +522,8 @@ Each phase is one reviewable PR (or a small stack). Exit gates are hard: a phase
 
 > **Status (2026-09-24): operations and metrics backend built.**
 > - **Built:** supervision (backend, tunnel, watchdog, the `pmset` advice), encrypted nightly backups with a weekly restore drill, the uptime check and report, and private pilot metrics with feedback, consent and the weekly scorecard. See README, "Running the pilot day to day", and `docs/PILOT_CONSENT_AND_METRICS.md`.
+> - **Built since (Stage B):** the feedback control and the consent screen in the app, with server-side consent enforcement.
 > - **Still open:**
->   - the feedback control and the consent screen in the app;
 >   - launchd units for cua-driver and Artemis;
 >   - a self-service export and delete for each person;
 >   - the first 7-day window on the Mac.
