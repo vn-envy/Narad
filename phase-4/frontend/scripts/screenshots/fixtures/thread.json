@@ -1,0 +1,38 @@
+{
+  "session_id": "sess_demo_thread",
+  "turns": [
+    {
+      "role": "user",
+      "text": "आज मेरी दवाइयों का समय क्या है?"
+    },
+    {
+      "role": "assistant",
+      "text": "आज आपकी तीन दवाइयां हैं:\n\n1. **थायरोक्सिन 50 mcg** सुबह 7 बजे, नाश्ते से आधा घंटा पहले, खाली पेट पानी के साथ।\n2. **मेटफ़ॉर्मिन 500 mg** दोपहर 1:30 बजे, खाने के साथ।\n3. **एम्लोडिपिन 5 mg** रात 9 बजे।\n\nहर दवा से दस मिनट पहले मैं आपको याद दिला दूंगा। कोई खुराक छूट जाए तो बताइए, मैं अगला समय फिर से बता दूंगा।",
+      "metadata": {
+        "turn_id": "turn_a1",
+        "privacy_receipt": { "v": 1, "turn_id": "turn_a1", "stayed_local": true, "destinations": [], "refused": {} }
+      }
+    },
+    {
+      "role": "user",
+      "text": "What does my week look like? The school PTM is on Thursday."
+    },
+    {
+      "role": "assistant",
+      "text": "Here is your week. Thursday is the busiest day, so I kept the evening free after the PTM.\n\n| Day | What | Time |\n|---|---|---|\n| Monday | Physiotherapy for Kamla | 10:00 |\n| Wednesday | Electricity bill due | all day |\n| Thursday | Kavya's PTM at school | 16:00 |\n| Saturday | Train to Jaipur | 06:05 |\n\nWant me to set a reminder for the bill on Tuesday evening?",
+      "metadata": {
+        "turn_id": "turn_b2",
+        "privacy_receipt": {
+          "v": 1,
+          "turn_id": "turn_b2",
+          "stayed_local": false,
+          "destinations": [
+            { "provider": "deepseek", "tier": "redact", "sources": ["answer"], "calls": 2, "replaced": { "PERSON": 2, "PHONE": 1 } },
+            { "provider": "exa", "tier": "web", "sources": ["search"], "calls": 1, "replaced": {} }
+          ],
+          "refused": {}
+        }
+      }
+    }
+  ]
+}

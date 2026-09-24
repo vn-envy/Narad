@@ -1,0 +1,72 @@
+{
+  "capabilities": {
+    "status": "healthy",
+    "build": { "phase": "pilot", "label": "Family pilot", "runtime_mode": "local-first" },
+    "architecture": {
+      "canonical_agent_count": 4,
+      "model": "worker",
+      "cultural_mode": "avatara",
+      "agent_names": ["Matsya", "Rama", "Krishna", "Parashurama"]
+    },
+    "agents": [],
+    "providers": {},
+    "tool_families": {},
+    "local_ready": { "frontend_transport_agnostic": true, "local_model_runtime": true, "desktop_packaging": false },
+    "startup_checks": [],
+    "issues": [],
+    "issue_count": 0,
+    "degraded_capability_count": 0
+  },
+  "onboarding": {
+    "schema_version": 1,
+    "user_id": "asha",
+    "completed": true,
+    "needs_onboarding": false,
+    "skipped": false,
+    "display_name": "Asha Sharma",
+    "completed_at": "@now-30d",
+    "updated_at": "@now-30d",
+    "readiness": {}
+  },
+  "notification_preferences": {
+    "lock_screen_details": false,
+    "quiet_hours": { "enabled": true, "start": "22:00", "end": "07:00" },
+    "medicine_in_quiet_hours": true,
+    "timezone": "Asia/Kolkata",
+    "updated_at": "@now-2d"
+  },
+  "care_circle": {
+    "subject": "asha",
+    "grants": [
+      { "carer": "ravi", "carer_name": "Ravi Sharma", "kinds": ["medicine_reminder", "health_alert"], "granted_at": "@now-5d" }
+    ],
+    "kinds": [
+      { "id": "medicine_reminder", "label": "Medicine reminders" },
+      { "id": "health_alert", "label": "Missed doses and health alerts" },
+      { "id": "task_done", "label": "Finished tasks" },
+      { "id": "approval_request", "label": "Approvals (FYI only)" }
+    ]
+  },
+  "shared_with_me": [
+    { "subject": "kamla", "subject_name": "Kamla Sharma", "kinds": ["medicine_reminder", "health_alert"], "granted_at": "@now-4d" }
+  ],
+  "push_devices": [
+    {
+      "id": "dev_1",
+      "label": "Android phone · Chrome",
+      "endpoint": "https://fcm.googleapis.com/fcm/send/example-endpoint",
+      "service": "fcm",
+      "created_at": "@now-6d",
+      "last_success_at": "@now-3h",
+      "last_error": null
+    }
+  ],
+  "vapid": { "public_key": "BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBkr3qBUYIHBQFLXYp5Nksh8U", "available": true },
+  "voice_status": {
+    "stt": { "available": false, "engine": null },
+    "tts": { "active": "sarvam", "available": true }
+  },
+  "voice_preferences": {
+    "preferences": { "reply_language": "hi", "script": "devanagari", "keep_voice_on_mac": false }
+  }
+}

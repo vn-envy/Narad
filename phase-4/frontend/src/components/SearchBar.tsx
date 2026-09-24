@@ -134,7 +134,7 @@ export function SearchBar({ userId, onNavigate, tone = 'light' }: Props) {
       <div style={{ position: 'relative' }}>
         <span style={{
           position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)',
-          color: open ? 'var(--sindoor)' : tone === 'dark' ? 'rgba(252,250,242,0.48)' : 'rgba(26,24,21,0.35)', fontSize: 14, pointerEvents: 'none',
+          color: open ? 'var(--sindoor)' : tone === 'dark' ? 'rgba(252,250,242,0.48)' : 'rgba(var(--rgb-ink),0.35)', fontSize: 14, pointerEvents: 'none',
         }}>⌕</span>
         <input
           className={tone === 'dark' ? 'dashboard-search-dark' : undefined}
@@ -146,8 +146,8 @@ export function SearchBar({ userId, onNavigate, tone = 'light' }: Props) {
           placeholder="Search memory, sessions, and tasks…"
           style={{
             width: '100%',
-            background: tone === 'dark' ? 'rgba(252,250,242,0.075)' : 'rgba(26,24,21,0.06)',
-            border: `1px solid ${open ? 'var(--sindoor)' : tone === 'dark' ? 'rgba(252,250,242,0.14)' : 'rgba(26,24,21,0.15)'}`,
+            background: tone === 'dark' ? 'rgba(252,250,242,0.075)' : 'rgba(var(--rgb-ink),0.06)',
+            border: `1px solid ${open ? 'var(--sindoor)' : tone === 'dark' ? 'rgba(252,250,242,0.14)' : 'rgba(var(--rgb-ink),0.15)'}`,
             borderRadius: 8,
             padding: '6px 48px 6px 32px',
             color: tone === 'dark' ? '#fcfaf2' : 'var(--kajal)',
@@ -162,8 +162,8 @@ export function SearchBar({ userId, onNavigate, tone = 'light' }: Props) {
             onClick={() => { setQuery(''); setOpen(false) }}
             style={{
               position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
-              fontSize: 10, color: tone === 'dark' ? 'rgba(252,250,242,0.6)' : 'rgba(26,24,21,0.45)', background: tone === 'dark' ? 'rgba(252,250,242,0.08)' : 'rgba(26,24,21,0.08)',
-              border: `1px solid ${tone === 'dark' ? 'rgba(252,250,242,0.12)' : 'rgba(26,24,21,0.12)'}`, borderRadius: 3, padding: '1px 5px',
+              fontSize: 10, color: tone === 'dark' ? 'rgba(252,250,242,0.6)' : 'rgba(var(--rgb-ink),0.45)', background: tone === 'dark' ? 'rgba(252,250,242,0.08)' : 'rgba(var(--rgb-ink),0.08)',
+              border: `1px solid ${tone === 'dark' ? 'rgba(252,250,242,0.12)' : 'rgba(var(--rgb-ink),0.12)'}`, borderRadius: 3, padding: '1px 5px',
               cursor: 'pointer',
             }}
           >✕</button>
@@ -171,8 +171,8 @@ export function SearchBar({ userId, onNavigate, tone = 'light' }: Props) {
           <span style={{
             position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
             fontFamily: 'var(--font-mono)', fontSize: 10,
-            color: tone === 'dark' ? 'rgba(252,250,242,0.42)' : 'rgba(26,24,21,0.35)', background: tone === 'dark' ? 'rgba(252,250,242,0.06)' : 'rgba(26,24,21,0.06)',
-            border: `1px solid ${tone === 'dark' ? 'rgba(252,250,242,0.11)' : 'rgba(26,24,21,0.12)'}`, borderRadius: 3, padding: '1px 5px',
+            color: tone === 'dark' ? 'rgba(252,250,242,0.42)' : 'rgba(var(--rgb-ink),0.35)', background: tone === 'dark' ? 'rgba(252,250,242,0.06)' : 'rgba(var(--rgb-ink),0.06)',
+            border: `1px solid ${tone === 'dark' ? 'rgba(252,250,242,0.11)' : 'rgba(var(--rgb-ink),0.12)'}`, borderRadius: 3, padding: '1px 5px',
           }}>⌘K</span>
         )}
       </div>
@@ -183,16 +183,16 @@ export function SearchBar({ userId, onNavigate, tone = 'light' }: Props) {
           position: 'absolute', top: 'calc(100% + 6px)', left: 0,
           width: 640, maxHeight: 480,
           background: 'var(--paper)',
-          border: '1px solid rgba(26,24,21,0.18)',
+          border: '1px solid rgba(var(--rgb-ink),0.18)',
           borderRadius: 12, overflow: 'hidden',
-          boxShadow: '0 16px 48px rgba(26,24,21,0.22)',
+          boxShadow: '0 16px 48px rgba(var(--rgb-ink),0.22)',
           zIndex: 1000, display: 'flex', flexDirection: 'column',
         }}>
           {/* Header */}
           <div style={{
-            padding: '8px 14px', borderBottom: '1px solid rgba(26,24,21,0.1)',
+            padding: '8px 14px', borderBottom: '1px solid rgba(var(--rgb-ink),0.1)',
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            fontSize: 11, color: 'rgba(26,24,21,0.45)', flexShrink: 0,
+            fontSize: 11, color: 'rgba(var(--rgb-ink),0.45)', flexShrink: 0,
           }}>
             <span>
               {loading ? 'Searching…' : results.length > 0
@@ -210,8 +210,8 @@ export function SearchBar({ userId, onNavigate, tone = 'light' }: Props) {
                 <div style={{
                   padding: '8px 14px 4px',
                   fontSize: 10.5, fontWeight: 600, textTransform: 'uppercase',
-                  letterSpacing: '0.5px', color: 'rgba(26,24,21,0.4)',
-                  borderTop: '1px solid rgba(26,24,21,0.08)',
+                  letterSpacing: '0.5px', color: 'rgba(var(--rgb-ink),0.4)',
+                  borderTop: '1px solid rgba(var(--rgb-ink),0.08)',
                   display: 'flex', alignItems: 'center', gap: 8,
                 }}>
                   {groupKey === 'memory' && '🧠'}
@@ -253,7 +253,7 @@ export function SearchBar({ userId, onNavigate, tone = 'light' }: Props) {
                             : r.preview}
                         </div>
                         <div style={{
-                          fontSize: 11.5, color: 'rgba(26,24,21,0.45)', marginTop: 2,
+                          fontSize: 11.5, color: 'rgba(var(--rgb-ink),0.45)', marginTop: 2,
                           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                         }}>
                           {r.avatar && <span style={{ fontWeight: 500, marginRight: 6 }}>{r.avatar}</span>}

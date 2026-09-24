@@ -466,7 +466,7 @@ and `phase-1/test_profile_isolation.py`.
 - **Profiles and PINs**: each person signs in with a 4–8 digit PIN (PBKDF2) and gets a signed 30-day session.
   - Wrong PINs lock the profile after 5 tries and the client IP (IPv6 per /64) after 10, backing off from 30 s to 15 min (HTTP 429 with `Retry-After`).
   - Each profile has a session epoch. A PIN change or "sign out everywhere" (`POST /profiles/{id}/revoke-sessions`) bumps it, and every older token stops working.
-  - Changing your own PIN needs the current one. The owner can reset a member's PIN (`POST /profiles/{id}/reset-pin`) and sign them out. In the app: System → Profile.
+  - Changing your own PIN needs the current one. The owner can reset a member's PIN (`POST /profiles/{id}/reset-pin`) and sign them out. In the app: You (PIN and devices).
 - **Server-derived identity**: the session decides the profile. `?user_id=` is rewritten to it; a different id in a header, query, body or path gets 403, and omitting it means your own.
 - **Invite-only profiles**: `POST /profiles` needs the owner or a single-use invite code (72 h, stored hashed) from the owner's `POST /profiles/invites`. The owner's first PIN is set only on the Mac itself (`/profiles/bootstrap`, loopback only).
 - **Owner-only**: provider keys (`/connections*`, Kunji), the local model, tier choice, device and browser grants (`/interaction-targets`), invites, PIN resets, sutra accept/revert, and the host shell tools.

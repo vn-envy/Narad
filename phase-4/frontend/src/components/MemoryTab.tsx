@@ -101,17 +101,17 @@ export function MemoryTab({ userId }: Props) {
         style={{
           padding: '16px 18px',
           borderRadius: 20,
-          border: '1px solid rgba(26,24,21,0.08)',
-          background: 'linear-gradient(135deg, rgba(252,250,242,0.95) 0%, rgba(243,239,225,0.9) 100%)',
+          border: '1px solid rgba(var(--rgb-ink),0.08)',
+          background: 'linear-gradient(135deg, rgba(var(--rgb-page),0.95) 0%, var(--surface-2) 100%)',
         }}
       >
-        <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.22em', color: 'rgba(26,24,21,0.42)' }}>
+        <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.22em', color: 'rgba(var(--rgb-ink),0.42)' }}>
           Smriti
         </div>
         <div style={{ marginTop: 6, fontSize: 28, fontWeight: 700, color: 'var(--kajal)', fontFamily: 'var(--font-hero)' }}>
           Memory, provenance, commitments, and learned context
         </div>
-        <div style={{ marginTop: 8, fontSize: 13, lineHeight: 1.55, color: 'rgba(26,24,21,0.56)' }}>
+        <div style={{ marginTop: 8, fontSize: 13, lineHeight: 1.55, color: 'rgba(var(--rgb-ink),0.56)' }}>
           Smriti keeps together retained recall, approved learnings, and the commitments Narad should carry forward from past work.
         </div>
 
@@ -125,17 +125,17 @@ export function MemoryTab({ userId }: Props) {
               style={{
                 padding: '12px 14px',
                 borderRadius: 14,
-                background: 'rgba(252,250,242,0.8)',
-                border: '1px solid rgba(26,24,21,0.08)',
+                background: 'rgba(var(--rgb-page),0.8)',
+                border: '1px solid rgba(var(--rgb-ink),0.08)',
               }}
             >
-              <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.16em', color: 'rgba(26,24,21,0.42)' }}>
+              <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.16em', color: 'rgba(var(--rgb-ink),0.42)' }}>
                 {item.label}
               </div>
               <div style={{ marginTop: 6, fontSize: 22, fontWeight: 700, color: 'var(--kajal)' }}>
                 {item.value}
               </div>
-              <div style={{ marginTop: 4, fontSize: 12, color: 'rgba(26,24,21,0.52)' }}>
+              <div style={{ marginTop: 4, fontSize: 12, color: 'rgba(var(--rgb-ink),0.52)' }}>
                 {item.hint}
               </div>
             </div>
@@ -150,8 +150,8 @@ export function MemoryTab({ userId }: Props) {
             style={{
               flex: '1 1 280px',
               minWidth: 240,
-              background: 'rgba(26,24,21,0.05)',
-              border: '1px solid rgba(26,24,21,0.12)',
+              background: 'rgba(var(--rgb-ink),0.05)',
+              border: '1px solid rgba(var(--rgb-ink),0.12)',
               borderRadius: 10,
               padding: '10px 12px',
               fontSize: 12.5,
@@ -165,8 +165,8 @@ export function MemoryTab({ userId }: Props) {
             style={{
               padding: '10px 12px',
               borderRadius: 10,
-              border: '1px solid rgba(26,24,21,0.12)',
-              background: 'rgba(252,250,242,0.85)',
+              border: '1px solid rgba(var(--rgb-ink),0.12)',
+              background: 'rgba(var(--rgb-page),0.85)',
               color: 'var(--kajal)',
               cursor: 'pointer',
               fontSize: 12,
@@ -186,9 +186,9 @@ export function MemoryTab({ userId }: Props) {
               style={{
                 padding: '6px 10px',
                 borderRadius: 999,
-                border: `1px solid ${filterTag === tag.key ? 'rgba(242,142,28,0.4)' : 'rgba(26,24,21,0.12)'}`,
-                background: filterTag === tag.key ? 'rgba(242,142,28,0.12)' : 'rgba(252,250,242,0.7)',
-                color: filterTag === tag.key ? 'var(--marigold)' : 'rgba(26,24,21,0.52)',
+                border: `1px solid ${filterTag === tag.key ? 'rgba(242,142,28,0.4)' : 'rgba(var(--rgb-ink),0.12)'}`,
+                background: filterTag === tag.key ? 'rgba(242,142,28,0.12)' : 'rgba(var(--rgb-page),0.7)',
+                color: filterTag === tag.key ? 'var(--marigold)' : 'rgba(var(--rgb-ink),0.52)',
                 fontSize: 11.5,
                 fontWeight: 600,
                 cursor: 'pointer',
@@ -206,14 +206,14 @@ export function MemoryTab({ userId }: Props) {
             style={{
               padding: 18,
               borderRadius: 18,
-              border: '1px solid rgba(26,24,21,0.08)',
-              background: 'rgba(252,250,242,0.9)',
+              border: '1px solid rgba(var(--rgb-ink),0.08)',
+              background: 'rgba(var(--rgb-page),0.9)',
             }}
           >
             <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--kajal)', fontFamily: 'var(--font-hero)' }}>
               Sankalpa commitments
             </div>
-            <div style={{ marginTop: 6, fontSize: 12, lineHeight: 1.5, color: 'rgba(26,24,21,0.55)' }}>
+            <div style={{ marginTop: 6, fontSize: 12, lineHeight: 1.5, color: 'rgba(var(--rgb-ink),0.55)' }}>
               Durable goals, preferences, and constraints extracted from recent work.
             </div>
 
@@ -226,7 +226,7 @@ export function MemoryTab({ userId }: Props) {
                 </div>
               )}
               {!loading && commitments.length === 0 && (
-                <div style={{ color: 'rgba(26,24,21,0.45)', fontSize: 12 }}>
+                <div style={{ color: 'rgba(var(--rgb-ink),0.45)', fontSize: 12 }}>
                   No commitments recorded yet.
                 </div>
               )}
@@ -236,8 +236,8 @@ export function MemoryTab({ userId }: Props) {
                   style={{
                     padding: '10px 12px',
                     borderRadius: 14,
-                    background: 'rgba(26,24,21,0.03)',
-                    border: '1px solid rgba(26,24,21,0.06)',
+                    background: 'rgba(var(--rgb-ink),0.03)',
+                    border: '1px solid rgba(var(--rgb-ink),0.06)',
                   }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
@@ -255,10 +255,10 @@ export function MemoryTab({ userId }: Props) {
                       {commitment.kind}
                     </span>
                     {commitment.avatar && (
-                      <span style={{ fontSize: 10.5, color: 'rgba(26,24,21,0.46)' }}>{commitment.avatar}</span>
+                      <span style={{ fontSize: 10.5, color: 'rgba(var(--rgb-ink),0.46)' }}>{commitment.avatar}</span>
                     )}
                     {commitment.ts && (
-                      <span style={{ marginLeft: 'auto', fontSize: 10, color: 'rgba(26,24,21,0.38)', fontFamily: 'var(--font-mono)' }}>
+                      <span style={{ marginLeft: 'auto', fontSize: 10, color: 'rgba(var(--rgb-ink),0.38)', fontFamily: 'var(--font-mono)' }}>
                         {commitment.ts.slice(0, 10)}
                       </span>
                     )}
@@ -277,15 +277,15 @@ export function MemoryTab({ userId }: Props) {
           style={{
             padding: 18,
             borderRadius: 18,
-            border: '1px solid rgba(26,24,21,0.08)',
-            background: 'rgba(252,250,242,0.9)',
+            border: '1px solid rgba(var(--rgb-ink),0.08)',
+            background: 'rgba(var(--rgb-page),0.9)',
           }}
         >
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
             <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--kajal)', fontFamily: 'var(--font-hero)' }}>
               Retained memories
             </div>
-            <div style={{ fontSize: 12, color: 'rgba(26,24,21,0.5)' }}>
+            <div style={{ fontSize: 12, color: 'rgba(var(--rgb-ink),0.5)' }}>
               {filteredMemories.length} matching entries
             </div>
           </div>
@@ -299,7 +299,7 @@ export function MemoryTab({ userId }: Props) {
               </div>
             )}
             {!loading && filteredMemories.length === 0 && (
-              <div style={{ color: 'rgba(26,24,21,0.45)', fontSize: 12 }}>
+              <div style={{ color: 'rgba(var(--rgb-ink),0.45)', fontSize: 12 }}>
                 No memories match this filter.
               </div>
             )}
@@ -316,8 +316,8 @@ export function MemoryTab({ userId }: Props) {
                     textAlign: 'left',
                     padding: '12px 14px',
                     borderRadius: 14,
-                    border: `1px solid ${isSelected ? 'rgba(242,142,28,0.35)' : 'rgba(26,24,21,0.08)'}`,
-                    background: isSelected ? 'rgba(242,142,28,0.08)' : 'rgba(26,24,21,0.03)',
+                    border: `1px solid ${isSelected ? 'rgba(242,142,28,0.35)' : 'rgba(var(--rgb-ink),0.08)'}`,
+                    background: isSelected ? 'rgba(242,142,28,0.08)' : 'rgba(var(--rgb-ink),0.03)',
                     cursor: 'pointer',
                   }}
                 >
@@ -336,10 +336,10 @@ export function MemoryTab({ userId }: Props) {
                       {label}
                     </span>
                     {memory.avatar && (
-                      <span style={{ fontSize: 10.5, color: 'rgba(26,24,21,0.46)' }}>{memory.avatar}</span>
+                      <span style={{ fontSize: 10.5, color: 'rgba(var(--rgb-ink),0.46)' }}>{memory.avatar}</span>
                     )}
                     {timestamp && (
-                      <span style={{ marginLeft: 'auto', fontSize: 10, color: 'rgba(26,24,21,0.38)', fontFamily: 'var(--font-mono)' }}>
+                      <span style={{ marginLeft: 'auto', fontSize: 10, color: 'rgba(var(--rgb-ink),0.38)', fontFamily: 'var(--font-mono)' }}>
                         {timestamp.slice(0, 10)}
                       </span>
                     )}
@@ -352,7 +352,7 @@ export function MemoryTab({ userId }: Props) {
                   </div>
 
                   {isSelected && (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 8, fontSize: 10.5, color: 'rgba(26,24,21,0.46)' }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 8, fontSize: 10.5, color: 'rgba(var(--rgb-ink),0.46)' }}>
                       {memory.project_id && <span>project: {memory.project_id}</span>}
                       {memory.session_id && <span>session: {memory.session_id.slice(0, 16)}…</span>}
                       {typeof memory.score === 'number' && <span>score: {memory.score.toFixed(2)}</span>}

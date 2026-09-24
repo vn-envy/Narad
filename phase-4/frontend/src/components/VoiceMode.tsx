@@ -141,11 +141,14 @@ function Choice<T extends string>({ value, options, onChange }: {
           key={key}
           onClick={() => onChange(key)}
           aria-pressed={value === key}
-          className="px-3 py-1.5 rounded-full text-[12px] transition-colors"
+          lang={/[\u0900-\u097F]/.test(label) ? 'hi' : undefined}
+          className="px-4 rounded-full text-[14px] transition-colors"
           style={{
-            border: '1px solid rgba(252,250,242,0.22)',
+            minHeight: 44,
+            lineHeight: 1.2,
+            border: '1px solid rgba(252,250,242,0.26)',
             background: value === key ? 'rgba(252,250,242,0.92)' : 'transparent',
-            color: value === key ? 'var(--kajal, #2d2a26)' : 'var(--paper, #fcfaf2)',
+            color: value === key ? '#2d2a26' : '#fcfaf2',
           }}
         >
           {label}
@@ -611,37 +614,43 @@ export function VoiceMode({ open, onClose, messages, streaming, liveAnswer = nul
   return (
     <div
       className="fixed inset-0 z-50 flex flex-col items-center justify-center"
-      style={{ background: 'radial-gradient(ellipse at 50% 42%, #3a352e 0%, var(--kajal, #2d2a26) 70%)' }}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Voice mode"
+      style={{ background: 'radial-gradient(ellipse at 50% 42%, var(--chrome-2) 0%, var(--chrome) 70%)', color: '#fcfaf2' }}
       onPointerDown={unlockAudio}
     >
-      <div className="absolute top-5 right-5 flex items-center gap-2">
+      <div className="absolute right-3 flex items-center gap-2" style={{ top: 'calc(12px + env(safe-area-inset-top))' }}>
         <button
+          type="button"
           onClick={() => setSettingsOpen(o => !o)}
           aria-label="Voice settings"
           aria-expanded={settingsOpen}
-          className="p-2 rounded-full transition-opacity opacity-60 hover:opacity-100"
-          style={{ color: 'var(--paper, #fcfaf2)', background: 'rgba(252,250,242,0.08)' }}
+          className="n-icon-btn transition-opacity opacity-80 hover:opacity-100"
+          style={{ background: 'rgba(252,250,242,0.1)' }}
         >
-          <Settings2 size={18} />
+          <Settings2 size={20} />
         </button>
         <button
+          type="button"
           onClick={onClose}
           aria-label="Exit voice mode"
-          className="p-2 rounded-full transition-opacity opacity-60 hover:opacity-100"
-          style={{ color: 'var(--paper, #fcfaf2)', background: 'rgba(252,250,242,0.08)' }}
+          className="n-icon-btn transition-opacity opacity-80 hover:opacity-100"
+          style={{ background: 'rgba(252,250,242,0.1)' }}
         >
-          <X size={18} />
+          <X size={20} />
         </button>
       </div>
 
       <button
+        type="button"
         onClick={() => savePrefs({ reply_language: NEXT_LANGUAGE[prefs.reply_language] })}
-        aria-label="Reply language"
-        className="absolute top-5 left-5 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-mono transition-opacity opacity-60 hover:opacity-100"
-        style={{ color: 'var(--paper, #fcfaf2)', background: 'rgba(252,250,242,0.08)', border: '1px solid rgba(252,250,242,0.15)' }}
+        aria-label={`Reply language: ${LANGUAGE_LABEL[prefs.reply_language]}. Tap to change`}
+        className="absolute left-3 flex items-center gap-2 px-4 rounded-full text-[14px] transition-opacity opacity-80 hover:opacity-100"
+        style={{ top: 'calc(12px + env(safe-area-inset-top))', minHeight: 44, background: 'rgba(252,250,242,0.1)', border: '1px solid rgba(252,250,242,0.18)' }}
       >
-        <Languages size={12} />
-        {LANGUAGE_LABEL[prefs.reply_language]}
+        <Languages size={16} aria-hidden="true" />
+        <span lang={prefs.reply_language === 'hi' ? 'hi' : undefined}>{LANGUAGE_LABEL[prefs.reply_language]}</span>
       </button>
 
       {/* Orb */}
@@ -665,23 +674,23 @@ export function VoiceMode({ open, onClose, messages, streaming, liveAnswer = nul
             animation: state === 'thinking' || state === 'transcribing' ? 'voicePulse 1.6s ease-in-out infinite' : 'none',
           }}
         />
-        <span className="absolute inset-0 flex items-center justify-center" style={{ color: 'var(--kajal, #2d2a26)' }}>
+        <span className="absolute inset-0 flex items-center justify-center" style={{ color: '#2d2a26' }}>
           {state === 'paused' ? <MicOff size={38} /> : stoppable ? <Square size={30} /> : <Mic size={38} />}
         </span>
       </button>
 
-      <div className="mt-8 font-mono text-[12px] uppercase tracking-widest" style={{ color: 'rgba(252,250,242,0.55)' }}>
+      <div role="status" className="mt-8 px-6 text-center font-mono text-[13px] uppercase tracking-widest" style={{ color: 'rgba(252,250,242,0.7)' }}>
         {state === 'speaking' ? `${speakerName} — speaking` : STATE_LABEL[state]}
         {active && <span className="inline-block w-1.5 h-1.5 rounded-full ml-2 align-middle" style={{ background: '#c85a3a', animation: 'voicePulse 1.2s infinite' }} />}
       </div>
 
       {transcript && (
-        <p className="mt-5 max-w-md px-8 text-center text-[15px] leading-relaxed" style={{ color: 'var(--paper, #fcfaf2)', fontFamily: 'var(--font-body)' }}>
+        <p className="mt-5 max-w-md px-8 text-center text-[17px] leading-relaxed" lang={/[\u0900-\u097F]/.test(transcript) ? 'hi' : undefined} style={{ color: '#fcfaf2' }}>
           “{transcript}”
         </p>
       )}
       {caption && state === 'speaking' && (
-        <p className="mt-3 max-w-md px-8 text-center text-[13px] leading-relaxed" style={{ color: 'rgba(252,250,242,0.6)', fontFamily: 'var(--font-body)' }}>
+        <p className="mt-3 max-w-md px-8 text-center text-[15px] leading-relaxed" lang={/[\u0900-\u097F]/.test(caption) ? 'hi' : undefined} style={{ color: 'rgba(252,250,242,0.72)' }}>
           {caption}
         </p>
       )}
@@ -690,17 +699,17 @@ export function VoiceMode({ open, onClose, messages, streaming, liveAnswer = nul
         <div
           role="dialog"
           aria-label="Voice settings"
-          className="absolute inset-x-0 bottom-0 max-h-[80vh] overflow-y-auto rounded-t-2xl px-5 pt-4 pb-8 sm:mx-auto sm:max-w-md"
-          style={{ background: 'rgba(37,34,31,0.98)', borderTop: '1px solid rgba(252,250,242,0.14)', color: 'var(--paper, #fcfaf2)' }}
+          className="absolute inset-x-0 bottom-0 max-h-[80vh] overflow-y-auto rounded-t-2xl px-5 pt-3 sm:mx-auto sm:max-w-md"
+          style={{ background: 'var(--chrome)', borderTop: '1px solid rgba(252,250,242,0.14)', color: '#fcfaf2', paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}
         >
           <div className="flex items-center justify-between">
-            <span className="font-mono text-[11px] uppercase tracking-widest opacity-60">Voice settings</span>
-            <button onClick={() => setSettingsOpen(false)} aria-label="Close voice settings" className="p-1.5 opacity-60 hover:opacity-100">
-              <X size={16} />
+            <h2 className="text-[16px] font-semibold">Voice settings</h2>
+            <button type="button" onClick={() => setSettingsOpen(false)} aria-label="Close voice settings" className="n-icon-btn -mr-2.5 opacity-80 hover:opacity-100">
+              <X size={20} />
             </button>
           </div>
 
-          <div className="mt-4 text-[13px] opacity-80">Narad replies in</div>
+          <div className="mt-3 text-[15px] opacity-85">Narad replies in</div>
           <div className="mt-2">
             <Choice
               value={prefs.reply_language}
@@ -709,7 +718,7 @@ export function VoiceMode({ open, onClose, messages, streaming, liveAnswer = nul
             />
           </div>
 
-          <div className="mt-4 text-[13px] opacity-80">Hindi written as</div>
+          <div className="mt-4 text-[15px] opacity-85">Hindi written as</div>
           <div className="mt-2">
             <Choice
               value={prefs.script}
@@ -723,6 +732,7 @@ export function VoiceMode({ open, onClose, messages, streaming, liveAnswer = nul
             aria-checked={prefs.keep_voice_on_mac}
             onClick={() => savePrefs({ keep_voice_on_mac: !prefs.keep_voice_on_mac })}
             className="mt-5 flex w-full items-start gap-3 text-left"
+            style={{ minHeight: 48 }}
           >
             <span
               className="mt-0.5 inline-flex h-5 w-9 shrink-0 items-center rounded-full p-0.5 transition-colors"
@@ -734,24 +744,24 @@ export function VoiceMode({ open, onClose, messages, streaming, liveAnswer = nul
               />
             </span>
             <span>
-              <span className="block text-[13px]">Keep my voice on this Mac</span>
-              <span className="block text-[12px] leading-snug opacity-60">
+              <span className="block text-[15px]">Keep my voice on this Mac</span>
+              <span className="block text-[13.5px] leading-snug opacity-70">
                 Your speech is transcribed and replies are read aloud on the Mac only. Off, Sarvam (a trusted
                 provider) handles it, which is far better in Hindi.
               </span>
             </span>
           </button>
 
-          <div className="mt-5 font-mono text-[11px] leading-relaxed opacity-60">
+          <div className="mt-5 font-mono text-[12px] leading-relaxed opacity-65">
             Voice in: {engines.stt ?? 'browser'} · voice out: {engines.tts ?? 'none'}
           </div>
           {localSttMissing && (
-            <div className="mt-1 text-[12px]" style={{ color: '#e8a58f' }}>
+            <div className="mt-1 text-[13.5px]" style={{ color: '#e8a58f' }}>
               No speech-to-text is installed on the Mac yet (mlx-whisper or faster-whisper).
             </div>
           )}
           {firstAudio && (
-            <div className="mt-2 font-mono text-[11px] leading-relaxed opacity-60">
+            <div className="mt-2 font-mono text-[12px] leading-relaxed opacity-65">
               Last reply: first audio {seconds(firstAudio.totalMs)} after you stopped speaking
               (speech-to-text {seconds(firstAudio.sttMs)}, first words {seconds(firstAudio.firstTextMs)},
               voice {seconds(firstAudio.ttsMs)}{firstAudio.engine ? ` via ${firstAudio.engine}` : ''}

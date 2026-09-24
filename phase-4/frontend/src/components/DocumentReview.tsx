@@ -28,9 +28,9 @@ import {
   type SaveOptions,
 } from '@/lib/document-review'
 
-const INK_55 = 'rgba(45,42,38,0.55)'
-const INK_70 = 'rgba(45,42,38,0.72)'
-const LINE = 'rgba(45,42,38,0.10)'
+const INK_55 = 'var(--ink-55)'
+const INK_70 = 'var(--ink-70)'
+const LINE = 'var(--line)'
 
 const ISSUE_TEXT: Record<string, string> = {
   low_confidence: 'Hard to read on the photo',
@@ -141,12 +141,12 @@ function CropImage({ path, label }: { path: string; label: string }) {
     <div
       ref={ref}
       className="w-full overflow-hidden rounded-lg flex items-center justify-center"
-      style={{ minHeight: url ? undefined : 56, background: url ? 'white' : 'rgba(45,42,38,0.045)', border: `1px solid ${LINE}` }}
+      style={{ minHeight: url ? undefined : 56, background: url ? '#fff' : 'var(--ink-05)', border: `1px solid ${LINE}` }}
     >
       {url ? (
         <img src={url} alt={`Where "${label}" appears on the page`} className="block w-full h-auto" />
       ) : (
-        <span className="text-[11px] py-4" style={{ color: INK_55 }}>
+        <span className="text-[13px] py-4" role="status" style={{ color: INK_55 }}>
           {failed ? 'The crop could not be shown.' : 'Loading the crop…'}
         </span>
       )}
@@ -190,14 +190,13 @@ function Field({ label, value, onChange, inputMode }: {
   inputMode?: 'decimal' | 'text'
 }) {
   return (
-    <label className="flex flex-col gap-1 text-[11px]" style={{ color: INK_55 }}>
+    <label className="flex flex-col gap-1 text-[13.5px] font-medium" style={{ color: INK_70 }}>
       {label}
       <input
         value={value}
         inputMode={inputMode}
         onChange={event => onChange(event.target.value)}
-        className="w-full rounded-lg px-3 outline-none"
-        style={{ minHeight: 44, fontSize: 16, color: 'var(--kajal)', background: 'white', border: `1px solid rgba(45,42,38,0.18)` }}
+        className="n-field outline-none"
       />
     </label>
   )
@@ -233,9 +232,9 @@ function ReviewRow({ item, draft, readOnly, escalatedBy, onChange }: {
             className="flex-shrink-0 flex items-center justify-center rounded-lg transition-colors"
             style={{
               width: 44, height: 44,
-              border: `2px solid ${draft.checked ? 'var(--tulsi)' : 'rgba(45,42,38,0.28)'}`,
-              background: draft.checked ? 'var(--tulsi)' : 'white',
-              color: 'white',
+              border: `2px solid ${draft.checked ? 'var(--tulsi)' : 'var(--ink-40)'}`,
+              background: draft.checked ? 'var(--tulsi)' : 'var(--field)',
+              color: '#fff',
             }}
           >
             {draft.checked && <Check size={22} strokeWidth={3} />}
@@ -246,25 +245,25 @@ function ReviewRow({ item, draft, readOnly, escalatedBy, onChange }: {
           </span>
         )}
         <div className="min-w-0 flex-1">
-          <div className="text-[13px] leading-snug" style={{ color: INK_70 }}>{draft.label || 'Untitled'}</div>
+          <div className="text-[14.5px] leading-snug" style={{ color: INK_70 }}>{draft.label || 'Untitled'}</div>
           <div className="text-[20px] font-semibold leading-tight break-words" style={{ color: 'var(--kajal)' }}>
             {item.kind === 'event' ? formatDate(draft.value) : draft.value}
-            {draft.unit && <span className="text-[14px] font-normal ml-1.5" style={{ color: INK_70 }}>{draft.unit}</span>}
+            {draft.unit && <span className="text-[15px] font-normal ml-1.5" style={{ color: INK_70 }}>{draft.unit}</span>}
           </div>
-          {detail && <div className="text-[12px] mt-0.5" style={{ color: INK_55 }}>{detail}</div>}
+          {detail && <div className="text-[13.5px] mt-0.5" style={{ color: INK_70 }}>{detail}</div>}
           {item.kind === 'lab' && item.flag && FLAG_TEXT[item.flag] && (
-            <div className="text-[12px] mt-1" style={{ color: item.flag === 'normal' ? INK_55 : 'var(--kesari)' }}>
+            <div className="text-[13.5px] mt-1" style={{ color: item.flag === 'normal' ? INK_70 : 'var(--kesari)' }}>
               {FLAG_TEXT[item.flag]}
             </div>
           )}
-          {!item.saveable && <div className="text-[12px] mt-1" style={{ color: INK_55 }}>{notSavedReason(item)}</div>}
+          {!item.saveable && <div className="text-[13.5px] mt-1" style={{ color: INK_70 }}>{notSavedReason(item)}</div>}
           {readOnly && item.saveable && (
-            <div className="text-[12px] mt-1" style={{ color: saved ? 'var(--tulsi)' : INK_55 }}>
+            <div className="text-[13.5px] mt-1" style={{ color: saved ? 'var(--tulsi)' : INK_70 }}>
               {saved ? 'Confirmed' : 'Left out'}
             </div>
           )}
           {!readOnly && item.saveable && (
-            <div className="text-[12px] mt-1" style={{ color: needsLook ? 'var(--haldi-deep)' : INK_55 }}>
+            <div className="text-[13.5px] mt-1" style={{ color: needsLook ? 'var(--haldi-deep)' : INK_70 }}>
               {needsLook ? `Please check: ${issues.join('; ') || 'less sure about this one'}` : issues.join('; ') || 'Looks clear'}
             </div>
           )}
@@ -272,8 +271,9 @@ function ReviewRow({ item, draft, readOnly, escalatedBy, onChange }: {
             <button
               type="button"
               onClick={() => setEditing(open => !open)}
-              className="mt-2 text-[12px] underline"
-              style={{ color: 'var(--sindoor)', minHeight: 32 }}
+              aria-expanded={editing}
+              className="mt-1 -ml-2 px-2 text-[14px] font-semibold underline underline-offset-2"
+              style={{ color: 'var(--sindoor)', minHeight: 44, minWidth: 44 }}
             >
               {editing ? 'Done editing' : 'Edit'}
             </button>
@@ -321,18 +321,19 @@ function OptionToggle({ checked, onChange, title, hint }: {
       aria-checked={checked}
       onClick={() => onChange(!checked)}
       className="w-full flex items-center gap-3 text-left rounded-xl px-3 py-2.5"
-      style={{ minHeight: 56, border: `1px solid ${LINE}`, background: 'white' }}
+      style={{ minHeight: 56, border: `1px solid ${LINE}`, background: 'var(--surface-raised)' }}
     >
       <span
+        aria-hidden="true"
         className="flex-shrink-0 flex items-center justify-center rounded-md"
-        style={{ width: 28, height: 28, border: `2px solid ${checked ? 'var(--tulsi)' : 'rgba(45,42,38,0.28)'}`,
-          background: checked ? 'var(--tulsi)' : 'white', color: 'white' }}
+        style={{ width: 28, height: 28, border: `2px solid ${checked ? 'var(--tulsi)' : 'var(--ink-40)'}`,
+          background: checked ? 'var(--tulsi)' : 'var(--field)', color: '#fff' }}
       >
         {checked && <Check size={16} strokeWidth={3} />}
       </span>
       <span className="min-w-0">
-        <span className="block text-[14px]" style={{ color: 'var(--kajal)' }}>{title}</span>
-        <span className="block text-[12px]" style={{ color: INK_55 }}>{hint}</span>
+        <span className="block text-[15px]" style={{ color: 'var(--kajal)' }}>{title}</span>
+        <span className="block text-[13.5px]" style={{ color: INK_70 }}>{hint}</span>
       </span>
     </button>
   )
@@ -476,9 +477,9 @@ export function DocumentReviewScreen({ reviewId, onClose, onSaved }: {
             <ChevronLeft size={22} />
           </button>
           <div className="min-w-0 flex-1">
-            <div className="text-[15px] font-semibold truncate" style={{ color: 'var(--kajal)' }}>{title}</div>
+            <h1 className="text-[16.5px] font-semibold truncate" style={{ color: 'var(--kajal)' }}>{title}</h1>
             {review && (
-              <div className="text-[11px] truncate" style={{ color: INK_55 }}>
+              <div className="text-[13px] truncate" style={{ color: INK_55 }}>
                 {review.source_name} · {review.items.length} value{review.items.length === 1 ? '' : 's'}
               </div>
             )}
@@ -491,15 +492,15 @@ export function DocumentReviewScreen({ reviewId, onClose, onSaved }: {
 
         <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-6" style={{ overscrollBehavior: 'contain' }}>
           {!review && !error && (
-            <div className="flex items-center justify-center gap-2 py-16 text-[13px]" style={{ color: INK_55 }}>
-              <Loader size={16} style={{ animation: 'spin 1s linear infinite' }} /> Opening the review
+            <div role="status" className="flex items-center justify-center gap-2 py-16 text-[14.5px]" style={{ color: INK_55 }}>
+              <Loader size={16} className="animate-spin" aria-hidden="true" /> Opening the review
             </div>
           )}
-          {error && <p className="py-16 text-center text-[14px]" style={{ color: INK_70 }}>{error}</p>}
+          {error && <p role="alert" className="py-16 text-center text-[15px]" style={{ color: INK_70 }}>{error}</p>}
 
           {review && (
             <>
-              <p className="text-[13px] leading-relaxed mt-4" style={{ color: INK_70 }}>
+              <p className="text-[14.5px] leading-relaxed mt-4" style={{ color: INK_70 }}>
                 {readOnly
                   ? `Saved ${review.saved?.at ? formatDate(review.saved.at.slice(0, 10)) : ''}. Ticked values are in your records.`
                   : 'Check each value against the photo. Only ticked values are saved.'}
@@ -508,13 +509,13 @@ export function DocumentReviewScreen({ reviewId, onClose, onSaved }: {
               </p>
 
               {result && (
-                <div className="mt-3 rounded-xl px-3 py-2.5 text-[13px]" style={{ background: 'rgba(6,95,70,0.08)', color: 'var(--tulsi)' }}>
+                <div role="status" className="mt-3 rounded-xl px-3 py-2.5 text-[14.5px]" style={{ background: 'rgba(var(--rgb-tulsi),0.1)', color: 'var(--tulsi)' }}>
                   {result}
                 </div>
               )}
 
               {(review.document.patient_name || review.document.prescriber) && (
-                <div className="mt-3 text-[13px]" style={{ color: INK_70 }}>
+                <div className="mt-3 text-[14.5px]" style={{ color: INK_70 }}>
                   {review.document.patient_name && <div>Name on the document: <strong>{review.document.patient_name}</strong></div>}
                   {review.document.prescriber && <div>Prescribed by: {review.document.prescriber}</div>}
                 </div>
@@ -522,14 +523,13 @@ export function DocumentReviewScreen({ reviewId, onClose, onSaved }: {
 
               {!readOnly && kinds.has('lab') && (
                 <div className="mt-3">
-                  <label className="flex flex-col gap-1 text-[12px]" style={{ color: INK_55 }}>
+                  <label className="flex flex-col gap-1 text-[13.5px] font-medium" style={{ color: INK_70 }}>
                     Date of the test
                     <input
                       type="date"
                       value={doc.test_date ?? ''}
                       onChange={event => setDoc(current => ({ ...current, test_date: event.target.value }))}
-                      className="rounded-lg px-3 outline-none"
-                      style={{ minHeight: 44, fontSize: 16, color: 'var(--kajal)', background: 'white', border: `1px solid rgba(45,42,38,0.18)` }}
+                      className="n-field outline-none"
                     />
                   </label>
                 </div>
@@ -541,35 +541,32 @@ export function DocumentReviewScreen({ reviewId, onClose, onSaved }: {
               )}
 
               {!readOnly && escalation?.suggested && escalation.pages?.length ? (
-                <div className="mt-4 rounded-xl px-3 py-3" style={{ border: `1px solid ${LINE}`, background: 'white' }}>
-                  <div className="text-[13px]" style={{ color: 'var(--kajal)' }}>
+                <div className="mt-4 rounded-xl px-3 py-3" style={{ border: `1px solid ${LINE}`, background: 'var(--surface-raised)' }}>
+                  <div className="text-[14.5px]" style={{ color: 'var(--kajal)' }}>
                     {escalation.reason ?? 'Some of this page was hard to read on this Mac.'}
                   </div>
                   {!askConsent ? (
                     <button
                       type="button"
                       onClick={() => setAskConsent(true)}
-                      className="mt-2 w-full rounded-lg text-[14px]"
-                      style={{ minHeight: 44, border: '1px solid rgba(45,42,38,0.22)', color: 'var(--kajal)' }}
+                      className="n-btn n-btn-block mt-2"
                     >
                       Ask {escalation.label ?? 'a trusted model'} to read {escalation.pages.length > 1 ? 'these pages' : 'this page'}
                     </button>
                   ) : (
                     <div className="mt-2">
-                      <p className="text-[12px] leading-relaxed" style={{ color: INK_70 }}>
+                      <p className="text-[13.5px] leading-relaxed" style={{ color: INK_70 }}>
                         {escalation.tier === 'local'
                           ? `Page ${escalation.pages.join(', ')} will be read again by the vision model on this Mac.`
                           : `The image of page ${escalation.pages.join(', ')} will leave this Mac for this one read by ${escalation.label}. `
                             + 'It is logged in your privacy record. You still tick each value it reads.'}
                       </p>
                       <div className="mt-2 flex gap-2">
-                        <button type="button" onClick={() => setAskConsent(false)} className="flex-1 rounded-lg text-[14px]"
-                          style={{ minHeight: 44, border: `1px solid ${LINE}`, color: INK_70 }}>
+                        <button type="button" onClick={() => setAskConsent(false)} className="n-btn flex-1">
                           Not now
                         </button>
                         <button type="button" onClick={() => void escalate()} disabled={busy !== ''}
-                          className="flex-1 rounded-lg text-[14px] font-semibold"
-                          style={{ minHeight: 44, background: 'var(--kajal)', color: 'var(--paper)', opacity: busy ? 0.6 : 1 }}>
+                          className="n-btn n-btn-primary flex-1">
                           {busy === 'escalate' ? 'Reading…' : 'Send and read'}
                         </button>
                       </div>
@@ -629,20 +626,18 @@ export function DocumentReviewScreen({ reviewId, onClose, onSaved }: {
             style={{ borderTop: `1px solid ${LINE}`, paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}
           >
             <button type="button" onClick={() => void discard()} disabled={busy !== ''}
-              className="rounded-xl px-4 text-[14px]" style={{ minHeight: 48, border: `1px solid ${LINE}`, color: INK_70 }}>
+              className="n-btn n-btn-danger">
               Discard
             </button>
             <button type="button" onClick={() => void save()} disabled={busy !== '' || tickedCount === 0}
-              className="flex-1 rounded-xl text-[15px] font-semibold"
-              style={{ minHeight: 48, background: 'var(--tulsi)', color: 'white', opacity: busy !== '' || tickedCount === 0 ? 0.5 : 1 }}>
+              className="n-btn n-btn-go flex-1" style={{ fontSize: 15 }}>
               {busy === 'save' ? 'Saving…' : `Save ${tickedCount} value${tickedCount === 1 ? '' : 's'}`}
             </button>
           </footer>
         )}
         {review && readOnly && (
           <footer className="px-4 pt-3 flex-shrink-0" style={{ borderTop: `1px solid ${LINE}`, paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}>
-            <button type="button" onClick={onClose} className="w-full rounded-xl text-[15px]"
-              style={{ minHeight: 48, background: 'var(--kajal)', color: 'var(--paper)' }}>
+            <button type="button" onClick={onClose} className="n-btn n-btn-primary n-btn-block" style={{ fontSize: 15 }}>
               Back to chat
             </button>
           </footer>
@@ -658,30 +653,37 @@ function ReviewCard({ notice, saved, onOpen }: { notice: DocumentReviewNotice; s
   const title = DOC_TYPE_NAMES[notice.doc_type ?? ''] ?? 'Document'
   const total = notice.item_count ?? 0
   return (
-    <div className="w-full max-w-[82%] self-start">
-      <div
-        className="folk-card folk-shadow rounded-[4px_16px_16px_16px] px-3.5 py-3"
-        style={{ borderLeft: '3px solid var(--avatar-matsya)', color: 'var(--kajal)' }}
+    <div className="chat-card">
+      <section
+        className="n-card"
+        style={{ ['--card-accent' as string]: saved ? 'var(--tulsi)' : 'var(--avatar-matsya)' }}
+        aria-label={`${title}: ${total} value${total === 1 ? '' : 's'} to check`}
       >
-        <div className="flex items-center gap-2 text-[13px] font-semibold">
-          <FileText size={15} style={{ color: 'var(--avatar-matsya)' }} />
-          {title}: {total} value{total === 1 ? '' : 's'} to check
+        <div className="n-card-head">
+          <span className="n-chip" style={{ color: 'var(--avatar-matsya)', background: 'rgba(var(--rgb-matsya),0.08)', borderColor: 'rgba(var(--rgb-matsya),0.28)' }}>
+            <FileText size={14} aria-hidden="true" />
+            {title}
+          </span>
+          <span className="n-status" style={saved ? { color: 'var(--tulsi)' } : { color: 'var(--avatar-matsya)' }}>
+            {saved ? 'Saved' : 'Check before saving'}
+          </span>
         </div>
-        <p className="text-[12px] mt-1" style={{ color: INK_70 }}>
+        <p className="n-card-title">{total} value{total === 1 ? '' : 's'} to check</p>
+        <p className="n-card-body">
           {saved
-            ? 'Saved. Tap to see what was kept.'
+            ? 'Saved. Open it to see what was kept.'
             : `Nothing is saved until you tick each value against the photo.${notice.needs_a_look ? ` ${count(notice.needs_a_look, 'needs', 'need')} a closer look.` : ''}`}
         </p>
-        <button
-          type="button"
-          onClick={onOpen}
-          className="mt-2 w-full rounded-lg text-[14px] font-semibold"
-          style={{ minHeight: 44, background: saved ? 'transparent' : 'var(--kajal)', color: saved ? 'var(--kajal)' : 'var(--paper)',
-            border: saved ? `1px solid ${LINE}` : 'none' }}
-        >
-          {saved ? 'Open' : 'Check and save'}
-        </button>
-      </div>
+        <div className="n-card-actions">
+          <button
+            type="button"
+            onClick={onOpen}
+            className={saved ? 'n-btn n-btn-block' : 'n-btn n-btn-primary n-btn-block'}
+          >
+            {saved ? 'Open' : 'Check and save'}
+          </button>
+        </div>
+      </section>
     </div>
   )
 }

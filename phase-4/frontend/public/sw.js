@@ -1,8 +1,8 @@
 /*
  * Narad service worker: push notifications and an offline app shell.
  *
- * Caches only the app shell (index.html, hashed JS/CSS, icons, the manifest)
- * and Google Fonts, under a cache name that changes with every build. API
+ * Caches only the app shell (index.html, hashed JS/CSS, the self-hosted fonts,
+ * icons, the manifest) under a cache name that changes with every build. API
  * responses and /media never touch a cache: they are personal data and pass
  * straight through. Navigations are network-first; when the Mac is asleep or
  * the tunnel is down the cached shell starts, and the app shows its "Narad's
@@ -18,32 +18,38 @@ const BUILD_VERSION = '__NARAD_BUILD_VERSION__'
 const SHELL_ASSETS = /* __NARAD_SHELL_ASSETS__ */ ['/']
 const SHELL_PREFIX = 'narad-shell-'
 const SHELL_CACHE = SHELL_PREFIX + BUILD_VERSION
-const FONT_CACHE = 'narad-fonts-v1'
+// Fonts used to come from Google Fonts into this cache; they are shell assets
+// now (/assets/*.woff2), so an old copy of it is dropped on activate.
+const LEGACY_CACHES = ['narad-fonts-v1']
 const SHELL_URL = '/'
 // index.html carries <meta name="narad-shell">; an Access login page does not.
 const SHELL_MARKER = 'name="narad-shell"'
-const FONT_HOSTS = ['fonts.googleapis.com', 'fonts.gstatic.com']
 
 // ── Request policy (pure) ───────────────────────────────────────────────────
 
-/** How to answer a request: navigate | asset | refresh | font | passthrough. */
+/** How to answer a request: navigate | asset | refresh | passthrough. */
 function requestStrategy(request, origin) {
   if (request.method !== 'GET') return 'passthrough'
   const url = new URL(request.url)
-  if (url.origin !== origin) {
-    return FONT_HOSTS.includes(url.hostname) ? 'font' : 'passthrough'
-  }
+  // Other origins are never cached: the app loads nothing from them itself.
+  if (url.origin !== origin) return 'passthrough'
   const path = url.pathname
   if (request.mode === 'navigate') {
     // Only the app itself; /media pages, OAuth callbacks and the rest are
     // documents of their own and always come from the network.
     return path === '/' || path === '/index.html' ? 'navigate' : 'passthrough'
   }
+  // Hashed build output: scripts, styles and the self-hosted fonts.
   if (path.startsWith('/assets/')) return 'asset'
   if (path.startsWith('/icons/') || path.startsWith('/favicon') || path === '/manifest.webmanifest') {
     return 'refresh'
   }
   return 'passthrough'
+}
+
+/** An older build's shell, or a cache this worker no longer uses. */
+function isStaleCache(name) {
+  return (name.startsWith(SHELL_PREFIX) && name !== SHELL_CACHE) || LEGACY_CACHES.includes(name)
 }
 
 /** Cloudflare's answers when the Mac or the tunnel is unreachable. */
@@ -103,10 +109,10 @@ function parsePushPayload(text, origin) {
 function offlinePage() {
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#1e2447"><title>Narad is offline</title>
+<meta name="theme-color" content="#211f1c"><title>Narad is offline</title>
 <style>
   body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;box-sizing:border-box;
-    background:#211f1c;color:#fcfaf2;font:15px/1.5 Inter,system-ui,sans-serif;text-align:center}
+    background:#211f1c;color:#fcfaf2;font:16px/1.5 Inter,system-ui,sans-serif;text-align:center}
   main{max-width:360px}
   h1{font:700 24px/1.2 'Playfair Display',Georgia,serif;margin:18px 0 8px}
   p{margin:0 0 22px;color:rgba(252,250,242,.62)}
@@ -162,21 +168,6 @@ async function handleAsset(event, refresh) {
       const cache = await caches.open(SHELL_CACHE)
       await cache.put(event.request, response.clone())
     }
-    return response
-  })
-  if (!cached) return network
-  event.waitUntil(network.catch(() => undefined))
-  return cached
-}
-
-/** Font files never change; the Google Fonts stylesheet refreshes in the background. */
-async function handleFont(event) {
-  const cache = await caches.open(FONT_CACHE)
-  const cached = await cache.match(event.request)
-  const stylesheet = new URL(event.request.url).hostname === 'fonts.googleapis.com'
-  if (cached && !stylesheet) return cached
-  const network = fetch(event.request).then(async response => {
-    if (response.ok || response.type === 'opaque') await cache.put(event.request, response.clone())
     return response
   })
   if (!cached) return network
@@ -242,7 +233,7 @@ self.addEventListener('activate', event => {
   event.waitUntil((async () => {
     const names = await caches.keys()
     await Promise.all(
-      names.filter(name => name.startsWith(SHELL_PREFIX) && name !== SHELL_CACHE).map(name => caches.delete(name))
+      names.filter(name => isStaleCache(name)).map(name => caches.delete(name))
     )
     await self.clients.claim()
   })())
@@ -257,7 +248,6 @@ self.addEventListener('fetch', event => {
   if (strategy === 'navigate') event.respondWith(handleNavigation(event))
   else if (strategy === 'asset') event.respondWith(handleAsset(event, false))
   else if (strategy === 'refresh') event.respondWith(handleAsset(event, true))
-  else if (strategy === 'font') event.respondWith(handleFont(event))
   // passthrough: no respondWith, so the browser fetches it normally, uncached.
 })
 

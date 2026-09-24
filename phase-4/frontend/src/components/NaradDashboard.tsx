@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
+import { ArrowLeft } from 'lucide-react'
 import { useIsMobile } from '../hooks/useIsMobile'
 import type {
   AndonAlertPayload,
@@ -17,10 +18,11 @@ import { MadhubaniBorder } from './MadhubaniBorder'
 import { KunjiTab } from './KunjiTab'
 import { WorkflowPathsPanel } from './WorkflowPathsPanel'
 import { ProfileBadge } from './ProfileBadge'
-import { ProfileTab } from './ProfileTab'
+import { YouPanel } from './YouPanel'
 import { ActivityPanel } from './ActivityPanel'
+import { ZigzagBank } from './Motifs'
 
-type SystemSection = 'status' | 'trace' | 'models' | 'profile'
+type SystemSection = 'status' | 'trace' | 'models'
 
 interface Props {
   surface: DashboardSurface
@@ -44,9 +46,11 @@ interface Props {
   focusEventId?: string | null
   /** Open a same-origin deep link such as "/?approval=<id>". */
   onOpenUrl: (url: string) => void
-  /** Open one path on the Workflows surface. */
+  /** Open one path on the Paths surface. */
   onOpenRun: (runId: string) => void
   onUnreadChange: (count: number) => void
+  /** Start voice mode (from You). */
+  onOpenVoice: () => void
 }
 
 const SURFACE_META: Record<DashboardSurface, {
@@ -61,8 +65,13 @@ const SURFACE_META: Record<DashboardSurface, {
   },
   workspaces: {
     eyebrow: 'कर्म',
-    label: 'Workflows',
+    label: 'Paths',
     description: 'Purpose-built paths that retain progress, evidence, and the next useful action.',
+  },
+  you: {
+    eyebrow: 'आप',
+    label: 'You',
+    description: 'Your notifications, voice, privacy and sign-in.',
   },
   memory: {
     eyebrow: 'स्मृति',
@@ -72,7 +81,7 @@ const SURFACE_META: Record<DashboardSurface, {
   system: {
     eyebrow: 'दृष्टि',
     label: 'System',
-    description: 'Runtime health, models, connections, traces, and your profile.',
+    description: 'Runtime health, models, connections and traces.',
   },
 }
 
@@ -88,14 +97,14 @@ function SectionNav<T extends string>({
   return (
     <div
       role="tablist"
-      aria-label="Surface sections"
+      aria-label="Sections"
       style={{
         display: 'flex',
         gap: 3,
         padding: 3,
-        borderRadius: 10,
-        background: 'rgba(45,42,38,0.055)',
-        border: '1px solid rgba(45,42,38,0.08)',
+        borderRadius: 12,
+        background: 'var(--ink-05)',
+        border: '1px solid var(--ink-08)',
         overflowX: 'auto',
       }}
     >
@@ -109,13 +118,15 @@ function SectionNav<T extends string>({
             aria-selected={active}
             onClick={() => onChange(item.id)}
             style={{
-              padding: '6px 10px',
+              flex: '1 0 auto',
+              minHeight: 44,
+              padding: '0 14px',
               border: 0,
-              borderRadius: 7,
+              borderRadius: 9,
               background: active ? 'var(--paper)' : 'transparent',
-              color: active ? 'var(--kajal)' : 'rgba(45,42,38,0.5)',
-              boxShadow: active ? '0 1px 3px rgba(45,42,38,0.09)' : 'none',
-              fontSize: 11.5,
+              color: active ? 'var(--kajal)' : 'var(--ink-55)',
+              boxShadow: active ? '0 1px 3px var(--ink-12)' : 'none',
+              fontSize: 13.5,
               fontWeight: active ? 700 : 500,
               whiteSpace: 'nowrap',
               cursor: 'pointer',
@@ -134,6 +145,27 @@ function SurfaceFrame({ children }: { children: ReactNode }) {
     <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
       {children}
     </div>
+  )
+}
+
+/** A phone screen's title band: the same dark chrome as Chat's header. */
+function PhoneHeader({ surface, onBack }: { surface: DashboardSurface; onBack?: () => void }) {
+  const meta = SURFACE_META[surface]
+  return (
+    <header className="screen-header relative overflow-hidden" style={onBack ? { paddingLeft: 4 } : undefined}>
+      {onBack && (
+        <button type="button" className="n-icon-btn" onClick={onBack} aria-label="Back to You">
+          <ArrowLeft size={20} />
+        </button>
+      )}
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 9, minWidth: 0 }}>
+        <span className="screen-eyebrow" aria-hidden="true">{meta.eyebrow}</span>
+        <h1>{meta.label}</h1>
+      </div>
+      <div className="absolute bottom-0 left-0 w-full overflow-hidden pointer-events-none" style={{ height: 12, opacity: 0.1 }} aria-hidden="true">
+        <ZigzagBank color="var(--on-chrome)" className="w-full" />
+      </div>
+    </header>
   )
 }
 
@@ -159,6 +191,7 @@ export function NaradDashboard({
   onOpenUrl,
   onOpenRun,
   onUnreadChange,
+  onOpenVoice,
 }: Props) {
   const [systemSection, setSystemSection] = useState<SystemSection>('status')
   const isMobile = useIsMobile()
@@ -187,7 +220,7 @@ export function NaradDashboard({
 
   return (
     <main
-      aria-label={`${meta.label} surface`}
+      aria-label={meta.label}
       style={{
         height: '100%',
         minHeight: 0,
@@ -198,144 +231,146 @@ export function NaradDashboard({
         fontFamily: 'var(--font-body)',
       }}
     >
-      <MadhubaniBorder height={24} />
-
-      <header
-        style={{
-          minHeight: 54,
-          padding: isMobile ? '9px 12px' : '9px 16px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 12,
-          flexShrink: 0,
-          background: 'linear-gradient(180deg, rgba(45,42,38,0.99), rgba(38,35,32,0.99))',
-        }}
-      >
-        <button
-          type="button"
-          onClick={onClose}
-          title="Return to Chat"
-          style={{
-            border: 0,
-            background: 'transparent',
-            color: 'var(--sindoor)',
-            fontFamily: 'var(--font-hero)',
-            fontSize: isMobile ? 14 : 16,
-            fontWeight: 700,
-            cursor: 'pointer',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          NARAD.OS
-        </button>
-
-        {!isMobile && (
-          <div style={{ flex: 1, maxWidth: 560 }}>
-            <SearchBar userId={userId} onNavigate={navigateFromSearch} tone="dark" />
-          </div>
-        )}
-
-        <ProfileBadge profile={profile} onSwitch={onSwitchProfile} compact={isMobile} />
-
-        <div
-          aria-live="polite"
-          style={{
-            marginLeft: 'auto',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 7,
-            padding: isMobile ? 5 : '5px 9px',
-            borderRadius: 999,
-            border: '1px solid rgba(252,250,242,0.13)',
-            color: 'rgba(252,250,242,0.6)',
-            fontSize: 10.5,
-            whiteSpace: 'nowrap',
-          }}
-        >
-          <span
+      {isMobile ? (
+        <PhoneHeader
+          surface={surface}
+          onBack={surface === 'memory' || surface === 'system' ? () => onSurfaceChange('you') : undefined}
+        />
+      ) : (
+        <>
+          <MadhubaniBorder height={24} />
+          <header
             style={{
-              width: 7,
-              height: 7,
-              borderRadius: 999,
-              background: naradActive || streaming ? 'var(--sindoor)' : capabilities?.status === 'healthy' ? 'var(--tulsi)' : 'var(--haldi)',
-              boxShadow: naradActive || streaming ? '0 0 0 3px rgba(194,65,12,0.2)' : 'none',
+              minHeight: 54,
+              padding: '9px 16px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              flexShrink: 0,
+              background: 'var(--chrome)',
             }}
+          >
+            <button
+              type="button"
+              onClick={onClose}
+              title="Return to Chat"
+              style={{
+                border: 0,
+                background: 'transparent',
+                color: '#e8773f',
+                fontFamily: 'var(--font-hero)',
+                fontSize: 16,
+                fontWeight: 700,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                minHeight: 44,
+              }}
+            >
+              NARAD.OS
+            </button>
+
+            <div style={{ flex: 1, maxWidth: 560 }}>
+              <SearchBar userId={userId} onNavigate={navigateFromSearch} tone="dark" />
+            </div>
+
+            <ProfileBadge profile={profile} onSwitch={onSwitchProfile} />
+
+            <div
+              aria-live="polite"
+              style={{
+                marginLeft: 'auto',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 7,
+                padding: '5px 9px',
+                borderRadius: 999,
+                border: '1px solid rgba(252,250,242,0.13)',
+                color: 'rgba(252,250,242,0.66)',
+                fontSize: 11.5,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              <span
+                style={{
+                  width: 7,
+                  height: 7,
+                  borderRadius: 999,
+                  background: naradActive || streaming ? 'var(--sindoor)' : capabilities?.status === 'healthy' ? 'var(--tulsi)' : 'var(--haldi)',
+                  boxShadow: naradActive || streaming ? '0 0 0 3px rgba(194,65,12,0.2)' : 'none',
+                }}
+              />
+              {streaming
+                ? 'Narad working'
+                : capabilities
+                  ? `${capabilities.build.runtime_mode} · ${capabilities.issue_count} issue${capabilities.issue_count === 1 ? '' : 's'}`
+                  : 'Connecting'}
+            </div>
+
+            <button
+              type="button"
+              onClick={onClose}
+              style={{
+                minHeight: 40,
+                padding: '0 12px',
+                borderRadius: 8,
+                border: '1px solid rgba(252,250,242,0.14)',
+                background: 'rgba(252,250,242,0.07)',
+                color: 'rgba(252,250,242,0.78)',
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              Back to Chat
+            </button>
+          </header>
+
+          <div
+            style={{
+              padding: '11px 16px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 16,
+              flexShrink: 0,
+              borderBottom: '1px solid var(--line)',
+              background: 'var(--surface-2)',
+            }}
+          >
+            <div style={{ minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                <span style={{ fontFamily: 'var(--font-deva)', fontSize: 14, color: 'var(--sindoor)' }}>{meta.eyebrow}</span>
+                <h1 style={{ fontFamily: 'var(--font-hero)', fontSize: 21, lineHeight: 1, color: 'var(--kajal)' }}>{meta.label}</h1>
+              </div>
+              <p style={{ marginTop: 4, fontSize: 12.5, color: 'var(--ink-55)' }}>{meta.description}</p>
+            </div>
+          </div>
+        </>
+      )}
+
+      {surface === 'system' && (
+        <div style={{ padding: isMobile ? '10px 12px' : '10px 16px', flexShrink: 0, borderBottom: '1px solid var(--line)' }}>
+          <SectionNav
+            value={systemSection}
+            onChange={setSystemSection}
+            items={[
+              { id: 'status', label: 'Status' },
+              { id: 'trace', label: 'Trace' },
+              { id: 'models', label: 'Connections' },
+            ]}
           />
-          {!isMobile && (streaming
-            ? 'Narad working'
-            : capabilities
-              ? `${capabilities.build.runtime_mode} · ${capabilities.issue_count} issue${capabilities.issue_count === 1 ? '' : 's'}`
-              : 'Connecting')}
         </div>
-
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Return to Chat"
-          style={{
-            minWidth: 34,
-            height: 30,
-            padding: isMobile ? '0 8px' : '0 11px',
-            borderRadius: 8,
-            border: '1px solid rgba(252,250,242,0.14)',
-            background: 'rgba(252,250,242,0.07)',
-            color: 'rgba(252,250,242,0.72)',
-            fontSize: 11,
-            fontWeight: 600,
-            cursor: 'pointer',
-          }}
-        >
-          {isMobile ? '←' : '← Chat'}
-        </button>
-      </header>
-
-      <div
-        style={{
-          padding: isMobile ? '10px 12px' : '11px 16px',
-          display: 'flex',
-          alignItems: isMobile ? 'stretch' : 'center',
-          flexDirection: isMobile ? 'column' : 'row',
-          gap: isMobile ? 9 : 16,
-          flexShrink: 0,
-          borderBottom: '1px solid rgba(45,42,38,0.08)',
-          background: 'linear-gradient(180deg, rgba(252,250,242,0.98), rgba(247,242,230,0.9))',
-        }}
-      >
-        <div style={{ minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-            <span style={{ fontFamily: 'var(--font-deva)', fontSize: 13, color: 'var(--sindoor)' }}>{meta.eyebrow}</span>
-            <h1 style={{ fontFamily: 'var(--font-hero)', fontSize: 20, lineHeight: 1, color: 'var(--kajal)' }}>{meta.label}</h1>
-          </div>
-          {!isMobile && (
-            <p style={{ marginTop: 4, fontSize: 11.5, color: 'rgba(45,42,38,0.5)' }}>{meta.description}</p>
-          )}
-        </div>
-
-        {surface === 'system' && (
-          <div style={{ marginLeft: isMobile ? 0 : 'auto' }}>
-            <SectionNav
-              value={systemSection}
-              onChange={setSystemSection}
-              items={[
-                { id: 'status', label: 'Status' },
-                { id: 'trace', label: 'Trace' },
-                { id: 'models', label: 'Connections' },
-                { id: 'profile', label: 'Profile' },
-              ]}
-            />
-          </div>
-        )}
-      </div>
+      )}
 
       {surface === 'system' && andonAlert && (
         <div
+          role="status"
           style={{
             flexShrink: 0,
             padding: '8px 16px',
-            background: 'rgba(194,65,12,0.07)',
-            borderBottom: '1px solid rgba(194,65,12,0.14)',
-            color: 'rgba(45,42,38,0.68)',
-            fontSize: 11.5,
+            background: 'rgba(var(--rgb-sindoor),0.07)',
+            borderBottom: '1px solid rgba(var(--rgb-sindoor),0.14)',
+            color: 'var(--ink-70)',
+            fontSize: 13,
           }}
         >
           <strong style={{ color: 'var(--kesari)' }}>Needs attention · {andonAlert.avatar}</strong>
@@ -362,6 +397,17 @@ export function NaradDashboard({
             streaming={streaming}
             activeRunId={activeWorkflowRunId}
             onContinue={onContinueWorkflow}
+          />
+        </SurfaceFrame>
+      )}
+
+      {surface === 'you' && (
+        <SurfaceFrame>
+          <YouPanel
+            profile={profile}
+            onSignOut={onSwitchProfile}
+            onOpenVoice={onOpenVoice}
+            onOpenSurface={onSurfaceChange}
           />
         </SurfaceFrame>
       )}
@@ -394,11 +440,10 @@ export function NaradDashboard({
             />
           )}
           {systemSection === 'models' && <KunjiTab onOpenSetup={onOpenSetup} />}
-          {systemSection === 'profile' && <ProfileTab profile={profile} onSignedOut={onSwitchProfile} />}
         </SurfaceFrame>
       )}
 
-      <MadhubaniBorder position="bottom" height={22} />
+      {!isMobile && <MadhubaniBorder position="bottom" height={22} />}
     </main>
   )
 }

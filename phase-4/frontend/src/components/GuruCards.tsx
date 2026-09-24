@@ -29,12 +29,12 @@ function ProgressPips({ progress }: { progress: GuidedProgress }) {
                 ? KRISHNA
                 : i < progress.mastered + progress.shaky
                 ? 'var(--marigold, #d97b29)'
-                : 'rgba(45,42,38,0.18)',
+                : 'rgba(var(--rgb-ink),0.18)',
             }}
           />
         ))}
       </span>
-      <span className="font-mono text-[10px]" style={{ color: 'rgba(45,42,38,0.55)' }}>
+      <span className="font-mono text-[10px]" style={{ color: 'rgba(var(--rgb-ink),0.55)' }}>
         {progress.mastered}/{progress.total} mastered
       </span>
     </span>
@@ -90,8 +90,8 @@ function ArtifactFrame({ html, name }: { html: string; name: string }) {
       loading="lazy"
       className="w-full rounded mt-2.5"
       style={{
-        border: '1px solid rgba(45,42,38,0.12)',
-        background: 'var(--surface, rgba(45,42,38,0.03))',
+        border: '1px solid rgba(var(--rgb-ink),0.12)',
+        background: 'var(--surface, rgba(var(--rgb-ink),0.03))',
         height: 240,
       }}
     />
@@ -116,7 +116,7 @@ function QuizBlock({ step, grade, answered, busy, onAnswer, onSkip }: QuizProps)
   const isMcq = quiz.type === 'mcq'
 
   return (
-    <div className="mt-3 pt-3" style={{ borderTop: '1px dashed rgba(45,42,38,0.15)' }}>
+    <div className="mt-3 pt-3" style={{ borderTop: '1px dashed rgba(var(--rgb-ink),0.15)' }}>
       <div className="flex items-center gap-1.5 mb-1.5">
         <span className="font-mono text-[10px] uppercase tracking-wider" style={{ color: KRISHNA }}>
           Check yourself
@@ -144,7 +144,7 @@ function QuizBlock({ step, grade, answered, busy, onAnswer, onSkip }: QuizProps)
                   fontFamily: 'var(--font-body)',
                   border: `1px solid ${showState
                     ? grade?.correct ? 'rgba(22,101,52,0.5)' : 'rgba(153,27,27,0.45)'
-                    : 'rgba(45,42,38,0.15)'}`,
+                    : 'rgba(var(--rgb-ink),0.15)'}`,
                   background: showState
                     ? grade?.correct ? 'rgba(22,101,52,0.08)' : 'rgba(153,27,27,0.07)'
                     : 'var(--surface, rgba(252,250,242,0.6))',
@@ -181,7 +181,7 @@ function QuizBlock({ step, grade, answered, busy, onAnswer, onSkip }: QuizProps)
               className="w-full text-[12.5px] px-3 py-2 rounded resize-none outline-none"
               style={{
                 fontFamily: 'var(--font-body)',
-                border: '1px solid rgba(45,42,38,0.18)',
+                border: '1px solid rgba(var(--rgb-ink),0.18)',
                 background: 'var(--surface, rgba(252,250,242,0.7))',
                 color: 'var(--kajal)',
               }}

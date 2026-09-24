@@ -162,6 +162,16 @@ export default function App() {
   )
 }
 
+/** While a screen's code loads: the paper ground and a quiet line, never a blank flash. */
+function ScreenLoading() {
+  return (
+    <div role="status" className="h-full flex items-center justify-center gap-2 text-[14px]" style={{ background: 'var(--paper)', color: 'var(--ink-55)' }}>
+      <span className="family-session-pulse" aria-hidden="true" />
+      Opening…
+    </div>
+  )
+}
+
 /** Read and strip the app's own deep-link params, leaving others (?approval=) in place. */
 function takeAppLink(): { activity: string | null; path: string | null } {
   const url = new URL(window.location.href)
@@ -332,6 +342,14 @@ function NaradSession({ profile, onSwitchProfile }: { profile: FamilyProfile; on
       openRun(target.searchParams.get('path') as string)
       return
     }
+    if (target.searchParams.get('review')) {
+      // The document review opens over Chat: put the link where its host
+      // reads it (on mount, or on popstate when Chat is already showing).
+      window.history.replaceState(window.history.state, '', `/?review=${encodeURIComponent(target.searchParams.get('review') as string)}`)
+      setActiveSurface('chat')
+      window.dispatchEvent(new PopStateEvent('popstate', { state: window.history.state }))
+      return
+    }
     const link = new CustomEvent('narad:deeplink', { detail: { url: target.pathname + target.search }, cancelable: true })
     if (!window.dispatchEvent(link)) {
       setActiveSurface('chat')
@@ -406,13 +424,13 @@ function NaradSession({ profile, onSwitchProfile }: { profile: FamilyProfile; on
 
   return (
     <>
-      <HostOfflineBanner />
-
       {/* Noise texture overlay */}
       <div className="noise-overlay" />
 
+      <div className="app-shell flex flex-col overflow-hidden" style={{ position: 'relative', zIndex: 1 }}>
+      <HostOfflineBanner />
       <div
-        className="grid h-screen overflow-hidden"
+        className="grid flex-1 min-h-0 overflow-hidden"
         style={{
           ...(isMobile
             ? {
@@ -445,6 +463,7 @@ function NaradSession({ profile, onSwitchProfile }: { profile: FamilyProfile; on
               stop={stop}
               onClear={startNewChat}
               onOpenVoice={() => setVoiceOpen(true)}
+              onOpenProfile={() => setActiveSurface('you')}
               activeArtifact={activeArtifactSession}
               onCloseArtifact={clearArtifact}
               activeWorkflow={threadWorkflowRunId && activeWorkflow?.run_id === threadWorkflowRunId ? activeWorkflow : null}
@@ -457,7 +476,7 @@ function NaradSession({ profile, onSwitchProfile }: { profile: FamilyProfile; on
               onApprovalChange={updateApproval}
             />
           ) : (
-            <Suspense fallback={<div className="h-full" style={{ background: 'var(--paper)' }} />}>
+            <Suspense fallback={<ScreenLoading />}>
               <NaradDashboard
                 surface={activeSurface as DashboardSurface}
                 onSurfaceChange={setActiveSurface}
@@ -480,6 +499,7 @@ function NaradSession({ profile, onSwitchProfile }: { profile: FamilyProfile; on
                 onOpenUrl={openUrl}
                 onOpenRun={openRun}
                 onUnreadChange={setUnread}
+                onOpenVoice={() => setVoiceOpen(true)}
               />
             </Suspense>
           )}
@@ -498,7 +518,8 @@ function NaradSession({ profile, onSwitchProfile }: { profile: FamilyProfile; on
               fallback={
                 <div
                   className="flex h-full items-center justify-center text-sm"
-                  style={{ color: 'rgba(45,42,38,0.55)', background: 'var(--paper)' }}
+                  style={{ color: 'var(--ink-55)', background: 'var(--paper)' }}
+                  role="status"
                 >
                   Loading workspace…
                 </div>
@@ -532,6 +553,7 @@ function NaradSession({ profile, onSwitchProfile }: { profile: FamilyProfile; on
           horizontal={isMobile}
           unread={unread}
         />
+      </div>
       </div>
 
       {setupOpen && onboardingStatus && (
@@ -569,7 +591,11 @@ function NaradSession({ profile, onSwitchProfile }: { profile: FamilyProfile; on
       {/* A Kriya task's live view, from its card or a notification: /?task=<id> */}
       <TaskSheet />
 
-      <Toaster />
+      {/* Phone: toasts drop in under the header, clear of the composer and the navigation. */}
+      <Toaster
+        position={isMobile ? 'top-center' : 'bottom-right'}
+        mobileOffset={{ top: 'calc(60px + env(safe-area-inset-top))', left: 12, right: 12 }}
+      />
     </>
   )
 }

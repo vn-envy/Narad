@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Trains: New Delhi to Jaipur</title>
+<style>
+  body { margin: 0; font: 16px/1.4 system-ui, sans-serif; background: #f4f6fb; color: #1b2233; }
+  header { background: #123a7a; color: #fff; padding: 18px 40px; display: flex; align-items: center; gap: 24px; }
+  header b { font-size: 24px; }
+  .search { margin: 24px 40px; background: #fff; border-radius: 10px; padding: 18px 24px; display: flex; gap: 18px; box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+  .field { border: 1px solid #c7cfdd; border-radius: 8px; padding: 10px 14px; min-width: 190px; }
+  .field small { display: block; color: #66708a; font-size: 12px; }
+  .row { margin: 0 40px 14px; background: #fff; border-radius: 10px; padding: 18px 24px; display: grid; grid-template-columns: 2fr 1fr 1fr 1fr 150px; align-items: center; box-shadow: 0 1px 4px rgba(0,0,0,.06); }
+  .row.hi { outline: 3px solid #f59e0b; }
+  .fare { font-size: 22px; font-weight: 700; }
+  button { background: #f97316; color: #fff; border: 0; border-radius: 8px; padding: 12px 18px; font-size: 16px; font-weight: 700; }
+  .tag { display: inline-block; background: #e6f4ea; color: #1e7b34; border-radius: 6px; padding: 2px 8px; font-size: 13px; }
+</style>
+</head>
+<body>
+<header><b>trains.example.com</b><span>New Delhi (NDLS) to Jaipur (JP) · Saturday · 2 adults · AC Chair Car</span></header>
+<div class="search">
+  <div class="field"><small>From</small>New Delhi</div>
+  <div class="field"><small>To</small>Jaipur</div>
+  <div class="field"><small>Date</small>Sat, 27 Sep</div>
+  <div class="field"><small>Class</small>AC Chair Car (CC)</div>
+  <button>Search</button>
+</div>
+<div class="row hi"><div><b>12015 Ajmer Shatabdi</b><br><small>06:05 → 10:35 · 4h 30m</small></div><div><span class="tag">Available 42</span></div><div>CC</div><div class="fare">₹ 1,210</div><button>Select</button></div>
+<div class="row"><div><b>12958 Swarna Jayanti Rajdhani</b><br><small>07:40 → 12:20 · 4h 40m</small></div><div><span class="tag">Available 8</span></div><div>CC</div><div class="fare">₹ 1,385</div><button>Select</button></div>
+<div class="row"><div><b>22987 Vande Bharat</b><br><small>09:15 → 13:30 · 4h 15m</small></div><div><span class="tag">Waitlist 12</span></div><div>CC</div><div class="fare">₹ 1,540</div><button>Select</button></div>
+</body>
+</html>

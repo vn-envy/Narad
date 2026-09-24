@@ -41,20 +41,21 @@ export function EgressScreen({ initialLang = 'en', onClose }: { initialLang?: Tr
       role="dialog"
       aria-modal="true"
       aria-label={hi ? 'मेरे Mac से क्या बाहर गया' : 'What left my Mac'}
+      lang={hi ? 'hi' : 'en'}
       className="fixed inset-0 flex flex-col"
-      style={{ zIndex: 70, background: 'var(--paper)', color: 'var(--kajal)', fontFamily: hi ? 'var(--font-deva)' : 'var(--font-body)' }}
+      style={{ zIndex: 70, background: 'var(--paper)', color: 'var(--kajal)' }}
     >
       <header
-        className="flex items-center gap-2 px-4 flex-shrink-0"
-        style={{ minHeight: 56, paddingTop: 'env(safe-area-inset-top)', borderBottom: '1px solid var(--ink-12)' }}
+        className="flex items-center gap-1 pl-1 pr-3 flex-shrink-0"
+        style={{ minHeight: 'calc(56px + env(safe-area-inset-top))', paddingTop: 'env(safe-area-inset-top)', borderBottom: '1px solid var(--line)' }}
       >
         <button
           type="button"
           onClick={onClose}
-          className="w-10 h-10 -ml-2 flex items-center justify-center rounded-full"
+          className="n-icon-btn"
           aria-label={hi ? 'वापस' : 'Back'}
         >
-          <ArrowLeft size={18} />
+          <ArrowLeft size={20} />
         </button>
         <h1 className="text-[17px] font-semibold flex-1 truncate">
           {hi ? 'मेरे Mac से क्या बाहर गया' : 'What left my Mac'}
@@ -64,43 +65,43 @@ export function EgressScreen({ initialLang = 'en', onClose }: { initialLang?: Tr
 
       <main className="flex-1 overflow-y-auto">
         <div className="w-full max-w-[560px] mx-auto px-4 pt-4 pb-10">
-          <p className="text-[14px] leading-relaxed mb-5" style={{ color: 'var(--ink-70)' }}>
+          <p className="text-[15px] leading-relaxed mb-5" style={{ color: 'var(--ink-70)' }}>
             {hi
               ? 'जब भी नारद ने आपके लिए इस Mac के बाहर की कोई सेवा इस्तेमाल की, वह यहां लिखा है: कौन-सी सेवा, किस काम के लिए, और कितनी निजी जानकारियां प्लेसहोल्डर से बदली गईं। आपके शब्द इस सूची में कभी नहीं रखे जाते। यह सूची सिर्फ़ आप देख सकते हैं।'
               : 'Each time Narad used a service outside this Mac for you, it is listed here: which service, what for, and how many personal details were swapped for placeholders. Your words are never kept in this list. Only you can see it.'}
           </p>
 
           {!rows && !failed && (
-            <div className="flex items-center gap-2 text-[13px]" style={{ color: 'var(--ink-55)' }}>
-              <LoaderCircle size={14} className="animate-spin" /> {hi ? 'लोड हो रहा है…' : 'Loading…'}
+            <div role="status" className="flex items-center gap-2 text-[14.5px]" style={{ color: 'var(--ink-55)' }}>
+              <LoaderCircle size={16} className="animate-spin" aria-hidden="true" /> {hi ? 'लोड हो रहा है…' : 'Loading…'}
             </div>
           )}
           {failed && (
-            <p className="text-[13px]" style={{ color: 'var(--sindoor)' }}>
+            <p role="alert" className="text-[14.5px]" style={{ color: 'var(--sindoor)' }}>
               {hi ? 'सूची अभी खुल नहीं पाई। थोड़ी देर बाद फिर कोशिश करें।' : "The list couldn't load just now. Try again in a moment."}
             </p>
           )}
           {rows && rows.length === 0 && (
-            <div className="flex items-center gap-2 text-[14px] rounded-[11px] px-3 py-3" style={{ color: 'var(--tulsi)', background: 'rgba(6,95,70,0.06)' }}>
-              <ShieldCheck size={16} />
+            <div className="flex items-center gap-2 text-[15px] rounded-[11px] px-3 py-3" style={{ color: 'var(--tulsi)', background: 'rgba(var(--rgb-tulsi),0.08)' }}>
+              <ShieldCheck size={18} aria-hidden="true" />
               {hi ? 'अब तक आपके Mac से कुछ भी बाहर नहीं गया।' : 'Nothing has left your Mac yet.'}
             </div>
           )}
 
           {days.map(day => (
             <section key={day.key} className="mb-6">
-              <h2 className="text-[11px] uppercase tracking-[0.12em] mb-2" style={{ color: 'var(--ink-55)', fontFamily: 'var(--font-mono)' }}>
+              <h2 className="n-section-label" style={{ margin: '0 0 10px' }}>
                 {day.label}
               </h2>
               <ul className="flex flex-col gap-2">
                 {day.entries.map(entry => (
                   <li
                     key={entry.key}
-                    className="rounded-[11px] px-3 py-2.5"
-                    style={{ background: 'var(--surface-2)', border: '1px solid var(--ink-08)' }}
+                    className="rounded-[12px] px-3.5 py-3"
+                    style={{ background: 'var(--surface-2)', border: '1px solid var(--line)' }}
                   >
                     <div className="flex items-baseline justify-between gap-3 mb-0.5">
-                      <span className="text-[13.5px] font-semibold">
+                      <span className="text-[15px] font-semibold">
                         {entry.row.blocked
                           ? (hi ? 'भेजने से पहले रोका' : 'Stopped before sending')
                           : providerName(entry.row.provider, lang)}
@@ -108,11 +109,11 @@ export function EgressScreen({ initialLang = 'en', onClose }: { initialLang?: Tr
                           <span className="font-normal" style={{ color: 'var(--ink-55)' }}> · {entry.count}×</span>
                         )}
                       </span>
-                      <span className="text-[11px] flex-shrink-0" style={{ color: 'var(--ink-40)', fontFamily: 'var(--font-mono)' }}>
+                      <span className="text-[12.5px] flex-shrink-0" style={{ color: 'var(--ink-55)' }}>
                         {entry.time}
                       </span>
                     </div>
-                    <p className="text-[13px] leading-relaxed" style={{ color: 'var(--ink-70)' }}>
+                    <p className="text-[14.5px] leading-relaxed" style={{ color: 'var(--ink-70)' }}>
                       {entry.row.blocked
                         ? (hi
                             ? `${providerName(entry.row.provider, lang)}, ${purpose(entry.row.source, lang)}: कुछ नहीं भेजा गया, क्योंकि ${refusalReason(entry.row.blocked, lang)}।`
@@ -120,7 +121,7 @@ export function EgressScreen({ initialLang = 'en', onClose }: { initialLang?: Tr
                         : destinationSentence(entry.row.provider, entry.row.tier, entry.row.source, entry.replaced, lang)}
                     </p>
                     {!entry.row.blocked && (
-                      <span className="text-[10.5px]" style={{ color: 'var(--ink-40)' }}>
+                      <span className="text-[12.5px]" style={{ color: 'var(--ink-55)' }}>
                         {tierLabel(entry.row.tier, lang)}
                         {!entry.row.turn_id && (hi ? ' · बातचीत के बाद' : ' · after a conversation')}
                       </span>
@@ -139,18 +140,19 @@ export function EgressScreen({ initialLang = 'en', onClose }: { initialLang?: Tr
 
 export function LangToggle({ lang, onChange }: { lang: TrustLang; onChange: (lang: TrustLang) => void }) {
   return (
-    <div className="inline-flex rounded-full p-0.5 flex-shrink-0" style={{ border: '1px solid var(--ink-12)' }} role="group" aria-label="Language">
+    <div className="inline-flex rounded-full p-0.5 flex-shrink-0" style={{ border: '1px solid var(--ink-20)' }} role="group" aria-label="Language">
       {(['en', 'hi'] as TrustLang[]).map(option => (
         <button
           key={option}
           type="button"
           onClick={() => onChange(option)}
           aria-pressed={lang === option}
-          className="px-3 min-h-[32px] rounded-full text-[12px]"
+          lang={option}
+          className="px-3.5 min-h-[44px] rounded-full text-[14px]"
           style={{
             background: lang === option ? 'var(--kajal)' : 'transparent',
             color: lang === option ? 'var(--paper)' : 'var(--ink-70)',
-            fontFamily: option === 'hi' ? 'var(--font-deva)' : 'var(--font-body)',
+            lineHeight: 1.2,
           }}
         >
           {option === 'hi' ? 'हिन्दी' : 'English'}

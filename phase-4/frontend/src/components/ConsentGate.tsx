@@ -89,7 +89,7 @@ export function ConsentGate({
   if (phase === 'ready') return <>{children}</>
 
   const hi = lang === 'hi'
-  const font = hi ? 'var(--font-deva)' : 'var(--font-body)'
+  const langAttr = hi ? 'hi' : 'en'
 
   if (phase === 'checking') {
     return (
@@ -107,14 +107,15 @@ export function ConsentGate({
     return (
       <main
         className="min-h-[100dvh] flex items-center justify-center px-5"
-        style={{ background: 'var(--paper)', color: 'var(--kajal)', fontFamily: font }}
+        lang={langAttr}
+        style={{ background: 'var(--paper)', color: 'var(--kajal)' }}
       >
         <div className="w-full max-w-[420px] flex flex-col items-center text-center gap-4">
           <MahatiLogo size={44} />
           <h1 className="text-[22px] font-semibold leading-snug">
             {hi ? 'कोई बात नहीं' : 'That is completely fine'}
           </h1>
-          <p className="text-[15px] leading-relaxed" style={{ color: 'var(--ink-70)' }}>
+          <p className="text-[16px] leading-relaxed" style={{ color: 'var(--ink-70)' }}>
             {hi
               ? 'जब तक आप सहमत नहीं होते, नारद आपके संदेश, आवाज़ या फ़ाइलें न पढ़ेगा, न रखेगा। जब मन हो, पत्र फिर से पढ़ लीजिए, या घर के मालिक से बात कर लीजिए। मुश्किल घड़ी में टेली-मानस 14416 पर कभी भी बात कर सकते हैं।'
               : "Until you agree, Narad won't read or keep your messages, voice or files. Read the sheet again whenever you like, or talk it over with the owner. If you're going through a hard time, Tele-MANAS is free on 14416, any time."}
@@ -126,8 +127,7 @@ export function ConsentGate({
             <button
               type="button"
               onClick={onSwitchProfile}
-              className="min-h-[44px] rounded-[11px] text-[13px]"
-              style={{ color: 'var(--ink-70)', border: '1px solid var(--ink-12)' }}
+              className="n-btn n-btn-block"
             >
               {hi ? 'दूसरी प्रोफ़ाइल चुनें' : 'Switch person'}
             </button>
@@ -138,26 +138,26 @@ export function ConsentGate({
   }
 
   return (
-    <main className="min-h-[100dvh] flex flex-col" style={{ background: 'var(--paper)', color: 'var(--kajal)', fontFamily: font }}>
+    <main className="h-full overflow-y-auto flex flex-col" lang={langAttr} style={{ background: 'var(--paper)', color: 'var(--kajal)' }}>
       <header
-        className="flex items-center gap-2 px-4 flex-shrink-0 sticky top-0"
+        className="flex items-center gap-1 pl-1 pr-3 flex-shrink-0 sticky top-0"
         style={{
-          minHeight: 56,
+          minHeight: 'calc(56px + env(safe-area-inset-top))',
           paddingTop: 'env(safe-area-inset-top)',
           background: 'var(--paper)',
-          borderBottom: '1px solid var(--ink-12)',
+          borderBottom: '1px solid var(--line)',
           zIndex: 1,
         }}
       >
         <button
           type="button"
           onClick={onSwitchProfile}
-          className="w-10 h-10 -ml-2 flex items-center justify-center rounded-full"
+          className="n-icon-btn"
           aria-label={hi ? 'प्रोफ़ाइल पर वापस' : 'Back to profiles'}
         >
-          <ArrowLeft size={18} />
+          <ArrowLeft size={20} />
         </button>
-        <span className="text-[13px] flex-1 truncate" style={{ color: 'var(--ink-55)' }}>
+        <span className="text-[14px] flex-1 truncate" style={{ color: 'var(--ink-70)' }}>
           {hi ? 'नारद में आपका स्वागत है' : 'Welcome to Narad'}
         </span>
         <LangToggle lang={lang} onChange={changeLang} />
@@ -165,21 +165,21 @@ export function ConsentGate({
 
       <div className="flex-1 w-full max-w-[600px] mx-auto px-5 pt-6 pb-40">
         <MahatiLogo size={40} />
-        <h1 className="mt-3 text-[26px] leading-tight font-semibold" style={{ fontFamily: hi ? font : 'var(--font-hero)' }}>
+        <h1 className="mt-3 text-[26px] leading-tight font-semibold" style={{ fontFamily: hi ? 'var(--font-hindi)' : 'var(--font-hero)' }}>
           {hi ? `नमस्ते, ${profile.display_name}` : `Namaste, ${profile.display_name}`}
         </h1>
-        <p className="mt-2 mb-6 text-[15px] leading-relaxed" style={{ color: 'var(--ink-70)' }}>
+        <p className="mt-2 mb-6 text-[16px] leading-relaxed" style={{ color: 'var(--ink-70)' }}>
           {hi
             ? 'शुरू करने से पहले, कृपया पढ़ लीजिए कि नारद आपकी बातें कैसे निजी रखता है। इसमें करीब पांच मिनट लगते हैं, और आप कभी भी सवाल पूछ सकते हैं।'
             : 'Before we begin, please read how Narad keeps your things private. It takes about five minutes, and questions are always welcome.'}
         </p>
 
         {status?.sheet?.markdown ? (
-          <article className="consent-sheet text-[15px] leading-[1.65]">
+          <article className="consent-sheet text-[16px] leading-[1.65]">
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
               components={{
-                h3: ({ children }) => <h3 className="text-[18px] font-semibold mt-7 mb-2">{children}</h3>,
+                h3: ({ children }) => <h3 className="text-[19px] font-semibold mt-7 mb-2 leading-snug">{children}</h3>,
                 p: ({ children }) => <p className="mb-3">{children}</p>,
                 ul: ({ children }) => <ul className="pl-5 mb-3 flex flex-col gap-1.5" style={{ listStyleType: 'disc' }}>{children}</ul>,
                 li: ({ children }) => <li>{children}</li>,
@@ -190,7 +190,7 @@ export function ConsentGate({
                 ),
                 table: ({ children }) => (
                   <div className="overflow-x-auto mb-4 rounded-[11px]" style={{ border: '1px solid var(--ink-12)' }}>
-                    <table className="w-full text-[13px] border-collapse min-w-[520px]">{children}</table>
+                    <table className="w-full text-[14px] border-collapse min-w-[520px]">{children}</table>
                   </div>
                 ),
                 th: ({ children }) => <th className="text-left font-semibold px-3 py-2" style={{ background: 'var(--ink-08)' }}>{children}</th>,
@@ -202,8 +202,8 @@ export function ConsentGate({
             </ReactMarkdown>
           </article>
         ) : (
-          <div className="flex items-center gap-2 text-[14px]" style={{ color: 'var(--ink-55)' }}>
-            <LoaderCircle size={14} className="animate-spin" /> {hi ? 'पत्र लोड हो रहा है…' : 'Loading the sheet…'}
+          <div role="status" className="flex items-center gap-2 text-[15px]" style={{ color: 'var(--ink-55)' }}>
+            <LoaderCircle size={16} className="animate-spin" aria-hidden="true" /> {hi ? 'पत्र लोड हो रहा है…' : 'Loading the sheet…'}
           </div>
         )}
       </div>
@@ -216,7 +216,7 @@ export function ConsentGate({
         }}
       >
         <div className="w-full max-w-[600px] mx-auto flex flex-col gap-2">
-          {error && <p className="text-[12px] text-center" style={{ color: 'var(--sindoor)' }}>{error}</p>}
+          {error && <p role="alert" className="text-[14px] text-center" style={{ color: 'var(--sindoor)' }}>{error}</p>}
           <button type="button" className="family-primary" disabled={busy || !status?.sheet?.markdown} onClick={() => void accept()}>
             {busy ? <LoaderCircle size={16} className="animate-spin" /> : <Check size={16} />}
             {hi ? 'मैं सहमत हूं' : 'I agree'}
@@ -224,13 +224,13 @@ export function ConsentGate({
           <button
             type="button"
             onClick={() => setPhase('later')}
-            className="min-h-[44px] rounded-[11px] text-[13px]"
-            style={{ color: 'var(--ink-70)', background: 'var(--paper)', border: '1px solid var(--ink-12)' }}
+            className="n-btn n-btn-block"
+            style={{ background: 'var(--paper)' }}
           >
             {hi ? 'अभी नहीं' : 'Not now'}
           </button>
           {status?.current_version && (
-            <p className="text-[10.5px] text-center" style={{ color: 'var(--ink-40)', fontFamily: 'var(--font-mono)' }}>
+            <p className="text-[12px] text-center" style={{ color: 'var(--ink-55)', fontFamily: 'var(--font-mono)' }}>
               {hi ? 'संस्करण' : 'Version'} {status.current_version}
             </p>
           )}

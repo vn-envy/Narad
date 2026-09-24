@@ -102,6 +102,16 @@ export const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
   cancelled: 'Stopped',
 }
 
+/** Tasks still under way: running, or waiting for the person. */
+export const ACTIVE_TASK_STATUSES: TaskStatus[] = ['queued', 'running', 'waiting_approval', 'waiting_help']
+
+/** This profile's tasks still under way, newest first (GET /tasks). */
+export async function fetchActiveTasks(signal?: AbortSignal): Promise<KriyaTask[]> {
+  const query = new URLSearchParams({ status: ACTIVE_TASK_STATUSES.join(','), limit: '20' })
+  const payload = await apiJson<{ tasks?: KriyaTask[] }>(`/tasks?${query}`, { signal })
+  return Array.isArray(payload.tasks) ? payload.tasks : []
+}
+
 export function fetchTask(id: string, signal?: AbortSignal): Promise<KriyaTask> {
   return apiJson<KriyaTask>(`/tasks/${encodeURIComponent(id)}`, { signal })
 }

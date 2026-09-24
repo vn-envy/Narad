@@ -103,7 +103,7 @@ export function ConceptDiagramArtifact({ topic, doc }: Props) {
                 dominantBaseline="middle"
                 fontSize={isRoot ? 8 : 7}
                 fontFamily="monospace"
-                fill={isRoot ? 'rgba(252,250,242,0.85)' : 'rgba(45,42,38,0.7)'}
+                fill={isRoot ? 'rgba(252,250,242,0.85)' : 'rgba(var(--rgb-ink),0.7)'}
                 style={{ pointerEvents: 'none', userSelect: 'none' }}
               >
                 {node.label.length > 14 ? `${node.label.slice(0, 13)}…` : node.label}

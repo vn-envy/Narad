@@ -1,0 +1,56 @@
+{
+  "owner": {
+    "user_id": "asha",
+    "display_name": "Asha Sharma",
+    "initial": "A",
+    "color": "sindoor",
+    "has_pin": true,
+    "is_owner": true,
+    "created_at": "@now-40d",
+    "last_active_at": "@now-2m"
+  },
+  "member": {
+    "user_id": "kamla",
+    "display_name": "Kamla Sharma",
+    "initial": "K",
+    "color": "krishna",
+    "has_pin": true,
+    "is_owner": false,
+    "created_at": "@now-3d",
+    "last_active_at": "@now-1h"
+  },
+  "family": [
+    {
+      "user_id": "asha",
+      "display_name": "Asha Sharma",
+      "initial": "A",
+      "color": "sindoor",
+      "has_pin": true,
+      "is_owner": true
+    },
+    {
+      "user_id": "kamla",
+      "display_name": "Kamla Sharma",
+      "initial": "K",
+      "color": "krishna",
+      "has_pin": true,
+      "is_owner": false
+    },
+    {
+      "user_id": "ravi",
+      "display_name": "Ravi Sharma",
+      "initial": "R",
+      "color": "matsya",
+      "has_pin": true,
+      "is_owner": false
+    },
+    {
+      "user_id": "kavya",
+      "display_name": "Kavya Sharma",
+      "initial": "K",
+      "color": "rama",
+      "has_pin": true,
+      "is_owner": false
+    }
+  ]
+}

@@ -1,18 +1,27 @@
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700;1,900&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Tiro+Devanagari+Sanskrit&display=swap');
+/* Fonts are self-hosted (src/fonts.css): nothing is fetched from Google. */
+@import './fonts.css';
 @import "tailwindcss";
 
 .family-gate {
-  min-height: 100dvh;
+  height: 100%;
   display: grid;
   place-items: center;
   position: relative;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   padding: 28px;
-  color: var(--paper);
+  color: #fcfaf2;
   background:
     radial-gradient(circle at 10% 10%, rgba(194, 65, 12, 0.17), transparent 36%),
     radial-gradient(circle at 88% 86%, rgba(36, 80, 164, 0.17), transparent 34%),
     #211f1c;
+}
+
+/* Decorative layers only: never grid rows that push the card down. */
+.family-gate-glow {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
 }
 
 .family-gate::before {
@@ -39,30 +48,30 @@
 
 .family-gate-header { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; }
 .family-gate-header h1 { margin: 2px 0 4px; font-family: var(--font-hero); font-size: clamp(26px, 4vw, 38px); line-height: 1.05; }
-.family-gate-header p { margin: 0; color: rgba(252,250,242,0.57); font-size: 12px; line-height: 1.45; }
-.family-gate-header .family-gate-kicker { font-family: var(--font-mono); color: #e8773f; font-size: 9px; letter-spacing: 0.22em; }
+.family-gate-header p { margin: 0; color: rgba(252,250,242,0.66); font-size: 14px; line-height: 1.45; }
+.family-gate-header .family-gate-kicker { font-family: var(--font-mono); color: #e8773f; font-size: 12px; letter-spacing: 0.2em; }
 .family-profile-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
-.family-profile-card { min-height: 146px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; border: 1px solid rgba(252,250,242,0.1); border-radius: 16px; color: var(--paper); background: rgba(252,250,242,0.045); cursor: pointer; transition: transform 160ms ease, border-color 160ms ease, background 160ms ease; }
+.family-profile-card { min-height: 146px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; border: 1px solid rgba(252,250,242,0.1); border-radius: 16px; color: #fcfaf2; background: rgba(252,250,242,0.045); cursor: pointer; transition: transform 160ms ease, border-color 160ms ease, background 160ms ease; }
 .family-profile-card:hover { transform: translateY(-2px); border-color: rgba(232,119,63,0.55); background: rgba(252,250,242,0.075); }
 .family-profile-avatar, .family-selected-avatar, .family-create-icon { width: 54px; height: 54px; border-radius: 18px 18px 18px 6px; display: grid; place-items: center; font-family: var(--font-hero); font-size: 24px; color: #fff; background: rgba(252,250,242,0.12); }
-.family-profile-name { font-size: 14px; font-weight: 700; }
-.family-profile-meta { min-height: 15px; display: flex; align-items: center; gap: 4px; font-family: var(--font-mono); font-size: 9px; color: rgba(252,250,242,0.43); }
+.family-profile-name { font-size: 15px; font-weight: 700; text-align: center; overflow-wrap: anywhere; padding: 0 6px; }
+.family-profile-meta { min-height: 15px; display: flex; align-items: center; gap: 4px; font-family: var(--font-mono); font-size: 12px; color: rgba(252,250,242,0.6); }
 .family-profile-add { border-style: dashed; }
 .family-profile-form { width: min(440px, 100%); margin: 4px auto 0; display: flex; flex-direction: column; align-items: stretch; gap: 14px; }
 .family-profile-form .family-selected-avatar, .family-profile-form .family-create-icon { margin: 0 auto 4px; }
-.family-profile-form label { display: flex; flex-direction: column; gap: 6px; color: rgba(252,250,242,0.7); font-size: 11px; }
-.family-profile-form input { width: 100%; min-height: 48px; border: 1px solid rgba(252,250,242,0.13); border-radius: 11px; padding: 0 14px; outline: none; color: var(--paper); background: rgba(252,250,242,0.07); font-size: 16px; }
+.family-profile-form label { display: flex; flex-direction: column; gap: 6px; color: rgba(252,250,242,0.78); font-size: 14px; }
+.family-profile-form input { width: 100%; min-height: 48px; border: 1px solid rgba(252,250,242,0.13); border-radius: 11px; padding: 0 14px; outline: none; color: #fcfaf2; background: rgba(252,250,242,0.07); font-size: 16px; }
 .family-profile-form input:focus { border-color: rgba(232,119,63,0.7); box-shadow: 0 0 0 3px rgba(194,65,12,0.16); }
 .family-pin-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.family-primary { min-height: 48px; display: flex; align-items: center; justify-content: center; gap: 8px; border: 0; border-radius: 11px; color: #fff; background: var(--sindoor); font-size: 13px; font-weight: 750; cursor: pointer; }
+.family-primary { min-height: 48px; display: flex; align-items: center; justify-content: center; gap: 8px; border: 0; border-radius: 11px; color: #fff; background: var(--sindoor); font-size: 15px; font-weight: 750; cursor: pointer; }
 .family-primary:disabled { opacity: 0.4; cursor: default; }
-.family-back { align-self: flex-start; display: flex; align-items: center; gap: 5px; border: 0; padding: 4px 0; color: rgba(252,250,242,0.5); background: transparent; font-size: 11px; cursor: pointer; }
-.family-gate-error { margin: 14px 0 0; padding: 10px 12px; border-radius: 9px; color: #fecaca; background: rgba(159,18,57,0.18); font-size: 11px; text-align: center; }
-.family-gate-card footer { margin-top: 22px; display: flex; align-items: center; justify-content: center; gap: 6px; color: rgba(252,250,242,0.38); font-size: 10px; }
+.family-back { align-self: flex-start; min-height: 44px; display: flex; align-items: center; gap: 6px; border: 0; padding: 0 4px 0 0; color: rgba(252,250,242,0.66); background: transparent; font-size: 14px; cursor: pointer; }
+.family-gate-error { margin: 14px 0 0; padding: 10px 12px; border-radius: 9px; color: #fecaca; background: rgba(159,18,57,0.18); font-size: 14px; text-align: center; }
+.family-gate-card footer { margin-top: 22px; display: flex; align-items: center; justify-content: center; gap: 6px; color: rgba(252,250,242,0.5); font-size: 12.5px; text-align: center; }
 
 @media (max-width: 640px) {
   .family-gate { align-items: stretch; padding: 0; }
-  .family-gate-card { width: 100%; max-height: none; min-height: 100dvh; border: 0; border-radius: 0; padding: max(22px, env(safe-area-inset-top)) 18px max(20px, env(safe-area-inset-bottom)); box-shadow: none; }
+  .family-gate-card { width: 100%; max-height: none; min-height: 100%; overflow: visible; border: 0; border-radius: 0; padding: max(22px, env(safe-area-inset-top)) 18px max(20px, env(safe-area-inset-bottom)); box-shadow: none; }
   .family-gate-header { margin-top: 4vh; margin-bottom: 22px; align-items: flex-start; }
   .family-gate-header h1 { font-size: 30px; }
   .family-profile-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
@@ -72,7 +81,8 @@
   .family-gate-card footer { margin-top: 18px; }
 }
 
-@custom-variant dark (&:is(.dark *));
+/* Dark follows the phone's setting; there is no in-app switch. */
+@custom-variant dark (@media (prefers-color-scheme: dark));
 
 /* ── Narad Design Tokens ─────────────────────────────────────────────────────
    Manuscript / Madhubani palette. One honest value per name:
@@ -89,6 +99,7 @@
    ─────────────────────────────────────────────────────────────────────────── */
 
 :root {
+  color-scheme: light;
   /* ── Raw palette ── */
   --paper:      #fcfaf2;
   --speckle:    #f3efe1;
@@ -115,6 +126,10 @@
   /* ── RGB triplets for rgba() usage ── */
   --rgb-paper:       252,250,242;
   --rgb-kajal:       45,42,38;
+  /* Theme-aware triplets for rgba(): ink on the page, and a lifted surface. */
+  --rgb-ink:         45,42,38;
+  --rgb-surface:     255,255,255;
+  --rgb-page:        252,250,242;
   --rgb-nila:        30,36,71;
   --rgb-sindoor:     194,65,12;
   --rgb-marigold:    194,65,12;
@@ -129,11 +144,17 @@
   --rgb-parashurama: 159,18,57;
   --rgb-narad:       194,65,12;
 
-  /* ── Typography ── */
-  --font-hero: 'Playfair Display', serif;
-  --font-body: 'Inter', sans-serif;
-  --font-mono: 'JetBrains Mono', monospace;
-  --font-deva: 'Tiro Devanagari Sanskrit', serif;
+  /* ── Typography ──
+     Each stack ends in a Devanagari-capable face, so Hindi inside English
+     text never falls back to a mismatched system font. --font-hindi is for
+     reading Hindi; --font-deva is the decorative Sanskrit serif. */
+  --font-hero:  'Playfair Display', Georgia, 'Noto Sans Devanagari', serif;
+  --font-body:  'Inter', 'Noto Sans Devanagari', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-hindi: 'Noto Sans Devanagari', 'Mukta', 'Inter', system-ui, sans-serif;
+  --font-mono:  'JetBrains Mono', ui-monospace, Menlo, 'Noto Sans Devanagari', monospace;
+  --font-deva:  'Tiro Devanagari Sanskrit', 'Noto Sans Devanagari', serif;
+  --text-body: 15px;        /* chat and reading text on phones */
+  --tap: 44px;              /* smallest tap target */
 
   /* ── Ink / surface derivations (theme-aware; prefer over rgba(45,42,38,…)) ── */
   --ink:        var(--kajal);
@@ -142,8 +163,23 @@
   --ink-40:     color-mix(in srgb, var(--ink) 40%, transparent);
   --ink-12:     color-mix(in srgb, var(--ink) 12%, transparent);
   --ink-08:     color-mix(in srgb, var(--ink) 8%, transparent);
+  --ink-05:     color-mix(in srgb, var(--ink) 5%, transparent);
+  --ink-20:     color-mix(in srgb, var(--ink) 20%, transparent);
+  --ink-85:     color-mix(in srgb, var(--ink) 85%, transparent);
   --surface:    var(--paper);
   --surface-2:  var(--speckle);
+  /* A card lifted off the paper, and a text field. */
+  --surface-raised: rgba(255, 255, 255, 0.6);
+  --field:      #ffffff;
+  --line:       color-mix(in srgb, var(--ink) 11%, transparent);
+
+  /* ── Chrome: the dark header and navigation bands. They stay dark in both
+     themes (kajal by day, nila by night), unlike --kajal, which is the ink
+     colour and turns light in dark mode. ── */
+  --chrome:     #2d2a26;
+  --chrome-2:   #3a352e;
+  --on-chrome:  #fcfaf2;
+  --on-chrome-muted: rgba(252, 250, 242, 0.62);
 
   /* ── Folk art layer system ── */
   --folk-border: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
@@ -199,9 +235,12 @@
   --sidebar-ring:               var(--sindoor);
 }
 
-/* ── Lamp-lit night — nila manuscript ground, warm lamp accents.
-     Foundation tokens; component sweep tracked in LAUNCH_CHECKLIST backlog. ── */
-.dark {
+/* ── Lamp-lit night — nila manuscript ground, warm lamp accents. Follows the
+     phone's dark setting. Accents are lifted so they read on the dark ground
+     as text and still carry white text as fills. ── */
+@media (prefers-color-scheme: dark) {
+:root {
+  color-scheme: dark;
   --paper:    #171c38;
   --speckle:  #1e2447;
   --kajal:    #f0e9d8;
@@ -233,6 +272,36 @@
 
   --sindoor:  #e05a2b;
   --marigold: #e05a2b;
+  --kesari:   #d4622f;
+  --haldi-deep: #d9a23a;
+  --tulsi:    #23906c;
+  --mor:      #2a9d93;
+  --gulab:    #d0588f;
+  --gagan:    #6b95e8;
+  --loha:     #a39e97;
+  --muted-foreground: #b3ab95;
+
+  --avatar-matsya:      #6b8fdb;
+  --avatar-rama:        #d09a2c;
+  --avatar-krishna:     #2aa198;
+  --avatar-parashurama: #de5b7d;
+  --avatar-narad:       #e05a2b;
+  --rgb-sindoor:   224,90,43;
+  --rgb-tulsi:     35,144,108;
+  --rgb-matsya:    107,143,219;
+  --rgb-rama:      208,154,44;
+  --rgb-krishna:   42,161,152;
+  --rgb-parashurama: 222,91,125;
+
+  --surface-raised: rgba(240, 233, 216, 0.05);
+  --field:      #1b2143;
+  --rgb-ink:     240,233,216;
+  --rgb-surface: 38,45,89;
+  --rgb-page:    23,28,56;
+  --chrome:     #0e1126;
+  --chrome-2:   #1a1f40;
+  --folk-shadow: 0 16px 40px -10px rgba(0, 0, 0, 0.45);
+}
 }
 
 /* ── @theme: expose CSS vars as Tailwind utilities ── */
@@ -311,6 +380,8 @@
 
   html {
     @apply font-sans;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
   }
 
   body {
@@ -318,6 +389,28 @@
     font-family: var(--font-body);
     -webkit-font-smoothing: antialiased;
     color: var(--foreground);
+    overscroll-behavior: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Hindi to read: a Devanagari text face with room for matras above and
+     below the line. Decorative Devanagari keeps --font-deva. */
+  :lang(hi) {
+    font-family: var(--font-hindi);
+    line-height: 1.8;
+  }
+
+  button, [role='button'], a, input, select, textarea, summary {
+    touch-action: manipulation;
+  }
+
+  /* One visible focus ring for keyboards and switch access; none on tap. */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  :focus:not(:focus-visible) {
+    outline: none;
   }
 
   .dashboard-search-dark::placeholder {
@@ -382,6 +475,12 @@
       animation-duration: 0.01ms !important;
       animation-iteration-count: 1 !important;
       transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+    /* A spinner that stops is still a spinner; keep it turning slowly. */
+    .animate-spin {
+      animation-duration: 2.4s !important;
+      animation-iteration-count: infinite !important;
     }
   }
 }
@@ -513,11 +612,6 @@
 /* ── Mobile & touch (M1.3) ──────────────────────────────────────────────────
    ≤640px is the phone breakpoint (mirrors src/hooks/useIsMobile.ts). */
 
-/* Touch devices have no hover: message actions must always be reachable. */
-@media (hover: none) and (pointer: coarse) {
-  .msg-actions { opacity: 0.7; }
-}
-
 .karma-summary-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -531,11 +625,6 @@
   input[type='search'],
   input:not([type]) {
     font-size: 16px !important;
-  }
-
-  /* Comfortable touch targets for the small action chips. */
-  .msg-actions button {
-    padding: 6px 8px;
   }
 
   .karma-summary-grid {
@@ -593,9 +682,9 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  color: rgba(252, 250, 242, 0.72);
+  color: rgba(252, 250, 242, 0.78);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 14px;
   letter-spacing: 0.04em;
 }
 
@@ -614,6 +703,275 @@
 }
 
 @media (max-width: 640px) {
-  .profile-badge { width: 31px; min-width: 31px; height: 31px; padding: 3px; justify-content: center; }
-  .profile-badge-avatar { width: 23px; height: 23px; }
+  .profile-badge { width: var(--tap); min-width: var(--tap); height: var(--tap); padding: 0; justify-content: center; border-color: transparent; background: transparent; }
+  .profile-badge-avatar { width: 30px; height: 30px; flex-basis: 30px; font-size: 12px; }
+}
+
+/* ── Shared phone components ────────────────────────────────────────────────
+   One card for everything that asks or reports (approval, task, document
+   review), one button scale, one section label. A card has at most one
+   filled button: the thing the person most likely wants. ── */
+@layer components {
+  .n-card {
+    --card-accent: var(--sindoor);
+    width: 100%;
+    padding: 14px 16px;
+    color: var(--kajal);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--card-accent);
+    border-radius: 4px 16px 16px 16px;
+    box-shadow: var(--folk-shadow);
+  }
+  .n-card-head {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px 8px;
+    min-height: 26px;
+  }
+  .n-card-title {
+    margin-top: 8px;
+    font-size: 15.5px;
+    line-height: 1.35;
+    font-weight: 650;
+    overflow-wrap: anywhere;
+  }
+  .n-card-body {
+    margin-top: 6px;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--ink-70);
+    overflow-wrap: anywhere;
+  }
+  .n-card-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px dashed var(--ink-12);
+  }
+  .n-status {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    color: var(--ink-55);
+  }
+  .n-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 24px;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    color: var(--sindoor);
+    background: rgba(var(--rgb-sindoor), 0.08);
+    border: 1px solid rgba(var(--rgb-sindoor), 0.28);
+  }
+
+  .n-btn {
+    min-height: 48px;
+    padding: 0 16px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    border-radius: 10px;
+    border: 1px solid var(--ink-20);
+    background: var(--surface);
+    color: var(--kajal);
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.2;
+    cursor: pointer;
+    transition: background 150ms ease, border-color 150ms ease, opacity 150ms ease;
+  }
+  .n-btn:disabled { opacity: 0.55; cursor: default; }
+  .n-btn-sm { min-height: 44px; padding: 0 14px; font-size: 13.5px; }
+  .n-btn-block { width: 100%; }
+  /* The one filled button on a card. */
+  .n-btn-primary { border-color: transparent; background: var(--kajal); color: var(--paper); font-weight: 700; }
+  /* Filled, for yes-go-ahead actions: Approve, Save, Continue. */
+  .n-btn-go { border-color: transparent; background: var(--tulsi); color: #fff; font-weight: 700; }
+  .n-btn-accent { border-color: transparent; background: var(--sindoor); color: #fff; font-weight: 700; }
+  /* Outlined: Stop, Discard, Sign out. */
+  .n-btn-danger { border-color: color-mix(in srgb, var(--kesari) 50%, transparent); color: var(--kesari); background: transparent; }
+  .n-icon-btn {
+    width: var(--tap);
+    height: var(--tap);
+    flex: 0 0 auto;
+    display: inline-grid;
+    place-items: center;
+    border-radius: 999px;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+  }
+
+  .n-section-label {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    margin: 22px 0 10px;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-55);
+  }
+  .n-panel {
+    padding: 14px 16px;
+    border-radius: 14px;
+    border: 1px solid var(--line);
+    background: var(--surface-raised);
+  }
+  .n-field {
+    width: 100%;
+    min-height: 48px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--ink-20);
+    background: var(--field);
+    color: var(--kajal);
+    font-size: 16px; /* 16px keeps phone browsers from zooming into the field */
+  }
+}
+
+/* The app's height follows the visible viewport, so the composer sits on top
+   of the Android keyboard (see src/lib/viewport.ts). */
+.app-shell {
+  height: var(--app-height, 100dvh);
+}
+/* While typing, the keyboard needs the room more than the navigation does. */
+.keyboard-open .bottom-nav {
+  display: none;
+}
+
+/* ── Paths ──
+   The Paths panel is sized for a desktop two-column layout and belongs to the
+   workflow builders; on a phone it is scaled as a whole so its smallest labels
+   reach about 12 px and its buttons a thumb, until its own type scale is
+   revised. */
+@media (max-width: 640px) {
+  .paths-body { zoom: 1.3; }
+}
+
+/* ── Chat ── */
+.text-chat {
+  font-family: var(--font-body);
+  font-size: var(--text-body);
+  line-height: 1.6;
+}
+.chat-bubble {
+  max-width: 82%;
+  padding: 10px 14px;
+  overflow-wrap: anywhere;
+}
+.chat-card {
+  width: 100%;
+  max-width: 92%;
+  align-self: flex-start;
+}
+.chat-composer::placeholder {
+  color: var(--ink-55);
+}
+.chat-composer:focus {
+  border-color: rgba(var(--rgb-sindoor), 0.5) !important;
+  box-shadow: 0 0 0 3px rgba(var(--rgb-sindoor), 0.12) !important;
+}
+@media (max-width: 640px) {
+  .chat-bubble-user { max-width: 86%; }
+  /* An answer uses the width: tables and lists need it more than a margin. */
+  .chat-bubble-assistant { max-width: 100%; }
+  .chat-card { max-width: 100%; }
+}
+
+/* Phone navigation: four destinations, thumb-reachable, above the gesture bar. */
+.bottom-nav {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding-bottom: env(safe-area-inset-bottom);
+  background: var(--chrome);
+  border-top: 1px solid rgba(252, 250, 242, 0.08);
+}
+.bottom-nav button {
+  position: relative;
+  min-height: 58px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border: 0;
+  background: transparent;
+  color: var(--on-chrome-muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+}
+.bottom-nav button[aria-current='page'] {
+  color: var(--on-chrome);
+}
+.bottom-nav button[aria-current='page'] .bottom-nav-icon {
+  background: rgba(252, 250, 242, 0.14);
+}
+.bottom-nav-icon {
+  width: 52px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  transition: background 150ms ease;
+}
+.nav-badge {
+  position: absolute;
+  top: 5px;
+  left: calc(50% + 8px);
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--sindoor);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  box-shadow: 0 0 0 2px var(--chrome);
+}
+
+/* A phone screen's header: the same dark band as Chat, under the status bar. */
+.screen-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: calc(56px + env(safe-area-inset-top));
+  padding: env(safe-area-inset-top) 8px 0 16px;
+  flex-shrink: 0;
+  background: var(--chrome);
+  color: var(--on-chrome);
+}
+.screen-header h1 {
+  font-family: var(--font-hero);
+  font-size: 22px;
+  line-height: 1.1;
+  font-weight: 600;
+  color: var(--on-chrome);
+}
+.screen-header .screen-eyebrow {
+  font-family: var(--font-deva);
+  font-size: 15px;
+  line-height: 1;
+  color: #e8773f;
 }

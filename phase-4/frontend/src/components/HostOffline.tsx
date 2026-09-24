@@ -27,7 +27,7 @@ export function HostOfflineScreen() {
           <Icon size={24} />
         </div>
         <h1 style={{ margin: 0, fontFamily: 'var(--font-hero)', fontSize: 26, lineHeight: 1.15 }}>{text.title}</h1>
-        <p style={{ margin: '10px auto 24px', maxWidth: 320, color: 'rgba(252,250,242,0.6)', fontSize: 13, lineHeight: 1.55 }}>{text.detail}</p>
+        <p style={{ margin: '10px auto 24px', maxWidth: 320, color: 'rgba(252,250,242,0.72)', fontSize: 16, lineHeight: 1.55 }}>{text.detail}</p>
         <button type="button" className="family-primary" style={{ width: '100%' }} onClick={() => window.location.reload()}>
           <RefreshCw size={15} /> Try again
         </button>
@@ -60,11 +60,9 @@ export function HostOfflineBanner() {
     <div
       role="status"
       style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        zIndex: 60,
+        position: 'relative',
+        zIndex: 5,
+        flexShrink: 0,
         padding: 'max(8px, env(safe-area-inset-top)) 12px 8px',
         display: 'flex',
         alignItems: 'center',
@@ -72,8 +70,8 @@ export function HostOfflineBanner() {
         background: 'rgba(33,31,28,0.97)',
         borderBottom: '1px solid rgba(232,119,63,0.35)',
         color: 'rgba(252,250,242,0.88)',
-        fontSize: 12.5,
-        lineHeight: 1.35,
+        fontSize: 14,
+        lineHeight: 1.4,
         boxShadow: '0 6px 18px rgba(0,0,0,0.25)',
       }}
     >
@@ -93,13 +91,13 @@ export function HostOfflineBanner() {
         }}
         style={{
           flex: '0 0 auto',
-          minHeight: 34,
-          padding: '0 12px',
+          minHeight: 44,
+          padding: '0 14px',
           borderRadius: 9,
           border: '1px solid rgba(252,250,242,0.2)',
           background: 'transparent',
           color: 'inherit',
-          fontSize: 12,
+          fontSize: 14,
           fontWeight: 650,
           display: 'flex',
           alignItems: 'center',

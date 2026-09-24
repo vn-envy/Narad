@@ -1107,7 +1107,9 @@ export function useAvatara(userId = 'default') {
               setState(s => {
                 const prev = s.avatars[avatar]
                 const latencyMs = prev?.startedAt ? Date.now() - prev.startedAt : undefined
-                if (latencyMs !== undefined) {
+                // A timing note for the desktop; on a phone it would cover the composer.
+                const phone = typeof window !== 'undefined' && window.matchMedia?.('(max-width: 640px)').matches
+                if (latencyMs !== undefined && !phone) {
                   toast(`${avatar} done`, {
                     description: `${(latencyMs / 1000).toFixed(1)}s`,
                     duration: 2500,

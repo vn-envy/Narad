@@ -1,0 +1,73 @@
+{
+  "items": [
+    {
+      "id": "evt_approval_1",
+      "ts": "@now-3m",
+      "kind": "approval_request",
+      "title": "Narad needs your OK: email to the class teacher",
+      "body": "Send an email to the class teacher: Kavya will be absent on Friday",
+      "priority": "high",
+      "read": false,
+      "source": "anumati",
+      "data": { "url": "/?approval=apr_1a2b3c4d5e6f7a8b", "proposal_id": "apr_1a2b3c4d5e6f7a8b", "expires_at": "@now+12m" }
+    },
+    {
+      "id": "evt_question_1",
+      "ts": "@now-6m",
+      "kind": "question",
+      "title": "Sign in to power.example.com",
+      "body": "Your electricity bill task is waiting for you to sign in. Open the live view to finish it.",
+      "priority": "normal",
+      "read": false,
+      "source": "kriya",
+      "data": { "url": "/?task=tsk_fedcba9876543210" }
+    },
+    {
+      "id": "evt_med_1",
+      "ts": "@now-35m",
+      "kind": "medicine_reminder",
+      "title": "Thyroxine 50 mcg",
+      "body": "Time for your Thyroxine 50 mcg, before breakfast with water.",
+      "priority": "high",
+      "read": true,
+      "source": "kala",
+      "data": {}
+    },
+    {
+      "id": "evt_shared_1",
+      "ts": "@now-50m",
+      "kind": "medicine_reminder",
+      "title": "Kamla's Amlodipine 5 mg",
+      "body": "Reminder to take Amlodipine 5 mg.",
+      "priority": "normal",
+      "read": true,
+      "source": "kala",
+      "shared_from": "kamla",
+      "shared_from_name": "Kamla Sharma",
+      "data": {}
+    },
+    {
+      "id": "evt_done_1",
+      "ts": "@now-1d",
+      "kind": "task_done",
+      "title": "Passport slots checked",
+      "body": "The earliest slot is Tuesday 7 October at 10:30 at the Jaipur office. Nothing was booked.",
+      "priority": "normal",
+      "read": true,
+      "source": "kriya",
+      "data": { "url": "/?task=tsk_44ee55ff66007788" }
+    },
+    {
+      "id": "evt_review_1",
+      "ts": "@now-6m",
+      "kind": "system",
+      "title": "Lab report ready to check",
+      "body": "3 values from Kamla's CBC and thyroid report are waiting for you to check against the photo.",
+      "priority": "normal",
+      "read": true,
+      "source": "documents",
+      "data": { "url": "/?review=rev_0f1e2d3c4b5a6978" }
+    }
+  ],
+  "unread": 2
+}

@@ -1,0 +1,2064 @@
+{
+ "workflows": [
+  {
+   "id": "career",
+   "version": 1,
+   "title": "Career",
+   "eyebrow": "Find, tailor, apply, improve",
+   "description": "A closed-loop job search from market research through interview feedback.",
+   "accent": "#b45309",
+   "owner": "Rama",
+   "required_capabilities": [
+    "planning"
+   ],
+   "optional_capabilities": [
+    "search",
+    "computer",
+    "documents",
+    "email",
+    "calendar"
+   ],
+   "intake": [
+    {
+     "key": "target_role",
+     "label": "Target role",
+     "kind": "text",
+     "required": true,
+     "placeholder": "Senior product manager",
+     "default": null,
+     "options": [],
+     "help": ""
+    },
+    {
+     "key": "locations",
+     "label": "Locations",
+     "kind": "text",
+     "required": true,
+     "placeholder": "Bengaluru, remote India",
+     "default": null,
+     "options": [],
+     "help": ""
+    },
+    {
+     "key": "experience",
+     "label": "Experience snapshot",
+     "kind": "textarea",
+     "required": true,
+     "placeholder": "8 years in B2B SaaS...",
+     "default": null,
+     "options": [],
+     "help": ""
+    },
+    {
+     "key": "strengths",
+     "label": "Distinct strengths",
+     "kind": "textarea",
+     "required": false,
+     "placeholder": "0-to-1, analytics, fintech",
+     "default": null,
+     "options": [],
+     "help": ""
+    },
+    {
+     "key": "constraints",
+     "label": "Constraints",
+     "kind": "textarea",
+     "required": false,
+     "placeholder": "Remote only, no relocation, 45-day notice",
+     "default": null,
+     "options": [],
+     "help": ""
+    },
+    {
+     "key": "resume_path",
+     "label": "Resume path",
+     "kind": "text",
+     "required": false,
+     "placeholder": "/Users/me/Documents/resume.docx",
+     "default": null,
+     "options": [],
+     "help": ""
+    },
+    {
+     "key": "weekly_scan",
+     "label": "Weekly role scan",
+     "kind": "boolean",
+     "required": false,
+     "placeholder": "",
+     "default": true,
+     "options": [],
+     "help": ""
+    },
+    {
+     "key": "nudge_time",
+     "label": "Nudge time",
+     "kind": "time",
+     "required": false,
+     "placeholder": "",
+     "default": "09:00",
+     "options": [],
+     "help": ""
+    },
+    {
+     "key": "timezone",
+     "label": "Timezone",
+     "kind": "text",
+     "required": false,
+     "placeholder": "",
+     "default": "Asia/Kolkata",
+     "options": [],
+     "help": ""
+    }
+   ],
+   "stages": [
+    {
+     "id": "intake",
+     "title": "Career baseline",
+     "owner": "Rama",
+     "kind": "intake",
+     "purpose": "Lock the target, evidence, constraints, and success measure.",
+     "skill": "project_plan",
+     "tools": [],
+     "requires_confirmation": false,
+     "confirmation_action": null,
+     "recurring": false
+    },
+    {
+     "id": "market_scan",
+     "title": "Market scan",
+     "owner": "Matsya",
+     "kind": "research",
+     "purpose": "Find current, credible roles and employer signals.",
+     "skill": "research",
+     "tools": [
+      "exa_search",
+      "exa_contents",
+      "search_last30days"
+     ],
+     "requires_confirmation": false,
+     "confirmation_action": null,
+     "recurring": false
+    },
+    {
+     "id": "shortlist",
+     "title": "Ranked shortlist",
+     "owner": "Rama",
+     "kind": "plan",
+     "purpose": "Score opportunities against fit, constraints, and upside.",
+     "skill": "project_plan",
+     "tools": [],
+     "requires_confirmation": false,
+     "confirmation_action": null,
+     "recurring": false
+    },
+    {
+     "id": "tailor",
+     "title": "Application kit",
+     "owner": "Krishna",
+     "kind": "artifact",
+     "purpose": "Tailor the resume, cover note, and evidence for one selected role.",
+     "skill": "content_create",
+     "tools": [
+      "create_document"
+     ],
+     "requires_confirmation": false,
+     "confirmation_action": null,
+     "recurring": false
+    },
+    {
+     "id": "apply",
+     "title": "Application review",
+     "owner": "Matsya",
+     "kind": "action",
+     "purpose": "Preview and submit the selected application in the user's browser.",
+     "skill": "form_submit",
+     "tools": [
+      "computer_use"
+     ],
+     "requires_confirmation": true,
+     "confirmation_action": "browser_submit",
+     "recurring": false
+    },
+    {
+     "id": "track",
+     "title": "Application tracking",
+     "owner": "Rama",
+     "kind": "track",
+     "purpose": "Record state, dates, follow-ups, and missing evidence.",
+     "skill": "project_plan",
+     "tools": [],
+     "requires_confirmation": false,
+     "confirmation_action": null,
+     "recurring": false
+    },
+    {
+     "id": "prepare",
+     "title": "Interview preparation",
+     "owner": "Krishna",
+     "kind": "teach",
+     "purpose": "Build a paced interview loop grounded in the role and company.",
+     "skill": "teach",
+     "tools": [],
+     "requires_confirmation": false,
+     "confirmation_action": null,
+     "recurring": false
+    },
+    {
+     "id": "review",
+     "title": "Outcome review",
+     "owner": "Rama",
+     "kind": "review",
+     "purpose": "Use outcomes to update targeting, application evidence, and preparation.",
+     "skill": "project_plan",
+     "tools": [],
+     "requires_confirmation": false,
+     "confirmation_action": null,
+     "recurring": false
+    }
+   ],
+   "schedule_templates": [
+    {
+     "id": "weekly_scan",
+     "title": "Weekly role scan",
+     "enabled_by": "weekly_scan",
+     "cadence": "weekly",
+     "weekdays": [
+      0
+     ],
+     "time_field": "nudge_time",
+     "target_stage": "market_scan",
+     "new_cycle_when_complete": true
+    }
+   ],
+   "feedback_routes": {
+    "rejected": "market_scan",
+    "no_response": "track",
+    "interview": "prepare",
+    "offer": "review"
+   },
+   "readiness": {
+    "status": "limited",
+    "missing_required": [],
+    "missing_optional": [
+     "search",
+     "computer",
+     "documents",
+     "email",
+     "calendar"
+    ],
+    "capabilities": {
+     "calendar": false,
+     "computer": false,
+     "documents": false,
+     "email": false,
+     "planning": true,
+     "search": false
+    }
+   }
+  },
+  {
+   "id": "health",
+   "version": 1,
+   "title": "Health",
+   "eyebrow": "Plan gently, track honestly",
+   "description": "Personal-context food, movement, and adherence planning with safety boundaries.",
+   "accent": "#047857",
+   "owner": "Rama",
+   "required_capabilities": [
+    "health",
+    "planning"
+   ],
+   "optional_capabilities": [
+    "search",
+    "calendar"
+   ],
+   "intake": [
+    {
+     "key": "goal",
+     "label": "Primary goal",
+     "kind": "text",
+     "required": true,
+     "placeholder": "Improve energy and lose weight gradually",
+     "default": null,
+     "options": [],
+     "help": ""
+    },
+    {
+     "key": "baseline",
+     "label": "Current baseline",
+     "kind": "textarea",
+     "required": true,
+     "placeholder": "Typical meals, sleep, movement, work pattern",
+     "default": null,
+     "options": [],
+     "help": ""
+    },
+    {
+     "key": "dietary_context",
+     "label": "Food context",
+     "kind": "textarea",
+     "required": true,
+     "placeholder": "Vegetarian, Indian meals, allergies, dislikes",
+     "default": null,
+     "options": [],
+     "help": ""
+    },
+    {
+     "key": "activity_limits",
+     "label": "Physical limits",
+     "kind": "textarea",
+     "required": true,
+     "placeholder": "Knee pain; cleared for walking",
+     "default": null,
+     "options": [],
+     "help": ""
+    },
+    {
+     "key": "available_days",
+     "label": "Available days",
+     "kind": "text",
+     "required": false,
+     "placeholder": "Mon, Wed, Fri, Sat",
+     "default": null,
+     "options": [],
+     "help": ""
+    },
+    {
+     "key": "daily_checkin",
+     "label": "Daily check-in",
+     "kind": "boolean",
+     "required": false,
+     "placeholder": "",
+     "default": true,
+     "options": [],
+     "help": ""
+    },
+    {
+     "key": "nudge_time",
+     "label": "Check-in time",
+     "kind": "time",
+     "required": false,
+     "placeholder": "",
+     "default": "20:30",
+     "options": [],
+     "help": ""
+    },
+    {
+     "key": "timezone",
+     "label": "Timezone",
+     "kind": "text",
+     "required": false,
+     "placeholder": "",
+     "default": "Asia/Kolkata",
+     "options": [],
+     "help": ""
+    }
+   ],
+   "stages": [
+    {
+     "id": "intake",
+     "title": "Baseline and goal",
+     "owner": "Rama",
+     "kind": "intake",
+     "purpose": "Capture current routines, limits, preferences, and the intended outcome.",
+     "skill": "wellness_plan",
+     "tools": [],
+     "requires_confirmation": false,
+     "confirmation_action": null,
+     "recurring": false
+    },
+    {
+     "id": "safety",
+     "title": "Safety boundary",
+     "owner": "Rama",
+     "kind": "safety",
+     "purpose": "Identify red flags, clinician constraints, and what Narad must not infer.",
+     "skill": "wellness_plan",
+     "tools": [],
+     "requires_confirmation": false,
+     "confirmation_action": null,
+     "recurring": false
+    },
+    {
+     "id": "weekly_plan",
+     "title": "Weekly food and movement plan",
+     "owner": "Rama",
+     "kind": "plan",
+     "purpose": "Create a realistic seven-day plan with substitutions and recovery room.",
+     "skill": "wellness_plan",
+     "tools": [],
+     "requires_confirmation": false,
+     "confirmation_action": null,
+     "recurring": false
+    },
+    {
+     "id": "schedule",
+     "title": "Schedule preview",
+     "owner": "Rama",
+     "kind": "action",
+     "purpose": "Preview calendar blocks and check-ins before creating them.",
+     "skill": "schedule_event",
+     "tools": [
+      "get_upcoming_events",
+      "create_event"
+     ],
+     "requires_confirmation": true,
+     "confirmation_action": "calendar_create",
+     "recurring": false
+    },
+    {
+     "id": "daily_track",
+     "title": "Daily tracking",
+     "owner": "Rama",
+     "kind": "track",
+     "purpose": "Collect lightweight adherence, energy, sleep, and discomfort signals.",
+     "skill": "health_log",
+     "tools": [],
+     "requires_confirmation": false,
+     "confirmation_action": null,
+     "recurring": true
+    },
+    {
+     "id": "weekly_review",
+     "title": "Weekly adaptation",
+     "owner": "Rama",
+     "kind": "review",
+     "purpose": "Compare plan with lived reality and make the smallest useful adjustment.",
+     "skill": "wellness_plan",
+     "tools": [],
+     "requires_confirmation": false,
+     "confirmation_action": null,
+     "recurring": true
+    }
+   ],
+   "schedule_templates": [
+    {
+     "id": "daily_checkin",
+     "title": "Daily health check-in",
+     "enabled_by": "daily_checkin",
+     "cadence": "daily",
+     "time_field": "nudge_time",
+     "target_stage": "daily_track"
+    },
+    {
+     "id": "weekly_review",
+     "title": "Weekly health review",
+     "enabled_by": "daily_checkin",
+     "cadence": "weekly",
+     "weekdays": [
+      6
+     ],
+     "time": "18:00",
+     "target_stage": "weekly_review"
+    }
+   ],
+   "feedback_routes": {
+    "off_track": "weekly_plan",
+    "pain_or_red_flag": "safety",
+    "goal_changed": "intake",
+    "week_complete": "weekly_review"
+   },
+   "readiness": {
+    "status": "limited",
+    "missing_required": [],
+    "missing_optional": [
+     "search",
+     "calendar"
+    ],
+    "capabilities": {
+     "calendar": false,
+     "health": true,
+     "planning": true,
+     "search": false
+    }
+   }
+  },
+  {
+   "id": "travel",
+   "version": 1,
+   "title": "Travel",
+   "eyebrow": "Research deeply, book deliberately",
+   "description": "Constraint-aware discovery, itinerary design, and confirmation-gated booking help.",
+   "accent": "#0369a1",
+   "owner": "Rama",
+   "required_capabilities": [
+    "planning"
+   ],
+   "optional_capabilities": [
+    "search",
+    "computer",
+    "calendar"
+   ],
+   "intake": [
+    {
+     "key": "origin",
+     "label": "Starting from",
+     "kind": "text",
+     "required": true,
+     "placeholder": "Delhi",
+     "default": null,
+     "options": [],
+     "help": ""
+    },
+    {
+     "key": "destination",
+     "label": "Destination",
+     "kind": "text",
+     "required": true,
+     "placeholder": "Japan",
+     "default": null,
+     "options": [],
+     "help": ""
+    },
+    {
+     "key": "dates",
+     "label": "Dates or flexibility",
+     "kind": "text",
+     "required": true,
+     "placeholder": "10-18 November, +/- 2 days",
+     "default": null,
+     "options": [],
+     "help": ""
+    },
+    {
+     "key": "travelers",
+     "label": "Travelers",
+     "kind": "text",
+     "required": true,
+     "placeholder": "2 adults",
+     "default": null,
+     "options": [],
+     "help": ""
+    },
+    {
+     "key": "budget",
+     "label": "Total budget",
+     "kind": "text",
+     "required": true,
+     "placeholder": "INR 300,000",
+     "default": null,
+     "options": [],
+     "help": ""
+    },
+    {
+     "key": "preferences",
+     "label": "Trip style",
+     "kind": "textarea",
+     "required": false,
+     "placeholder": "Food, design, slower pace, no nightlife",
+     "default": null,
+     "options": [],
+     "help": ""
+    },
+    {
+     "key": "accessibility",
+     "label": "Limits or accessibility",
+     "kind": "textarea",
+     "required": false,
+     "placeholder": "Avoid long climbs; vegetarian food",
+     "default": null,
+     "options": [],
+     "help": ""
+    },
+    {
+     "key": "price_watch",
+     "label": "Price watch",
+     "kind": "boolean",
+     "required": false,
+     "placeholder": "",
+     "default": false,
+     "options": [],
+     "help": ""
+    },
+    {
+     "key": "nudge_time",
+     "label": "Update time",
+     "kind": "time",
+     "required": false,
+     "placeholder": "",
+     "default": "10:00",
+     "options": [],
+     "help": ""
+    },
+    {
+     "key": "timezone",
+     "label": "Timezone",
+     "kind": "text",
+     "required": false,
+     "placeholder": "",
+     "default": "Asia/Kolkata",
+     "options": [],
+     "help": ""
+    }
+   ],
+   "stages": [
+    {
+     "id": "intake",
+     "title": "Travel brief",
+     "owner": "Rama",
+     "kind": "intake",
+     "purpose": "Lock dates, people, budget, pace, and hard constraints.",
+     "skill": "project_plan",
+     "tools": [],
+     "requires_confirmation": false,
+     "confirmation_action": null,
+     "recurring": false
+    },
+    {
+     "id": "research",
+     "title": "Live destination research",
+     "owner": "Matsya",
+     "kind": "research",
+     "purpose": "Ground options in current transport, seasonality, closures, and local evidence.",
+     "skill": "research",
+     "tools": [
+      "exa_search",
+      "exa_contents",
+      "search_last30days"
+     ],
+     "requires_confirmation": false,
+     "confirmation_action": null,
+     "recurring": false
+    },
+    {
+     "id": "compare",
+     "title": "Option comparison",
+     "owner": "Rama",
+     "kind": "plan",
+     "purpose": "Compare routes and stays using consistent criteria and total cost.",
+     "skill": "project_plan",
+     "tools": [],
+     "requires_confirmation": false,
+     "confirmation_action": null,
+     "recurring": false
+    },
+    {
+     "id": "itinerary",
+     "title": "Itinerary and budget",
+     "owner": "Krishna",
+     "kind": "artifact",
+     "purpose": "Produce a coherent day-by-day plan with budget and alternatives.",
+     "skill": "content_create",
+     "tools": [],
+     "requires_confirmation": false,
+     "confirmation_action": null,
+     "recurring": false
+    },
+    {
+     "id": "booking",
+     "title": "Booking desk",
+     "owner": "Matsya",
+     "kind": "action",
+     "purpose": "Recheck availability and preview each reservation before commitment.",
+     "skill": "form_submit",
+     "tools": [
+      "computer_use"
+     ],
+     "requires_confirmation": true,
+     "confirmation_action": "booking_commitment",
+     "recurring": false
+    },
+    {
+     "id": "trip_ready",
+     "title": "Trip-ready pack",
+     "owner": "Krishna",
+     "kind": "artifact",
+     "purpose": "Prepare confirmations, checklist, maps, and critical reminders.",
+     "skill": "content_create",
+     "tools": [],
+     "requires_confirmation": false,
+     "confirmation_action": null,
+     "recurring": false
+    },
+    {
+     "id": "review",
+     "title": "Change review",
+     "owner": "Rama",
+     "kind": "review",
+     "purpose": "Re-plan only the portions affected by a price, weather, or availability change.",
+     "skill": "project_plan",
+     "tools": [],
+     "requires_confirmation": false,
+     "confirmation_action": null,
+     "recurring": false
+    }
+   ],
+   "schedule_templates": [
+    {
+     "id": "price_watch",
+     "title": "Travel price and availability check",
+     "enabled_by": "price_watch",
+     "cadence": "daily",
+     "time_field": "nudge_time",
+     "target_stage": "research"
+    }
+   ],
+   "feedback_routes": {
+    "price_changed": "compare",
+    "availability_changed": "itinerary",
+    "dates_changed": "intake",
+    "booking_complete": "trip_ready"
+   },
+   "readiness": {
+    "status": "limited",
+    "missing_required": [],
+    "missing_optional": [
+     "search",
+     "computer",
+     "calendar"
+    ],
+    "capabilities": {
+     "calendar": false,
+     "computer": false,
+     "planning": true,
+     "search": false
+    }
+   }
+  },
+  {
+   "id": "teach",
+   "version": 1,
+   "title": "Teach Anything",
+   "eyebrow": "One concept, one check, durable mastery",
+   "description": "A paced learning path backed by Gurukul workspaces and spaced review.",
+   "accent": "#1d4ed8",
+   "owner": "Krishna",
+   "required_capabilities": [
+    "learning"
+   ],
+   "optional_capabilities": [
+    "search",
+    "tts"
+   ],
+   "intake": [
+    {
+     "key": "topic",
+     "label": "Topic",
+     "kind": "text",
+     "required": true,
+     "placeholder": "Transformer attention",
+     "default": null,
+     "options": [],
+     "help": ""
+    },
+    {
+     "key": "outcome",
+     "label": "Learning outcome",
+     "kind": "text",
+     "required": true,
+     "placeholder": "Explain it confidently in an interview",
+     "default": null,
+     "options": [],
+     "help": ""
+    },
+    {
+     "key": "current_level",
+     "label": "Current level",
+     "kind": "select",
+     "required": true,
+     "placeholder": "",
+     "default": "New",
+     "options": [
+      "New",
+      "Some familiarity",
+      "Working knowledge",
+      "Advanced"
+     ],
+     "help": ""
+    },
+    {
+     "key": "minutes_per_session",
+     "label": "Minutes per session",
+     "kind": "number",
+     "required": false,
+     "placeholder": "",
+     "default": 20,
+     "options": [],
+     "help": ""
+    },
+    {
+     "key": "mode",
+     "label": "Learning mode",
+     "kind": "select",
+     "required": false,
+     "placeholder": "",
+     "default": "Hybrid",
+     "options": [
+      "Hybrid",
+      "First principles",
+      "Q&A"
+     ],
+     "help": ""
+    },
+    {
+     "key": "spaced_reviews",
+     "label": "Spaced reviews",
+     "kind": "boolean",
+     "required": false,
+     "placeholder": "",
+     "default": true,
+     "options": [],
+     "help": ""
+    },
+    {
+     "key": "nudge_time",
+     "label": "Review time",
+     "kind": "time",
+     "required": false,
+     "placeholder": "",
+     "default": "09:00",
+     "options": [],
+     "help": ""
+    },
+    {
+     "key": "timezone",
+     "label": "Timezone",
+     "kind": "text",
+     "required": false,
+     "placeholder": "",
+     "default": "Asia/Kolkata",
+     "options": [],
+     "help": ""
+    }
+   ],
+   "stages": [
+    {
+     "id": "intake",
+     "title": "Learning mission",
+     "owner": "Krishna",
+     "kind": "intake",
+     "purpose": "Define the outcome, starting point, pace, and evidence of mastery.",
+     "skill": "teach",
+     "tools": [],
+     "requires_confirmation": false,
+     "confirmation_action": null,
+     "recurring": false
+    },
+    {
+     "id": "diagnostic",
+     "title": "Diagnostic",
+     "owner": "Krishna",
+     "kind": "teach",
+     "purpose": "Ask the smallest useful question to locate the learner's current model.",
+     "skill": "teach",
+     "tools": [],
+     "requires_confirmation": false,
+     "confirmation_action": null,
+     "recurring": false
+    },
+    {
+     "id": "lesson",
+     "title": "Paced lesson",
+     "owner": "Krishna",
+     "kind": "teach",
+     "purpose": "Teach one frontier concept with an analogy and one concrete example.",
+     "skill": "teach",
+     "tools": [],
+     "requires_confirmation": false,
+     "confirmation_action": null,
+     "recurring": false
+    },
+    {
+     "id": "check",
+     "title": "Understanding check",
+     "owner": "Krishna",
+     "kind": "teach",
+     "purpose": "Use one question to test transfer rather than recognition.",
+     "skill": "teach",
+     "tools": [],
+     "requires_confirmation": false,
+     "confirmation_action": null,
+     "recurring": false
+    },
+    {
+     "id": "reinforce",
+     "title": "Targeted reinforcement",
+     "owner": "Krishna",
+     "kind": "teach",
+     "purpose": "Correct the named misconception with a different representation.",
+     "skill": "teach",
+     "tools": [],
+     "requires_confirmation": false,
+     "confirmation_action": null,
+     "recurring": false
+    },
+    {
+     "id": "review",
+     "title": "Mastery review",
+     "owner": "Krishna",
+     "kind": "review",
+     "purpose": "Record mastery, schedule the next review, and choose the next atom.",
+     "skill": "teach",
+     "tools": [],
+     "requires_confirmation": false,
+     "confirmation_action": null,
+     "recurring": true
+    }
+   ],
+   "schedule_templates": [
+    {
+     "id": "spaced_reviews",
+     "title": "Spaced learning review",
+     "enabled_by": "spaced_reviews",
+     "cadence": "weekly",
+     "weekdays": [
+      1,
+      4
+     ],
+     "time_field": "nudge_time",
+     "target_stage": "review"
+    }
+   ],
+   "feedback_routes": {
+    "incorrect": "reinforce",
+    "shaky": "reinforce",
+    "mastered": "review",
+    "new_goal": "intake"
+   },
+   "readiness": {
+    "status": "limited",
+    "missing_required": [],
+    "missing_optional": [
+     "search"
+    ],
+    "capabilities": {
+     "learning": true,
+     "search": false,
+     "tts": true
+    }
+   }
+  },
+  {
+   "id": "finance",
+   "version": 1,
+   "title": "Personal Finance",
+   "eyebrow": "See clearly, model choices, stay in control",
+   "description": "Local ledger intelligence, grounded scenarios, and recurring financial reviews.",
+   "accent": "#7c3f14",
+   "owner": "Rama",
+   "required_capabilities": [
+    "finance",
+    "planning"
+   ],
+   "optional_capabilities": [
+    "search",
+    "documents"
+   ],
+   "intake": [
+    {
+     "key": "currency",
+     "label": "Currency",
+     "kind": "text",
+     "required": true,
+     "placeholder": "",
+     "default": "INR",
+     "options": [],
+     "help": ""
+    },
+    {
+     "key": "goal",
+     "label": "Primary financial goal",
+     "kind": "text",
+     "required": true,
+     "placeholder": "Build a 9-month emergency fund",
+     "default": null,
+     "options": [],
+     "help": ""
+    },
+    {
+     "key": "monthly_context",
+     "label": "Monthly cash-flow context",
+     "kind": "textarea",
+     "required": true,
+     "placeholder": "Approximate income, fixed costs, variable costs",
+     "default": null,
+     "options": [],
+     "help": ""
+    },
+    {
+     "key": "debts_and_commitments",
+     "label": "Debts and commitments",
+     "kind": "textarea",
+     "required": false,
+     "placeholder": "Loan balances, rates, recurring obligations",
+     "default": null,
+     "options": [],
+     "help": ""
+    },
+    {
+     "key": "risk_comfort",
+     "label": "Risk comfort",
+     "kind": "select",
+     "required": false,
+     "placeholder": "",
+     "default": "Moderate",
+     "options": [
+      "Low",
+      "Moderate",
+      "High"
+     ],
+     "help": ""
+    },
+    {
+     "key": "statement_path",
+     "label": "Statement CSV path",
+     "kind": "text",
+     "required": false,
+     "placeholder": "/Users/me/Downloads/statement.csv",
+     "default": null,
+     "options": [],
+     "help": ""
+    },
+    {
+     "key": "monthly_review",
+     "label": "Monthly review",
+     "kind": "boolean",
+     "required": false,
+     "placeholder": "",
+     "default": true,
+     "options": [],
+     "help": ""
+    },
+    {
+     "key": "nudge_time",
+     "label": "Review time",
+     "kind": "time",
+     "required": false,
+     "placeholder": "",
+     "default": "18:30",
+     "options": [],
+     "help": ""
+    },
+    {
+     "key": "timezone",
+     "label": "Timezone",
+     "kind": "text",
+     "required": false,
+     "placeholder": "",
+     "default": "Asia/Kolkata",
+     "options": [],
+     "help": ""
+    }
+   ],
+   "stages": [
+    {
+     "id": "intake",
+     "title": "Financial baseline",
+     "owner": "Rama",
+     "kind": "intake",
+     "purpose": "Define goals, cash-flow assumptions, obligations, and risk boundaries.",
+     "skill": "budget_plan",
+     "tools": [],
+     "requires_confirmation": false,
+     "confirmation_action": null,
+     "recurring": false
+    },
+    {
+     "id": "ingest",
+     "title": "Local data intake",
+     "owner": "Rama",
+     "kind": "track",
+     "purpose": "Import or update transactions and balances without exposing credentials.",
+     "skill": "finance_import",
+     "tools": [
+      "import_csv",
+      "get_financial_context"
+     ],
+     "requires_confirmation": false,
+     "confirmation_action": null,
+     "recurring": false
+    },
+    {
+     "id": "analyze",
+     "title": "Cash-flow intelligence",
+     "owner": "Rama",
+     "kind": "analysis",
+     "purpose": "Measure spending, recurring costs, anomalies, and goal trajectory.",
+     "skill": "spending_review",
+     "tools": [],
+     "requires_confirmation": false,
+     "confirmation_action": null,
+     "recurring": false
+    },
+    {
+     "id": "scenarios",
+     "title": "Current intelligence and scenarios",
+     "owner": "Matsya",
+     "kind": "research",
+     "purpose": "Ground rates, rules, and market assumptions in dated sources.",
+     "skill": "research",
+     "tools": [
+      "exa_search",
+      "exa_contents"
+     ],
+     "requires_confirmation": false,
+     "confirmation_action": null,
+     "recurring": false
+    },
+    {
+     "id": "plan",
+     "title": "Decision plan",
+     "owner": "Rama",
+     "kind": "plan",
+     "purpose": "Compare choices, tradeoffs, buffers, and reversible next steps.",
+     "skill": "financial_decision",
+     "tools": [],
+     "requires_confirmation": false,
+     "confirmation_action": null,
+     "recurring": false
+    },
+    {
+     "id": "review",
+     "title": "Monthly review",
+     "owner": "Rama",
+     "kind": "review",
+     "purpose": "Compare plan with actuals and adapt budgets or goal timing.",
+     "skill": "spending_review",
+     "tools": [],
+     "requires_confirmation": false,
+     "confirmation_action": null,
+     "recurring": true
+    }
+   ],
+   "schedule_templates": [
+    {
+     "id": "monthly_review",
+     "title": "Monthly finance review",
+     "enabled_by": "monthly_review",
+     "cadence": "monthly",
+     "day": 1,
+     "time_field": "nudge_time",
+     "target_stage": "review"
+    }
+   ],
+   "feedback_routes": {
+    "over_budget": "analyze",
+    "income_changed": "intake",
+    "goal_changed": "intake",
+    "month_closed": "review"
+   },
+   "readiness": {
+    "status": "unavailable",
+    "missing_required": [
+     "finance"
+    ],
+    "missing_optional": [
+     "search",
+     "documents"
+    ],
+    "capabilities": {
+     "documents": false,
+     "finance": false,
+     "planning": true,
+     "search": false
+    }
+   }
+  },
+  {
+   "id": "documents",
+   "version": 1,
+   "title": "Documents and Insights",
+   "eyebrow": "Evidence into a story people can use",
+   "description": "Analyze source material and produce presentations, insight reports, or polished narratives.",
+   "accent": "#9f1239",
+   "owner": "Krishna",
+   "required_capabilities": [
+    "planning"
+   ],
+   "optional_capabilities": [
+    "documents",
+    "presentation",
+    "sql",
+    "filesystem"
+   ],
+   "intake": [
+    {
+     "key": "deliverable",
+     "label": "Deliverable",
+     "kind": "select",
+     "required": true,
+     "placeholder": "",
+     "default": "Presentation",
+     "options": [
+      "Presentation",
+      "Data insights",
+      "Narrative",
+      "Creative writing"
+     ],
+     "help": ""
+    },
+    {
+     "key": "objective",
+     "label": "Objective",
+     "kind": "textarea",
+     "required": true,
+     "placeholder": "What should the audience understand or decide?",
+     "default": null,
+     "options": [],
+     "help": ""
+    },
+    {
+     "key": "audience",
+     "label": "Audience",
+     "kind": "text",
+     "required": true,
+     "placeholder": "Board, customers, classroom, general readers",
+     "default": null,
+     "options": [],
+     "help": ""
+    },
+    {
+     "key": "source_paths",
+     "label": "Source files",
+     "kind": "textarea",
+     "required": false,
+     "placeholder": "One local path per line",
+     "default": null,
+     "options": [],
+     "help": ""
+    },
+    {
+     "key": "tone",
+     "label": "Tone",
+     "kind": "text",
+     "required": false,
+     "placeholder": "Editorial, decisive, warm",
+     "default": null,
+     "options": [],
+     "help": ""
+    },
+    {
+     "key": "constraints",
+     "label": "Format constraints",
+     "kind": "textarea",
+     "required": false,
+     "placeholder": "10 slides, 16:9, speaker notes",
+     "default": null,
+     "options": [],
+     "help": ""
+    },
+    {
+     "key": "recurring_report",
+     "label": "Recurring report",
+     "kind": "boolean",
+     "required": false,
+     "placeholder": "",
+     "default": false,
+     "options": [],
+     "help": ""
+    },
+    {
+     "key": "nudge_time",
+     "label": "Report time",
+     "kind": "time",
+     "required": false,
+     "placeholder": "",
+     "default": "09:30",
+     "options": [],
+     "help": ""
+    },
+    {
+     "key": "timezone",
+     "label": "Timezone",
+     "kind": "text",
+     "required": false,
+     "placeholder": "",
+     "default": "Asia/Kolkata",
+     "options": [],
+     "help": ""
+    }
+   ],
+   "stages": [
+    {
+     "id": "intake",
+     "title": "Creative brief",
+     "owner": "Krishna",
+     "kind": "intake",
+     "purpose": "Lock the audience, decision, source material, format, and constraints.",
+     "skill": "content_create",
+     "tools": [],
+     "requires_confirmation": false,
+     "confirmation_action": null,
+     "recurring": false
+    },
+    {
+     "id": "ingest",
+     "title": "Source ingestion",
+     "owner": "Matsya",
+     "kind": "analysis",
+     "purpose": "Extract files and establish an exact evidence inventory.",
+     "skill": "document_review",
+     "tools": [
+      "extract_document"
+     ],
+     "requires_confirmation": false,
+     "confirmation_action": null,
+     "recurring": false
+    },
+    {
+     "id": "analyze",
+     "title": "Analysis and insights",
+     "owner": "Parashurama",
+     "kind": "analysis",
+     "purpose": "Read structured sources and find defensible patterns, caveats, and decision-relevant insights.",
+     "skill": "data_pipeline",
+     "tools": [
+      "read_file",
+      "query_database"
+     ],
+     "requires_confirmation": false,
+     "confirmation_action": null,
+     "recurring": false
+    },
+    {
+     "id": "story",
+     "title": "Narrative architecture",
+     "owner": "Krishna",
+     "kind": "artifact",
+     "purpose": "Turn evidence into one coherent argument or creative arc.",
+     "skill": "content_create",
+     "tools": [],
+     "requires_confirmation": false,
+     "confirmation_action": null,
+     "recurring": false
+    },
+    {
+     "id": "create",
+     "title": "Artifact production",
+     "owner": "Krishna",
+     "kind": "artifact",
+     "purpose": "Create the requested deck, report, chart set, or narrative.",
+     "skill": "presentation_create",
+     "tools": [
+      "create_document",
+      "create_webpage"
+     ],
+     "requires_confirmation": false,
+     "confirmation_action": null,
+     "recurring": false
+    },
+    {
+     "id": "review",
+     "title": "Design and truth audit",
+     "owner": "Krishna",
+     "kind": "review",
+     "purpose": "Audit clarity, evidence, pacing, visual hierarchy, and unsupported claims.",
+     "skill": "presentation_create",
+     "tools": [],
+     "requires_confirmation": false,
+     "confirmation_action": null,
+     "recurring": false
+    },
+    {
+     "id": "export",
+     "title": "Final export",
+     "owner": "Parashurama",
+     "kind": "artifact",
+     "purpose": "Version and expose the final artifact with source and provenance links.",
+     "skill": "data_pipeline",
+     "tools": [],
+     "requires_confirmation": false,
+     "confirmation_action": null,
+     "recurring": false
+    }
+   ],
+   "schedule_templates": [
+    {
+     "id": "recurring_report",
+     "title": "Recurring document refresh",
+     "enabled_by": "recurring_report",
+     "cadence": "weekly",
+     "weekdays": [
+      0
+     ],
+     "time_field": "nudge_time",
+     "target_stage": "ingest",
+     "new_cycle_when_complete": true
+    }
+   ],
+   "feedback_routes": {
+    "revision_requested": "story",
+    "data_changed": "ingest",
+    "claim_challenged": "analyze",
+    "approved": "export"
+   },
+   "readiness": {
+    "status": "limited",
+    "missing_required": [],
+    "missing_optional": [
+     "documents",
+     "presentation",
+     "sql",
+     "filesystem"
+    ],
+    "capabilities": {
+     "documents": false,
+     "filesystem": false,
+     "planning": true,
+     "presentation": false,
+     "sql": false
+    }
+   }
+  }
+ ],
+ "runs": [
+  {
+   "run_id": "wfr_563b911cface",
+   "workflow_id": "health",
+   "workflow_version": 1,
+   "user_id": "asha",
+   "title": "Health: gentle walks and a BP log for Kamla",
+   "status": "active",
+   "current_stage_id": "safety",
+   "project_id": null,
+   "session_id": "sess_demo_thread",
+   "inputs": {
+    "goal": "Gentle walks and a BP log",
+    "baseline": "BP around 140/90, walks 10 minutes",
+    "dietary_context": "Vegetarian, less salt",
+    "activity_limits": "Knee pain on stairs",
+    "available_days": "Every morning",
+    "daily_checkin": true,
+    "nudge_time": "20:30",
+    "timezone": "Asia/Kolkata"
+   },
+   "state": {
+    "cycle": 1,
+    "completed_stage_ids": [
+     "intake"
+    ],
+    "stage_outputs": {
+     "intake": {
+      "status": "ok",
+      "summary": "Health intake captured.",
+      "recorded_at": "@now-20m"
+     }
+    },
+    "artifacts": [],
+    "citations": [],
+    "feedback": [],
+    "confirmation": null,
+    "last_stage_result": null,
+    "readiness_at_start": {
+     "status": "limited",
+     "missing_required": [],
+     "missing_optional": [
+      "search",
+      "calendar"
+     ],
+     "capabilities": {
+      "calendar": false,
+      "health": true,
+      "planning": true,
+      "search": false
+     }
+    }
+   },
+   "created_at": "@now-20m",
+   "updated_at": "@now-20m",
+   "completed_at": null,
+   "definition": {
+    "id": "health",
+    "title": "Health",
+    "description": "Personal-context food, movement, and adherence planning with safety boundaries.",
+    "accent": "#047857",
+    "owner": "Rama"
+   },
+   "current_stage": {
+    "id": "safety",
+    "title": "Safety boundary",
+    "owner": "Rama",
+    "kind": "safety",
+    "purpose": "Identify red flags, clinician constraints, and what Narad must not infer.",
+    "skill": "wellness_plan",
+    "tools": [],
+    "requires_confirmation": false,
+    "confirmation_action": null,
+    "recurring": false
+   },
+   "stages": [
+    {
+     "id": "intake",
+     "title": "Baseline and goal",
+     "owner": "Rama",
+     "kind": "intake",
+     "purpose": "Capture current routines, limits, preferences, and the intended outcome.",
+     "skill": "wellness_plan",
+     "tools": [],
+     "requires_confirmation": false,
+     "confirmation_action": null,
+     "recurring": false,
+     "status": "done",
+     "output": {
+      "status": "ok",
+      "summary": "Health intake captured.",
+      "recorded_at": "@now-20m"
+     }
+    },
+    {
+     "id": "safety",
+     "title": "Safety boundary",
+     "owner": "Rama",
+     "kind": "safety",
+     "purpose": "Identify red flags, clinician constraints, and what Narad must not infer.",
+     "skill": "wellness_plan",
+     "tools": [],
+     "requires_confirmation": false,
+     "confirmation_action": null,
+     "recurring": false,
+     "status": "active",
+     "output": null
+    },
+    {
+     "id": "weekly_plan",
+     "title": "Weekly food and movement plan",
+     "owner": "Rama",
+     "kind": "plan",
+     "purpose": "Create a realistic seven-day plan with substitutions and recovery room.",
+     "skill": "wellness_plan",
+     "tools": [],
+     "requires_confirmation": false,
+     "confirmation_action": null,
+     "recurring": false,
+     "status": "todo",
+     "output": null
+    },
+    {
+     "id": "schedule",
+     "title": "Schedule preview",
+     "owner": "Rama",
+     "kind": "action",
+     "purpose": "Preview calendar blocks and check-ins before creating them.",
+     "skill": "schedule_event",
+     "tools": [
+      "get_upcoming_events",
+      "create_event"
+     ],
+     "requires_confirmation": true,
+     "confirmation_action": "calendar_create",
+     "recurring": false,
+     "status": "todo",
+     "output": null
+    },
+    {
+     "id": "daily_track",
+     "title": "Daily tracking",
+     "owner": "Rama",
+     "kind": "track",
+     "purpose": "Collect lightweight adherence, energy, sleep, and discomfort signals.",
+     "skill": "health_log",
+     "tools": [],
+     "requires_confirmation": false,
+     "confirmation_action": null,
+     "recurring": true,
+     "status": "todo",
+     "output": null
+    },
+    {
+     "id": "weekly_review",
+     "title": "Weekly adaptation",
+     "owner": "Rama",
+     "kind": "review",
+     "purpose": "Compare plan with lived reality and make the smallest useful adjustment.",
+     "skill": "wellness_plan",
+     "tools": [],
+     "requires_confirmation": false,
+     "confirmation_action": null,
+     "recurring": true,
+     "status": "todo",
+     "output": null
+    }
+   ],
+   "progress_percent": 17,
+   "next_action": {
+    "kind": "chat",
+    "label": "Continue: Safety boundary",
+    "prompt": "Continue my Health: gentle walks and a BP log for Kamla workflow. Complete the current stage: Safety boundary."
+   },
+   "schedules": [
+    {
+     "schedule_id": "wfs_563b911c_daily_checkin",
+     "run_id": "wfr_563b911cface",
+     "user_id": "asha",
+     "title": "Daily health check-in",
+     "cadence": "daily",
+     "timezone": "Asia/Kolkata",
+     "time_of_day": "20:30",
+     "weekdays": [],
+     "day_of_month": null,
+     "interval_minutes": null,
+     "next_run_at": "@now-20m",
+     "last_run_at": null,
+     "enabled": true,
+     "payload": {
+      "template_id": "daily_checkin",
+      "target_stage": "daily_track"
+     },
+     "created_at": "@now-20m",
+     "updated_at": "@now-20m"
+    },
+    {
+     "schedule_id": "wfs_563b911c_weekly_review",
+     "run_id": "wfr_563b911cface",
+     "user_id": "asha",
+     "title": "Weekly health review",
+     "cadence": "weekly",
+     "timezone": "Asia/Kolkata",
+     "time_of_day": "18:00",
+     "weekdays": [
+      6
+     ],
+     "day_of_month": null,
+     "interval_minutes": null,
+     "next_run_at": "@now-20m",
+     "last_run_at": null,
+     "enabled": true,
+     "payload": {
+      "template_id": "weekly_review",
+      "target_stage": "weekly_review"
+     },
+     "created_at": "@now-20m",
+     "updated_at": "@now-20m"
+    }
+   ],
+   "tasks": [
+    {
+     "task_id": "wf:wfr_563b911cface:intake",
+     "workflow_run_id": "wfr_563b911cface",
+     "workflow_stage_id": "intake",
+     "title": "Baseline and goal",
+     "description": "Capture current routines, limits, preferences, and the intended outcome.",
+     "owner": "Rama",
+     "status": "done",
+     "kind": "workflow_stage"
+    },
+    {
+     "task_id": "wf:wfr_563b911cface:safety",
+     "workflow_run_id": "wfr_563b911cface",
+     "workflow_stage_id": "safety",
+     "title": "Safety boundary",
+     "description": "Identify red flags, clinician constraints, and what Narad must not infer.",
+     "owner": "Rama",
+     "status": "active",
+     "kind": "workflow_stage"
+    },
+    {
+     "task_id": "wf:wfr_563b911cface:weekly_plan",
+     "workflow_run_id": "wfr_563b911cface",
+     "workflow_stage_id": "weekly_plan",
+     "title": "Weekly food and movement plan",
+     "description": "Create a realistic seven-day plan with substitutions and recovery room.",
+     "owner": "Rama",
+     "status": "todo",
+     "kind": "workflow_stage"
+    },
+    {
+     "task_id": "wf:wfr_563b911cface:schedule",
+     "workflow_run_id": "wfr_563b911cface",
+     "workflow_stage_id": "schedule",
+     "title": "Schedule preview",
+     "description": "Preview calendar blocks and check-ins before creating them.",
+     "owner": "Rama",
+     "status": "todo",
+     "kind": "workflow_stage"
+    },
+    {
+     "task_id": "wf:wfr_563b911cface:daily_track",
+     "workflow_run_id": "wfr_563b911cface",
+     "workflow_stage_id": "daily_track",
+     "title": "Daily tracking",
+     "description": "Collect lightweight adherence, energy, sleep, and discomfort signals.",
+     "owner": "Rama",
+     "status": "todo",
+     "kind": "workflow_stage"
+    },
+    {
+     "task_id": "wf:wfr_563b911cface:weekly_review",
+     "workflow_run_id": "wfr_563b911cface",
+     "workflow_stage_id": "weekly_review",
+     "title": "Weekly adaptation",
+     "description": "Compare plan with lived reality and make the smallest useful adjustment.",
+     "owner": "Rama",
+     "status": "todo",
+     "kind": "workflow_stage"
+    }
+   ],
+   "readiness": {
+    "status": "limited",
+    "missing_required": [],
+    "missing_optional": [
+     "search",
+     "calendar"
+    ],
+    "capabilities": {
+     "calendar": false,
+     "health": true,
+     "planning": true,
+     "search": false
+    }
+   },
+   "events": [
+    {
+     "event_id": "wfe_089669546f2a",
+     "run_id": "wfr_563b911cface",
+     "user_id": "asha",
+     "event_type": "stage_started",
+     "stage_id": "safety",
+     "payload": {
+      "cycle": 1
+     },
+     "created_at": "@now-20m"
+    },
+    {
+     "event_id": "wfe_5a4cefa37b52",
+     "run_id": "wfr_563b911cface",
+     "user_id": "asha",
+     "event_type": "stage_completed",
+     "stage_id": "intake",
+     "payload": {
+      "status": "ok",
+      "summary": "Health intake captured.",
+      "recorded_at": "@now-20m"
+     },
+     "created_at": "@now-20m"
+    },
+    {
+     "event_id": "wfe_a22f666fe53c",
+     "run_id": "wfr_563b911cface",
+     "user_id": "asha",
+     "event_type": "workflow_started",
+     "stage_id": "intake",
+     "payload": {
+      "title": "Health: gentle walks and a BP log for Kamla",
+      "workflow_id": "health"
+     },
+     "created_at": "@now-20m"
+    }
+   ]
+  },
+  {
+   "run_id": "wfr_85815015469f",
+   "workflow_id": "travel",
+   "workflow_version": 1,
+   "user_id": "asha",
+   "title": "Travel: Jaipur weekend with Kamla",
+   "status": "active",
+   "current_stage_id": "research",
+   "project_id": null,
+   "session_id": "sess_demo_thread",
+   "inputs": {
+    "origin": "Jaipur weekend, two people, short walks",
+    "destination": "Jaipur weekend, two people, short walks",
+    "dates": "Jaipur weekend, two people, short walks",
+    "travelers": "Jaipur weekend, two people, short walks",
+    "budget": "Jaipur weekend, two people, short walks",
+    "preferences": "Jaipur weekend, two people, short walks",
+    "accessibility": "Jaipur weekend, two people, short walks",
+    "price_watch": false,
+    "nudge_time": "10:00",
+    "timezone": "Asia/Kolkata"
+   },
+   "state": {
+    "cycle": 1,
+    "completed_stage_ids": [
+     "intake"
+    ],
+    "stage_outputs": {
+     "intake": {
+      "status": "ok",
+      "summary": "Travel intake captured.",
+      "recorded_at": "@now-20m"
+     }
+    },
+    "artifacts": [],
+    "citations": [],
+    "feedback": [],
+    "confirmation": null,
+    "last_stage_result": null,
+    "readiness_at_start": {
+     "status": "limited",
+     "missing_required": [],
+     "missing_optional": [
+      "search",
+      "computer",
+      "calendar"
+     ],
+     "capabilities": {
+      "calendar": false,
+      "computer": false,
+      "planning": true,
+      "search": false
+     }
+    }
+   },
+   "created_at": "@now-20m",
+   "updated_at": "@now-20m",
+   "completed_at": null,
+   "definition": {
+    "id": "travel",
+    "title": "Travel",
+    "description": "Constraint-aware discovery, itinerary design, and confirmation-gated booking help.",
+    "accent": "#0369a1",
+    "owner": "Rama"
+   },
+   "current_stage": {
+    "id": "research",
+    "title": "Live destination research",
+    "owner": "Matsya",
+    "kind": "research",
+    "purpose": "Ground options in current transport, seasonality, closures, and local evidence.",
+    "skill": "research",
+    "tools": [
+     "exa_search",
+     "exa_contents",
+     "search_last30days"
+    ],
+    "requires_confirmation": false,
+    "confirmation_action": null,
+    "recurring": false
+   },
+   "stages": [
+    {
+     "id": "intake",
+     "title": "Travel brief",
+     "owner": "Rama",
+     "kind": "intake",
+     "purpose": "Lock dates, people, budget, pace, and hard constraints.",
+     "skill": "project_plan",
+     "tools": [],
+     "requires_confirmation": false,
+     "confirmation_action": null,
+     "recurring": false,
+     "status": "done",
+     "output": {
+      "status": "ok",
+      "summary": "Travel intake captured.",
+      "recorded_at": "@now-20m"
+     }
+    },
+    {
+     "id": "research",
+     "title": "Live destination research",
+     "owner": "Matsya",
+     "kind": "research",
+     "purpose": "Ground options in current transport, seasonality, closures, and local evidence.",
+     "skill": "research",
+     "tools": [
+      "exa_search",
+      "exa_contents",
+      "search_last30days"
+     ],
+     "requires_confirmation": false,
+     "confirmation_action": null,
+     "recurring": false,
+     "status": "active",
+     "output": null
+    },
+    {
+     "id": "compare",
+     "title": "Option comparison",
+     "owner": "Rama",
+     "kind": "plan",
+     "purpose": "Compare routes and stays using consistent criteria and total cost.",
+     "skill": "project_plan",
+     "tools": [],
+     "requires_confirmation": false,
+     "confirmation_action": null,
+     "recurring": false,
+     "status": "todo",
+     "output": null
+    },
+    {
+     "id": "itinerary",
+     "title": "Itinerary and budget",
+     "owner": "Krishna",
+     "kind": "artifact",
+     "purpose": "Produce a coherent day-by-day plan with budget and alternatives.",
+     "skill": "content_create",
+     "tools": [],
+     "requires_confirmation": false,
+     "confirmation_action": null,
+     "recurring": false,
+     "status": "todo",
+     "output": null
+    },
+    {
+     "id": "booking",
+     "title": "Booking desk",
+     "owner": "Matsya",
+     "kind": "action",
+     "purpose": "Recheck availability and preview each reservation before commitment.",
+     "skill": "form_submit",
+     "tools": [
+      "computer_use"
+     ],
+     "requires_confirmation": true,
+     "confirmation_action": "booking_commitment",
+     "recurring": false,
+     "status": "todo",
+     "output": null
+    },
+    {
+     "id": "trip_ready",
+     "title": "Trip-ready pack",
+     "owner": "Krishna",
+     "kind": "artifact",
+     "purpose": "Prepare confirmations, checklist, maps, and critical reminders.",
+     "skill": "content_create",
+     "tools": [],
+     "requires_confirmation": false,
+     "confirmation_action": null,
+     "recurring": false,
+     "status": "todo",
+     "output": null
+    },
+    {
+     "id": "review",
+     "title": "Change review",
+     "owner": "Rama",
+     "kind": "review",
+     "purpose": "Re-plan only the portions affected by a price, weather, or availability change.",
+     "skill": "project_plan",
+     "tools": [],
+     "requires_confirmation": false,
+     "confirmation_action": null,
+     "recurring": false,
+     "status": "todo",
+     "output": null
+    }
+   ],
+   "progress_percent": 14,
+   "next_action": {
+    "kind": "chat",
+    "label": "Continue: Live destination research",
+    "prompt": "Continue my Travel: Jaipur weekend with Kamla workflow. Complete the current stage: Live destination research."
+   },
+   "schedules": [],
+   "tasks": [
+    {
+     "task_id": "wf:wfr_85815015469f:intake",
+     "workflow_run_id": "wfr_85815015469f",
+     "workflow_stage_id": "intake",
+     "title": "Travel brief",
+     "description": "Lock dates, people, budget, pace, and hard constraints.",
+     "owner": "Rama",
+     "status": "done",
+     "kind": "workflow_stage"
+    },
+    {
+     "task_id": "wf:wfr_85815015469f:research",
+     "workflow_run_id": "wfr_85815015469f",
+     "workflow_stage_id": "research",
+     "title": "Live destination research",
+     "description": "Ground options in current transport, seasonality, closures, and local evidence.",
+     "owner": "Matsya",
+     "status": "active",
+     "kind": "workflow_stage"
+    },
+    {
+     "task_id": "wf:wfr_85815015469f:compare",
+     "workflow_run_id": "wfr_85815015469f",
+     "workflow_stage_id": "compare",
+     "title": "Option comparison",
+     "description": "Compare routes and stays using consistent criteria and total cost.",
+     "owner": "Rama",
+     "status": "todo",
+     "kind": "workflow_stage"
+    },
+    {
+     "task_id": "wf:wfr_85815015469f:itinerary",
+     "workflow_run_id": "wfr_85815015469f",
+     "workflow_stage_id": "itinerary",
+     "title": "Itinerary and budget",
+     "description": "Produce a coherent day-by-day plan with budget and alternatives.",
+     "owner": "Krishna",
+     "status": "todo",
+     "kind": "workflow_stage"
+    },
+    {
+     "task_id": "wf:wfr_85815015469f:booking",
+     "workflow_run_id": "wfr_85815015469f",
+     "workflow_stage_id": "booking",
+     "title": "Booking desk",
+     "description": "Recheck availability and preview each reservation before commitment.",
+     "owner": "Matsya",
+     "status": "todo",
+     "kind": "workflow_stage"
+    },
+    {
+     "task_id": "wf:wfr_85815015469f:trip_ready",
+     "workflow_run_id": "wfr_85815015469f",
+     "workflow_stage_id": "trip_ready",
+     "title": "Trip-ready pack",
+     "description": "Prepare confirmations, checklist, maps, and critical reminders.",
+     "owner": "Krishna",
+     "status": "todo",
+     "kind": "workflow_stage"
+    },
+    {
+     "task_id": "wf:wfr_85815015469f:review",
+     "workflow_run_id": "wfr_85815015469f",
+     "workflow_stage_id": "review",
+     "title": "Change review",
+     "description": "Re-plan only the portions affected by a price, weather, or availability change.",
+     "owner": "Rama",
+     "status": "todo",
+     "kind": "workflow_stage"
+    }
+   ],
+   "readiness": {
+    "status": "limited",
+    "missing_required": [],
+    "missing_optional": [
+     "search",
+     "computer",
+     "calendar"
+    ],
+    "capabilities": {
+     "calendar": false,
+     "computer": false,
+     "planning": true,
+     "search": false
+    }
+   },
+   "events": [
+    {
+     "event_id": "wfe_75f7a3ea6a14",
+     "run_id": "wfr_85815015469f",
+     "user_id": "asha",
+     "event_type": "stage_started",
+     "stage_id": "research",
+     "payload": {
+      "cycle": 1
+     },
+     "created_at": "@now-20m"
+    },
+    {
+     "event_id": "wfe_1f3fa524f25e",
+     "run_id": "wfr_85815015469f",
+     "user_id": "asha",
+     "event_type": "stage_completed",
+     "stage_id": "intake",
+     "payload": {
+      "status": "ok",
+      "summary": "Travel intake captured.",
+      "recorded_at": "@now-20m"
+     },
+     "created_at": "@now-20m"
+    },
+    {
+     "event_id": "wfe_4feee3878708",
+     "run_id": "wfr_85815015469f",
+     "user_id": "asha",
+     "event_type": "workflow_started",
+     "stage_id": "intake",
+     "payload": {
+      "title": "Travel: Jaipur weekend with Kamla",
+      "workflow_id": "travel"
+     },
+     "created_at": "@now-20m"
+    }
+   ]
+  }
+ ]
+}
