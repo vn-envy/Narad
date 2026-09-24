@@ -15,6 +15,7 @@ import type { TTSAvatar } from '../hooks/useTTS'
 import { MahatiLogo } from './MahatiLogo'
 import { ZigzagBank } from './Motifs'
 import { GuruMessage } from './GuruCards'
+import { ApprovalCard, type ApprovalChange } from './ApprovalCard'
 import { cn } from '@/lib/utils'
 import {
   Archive,
@@ -423,6 +424,8 @@ interface Props {
   onGuidedAnswer?: (messageId: string, answer?: string, choiceIndex?: number) => void
   onGuidedSkip?: () => void
   onGuidedExit?: () => void
+  /** An approval card was decided or edited: keep the chat's copy current. */
+  onApprovalChange?: ApprovalChange
 }
 
 export function ChatPanel({
@@ -447,6 +450,7 @@ export function ChatPanel({
   onGuidedAnswer,
   onGuidedSkip,
   onGuidedExit,
+  onApprovalChange,
 }: Props) {
   const isMobile = useIsMobile()
   const [input, setInput] = useState('')
@@ -735,6 +739,15 @@ export function ChatPanel({
         )}
 
         {messages.map(msg => {
+          // Anumati: a side effect waiting for this person's OK.
+          if (msg.role === 'assistant' && msg.approval) {
+            return (
+              <div key={msg.id} className="w-full max-w-[92%] self-start">
+                <ApprovalCard proposal={msg.approval} onChange={onApprovalChange} />
+              </div>
+            )
+          }
+
           // G7: guided-mode cards render as their own wide block, not a bubble.
           if (msg.role === 'assistant' && msg.guru) {
             return (

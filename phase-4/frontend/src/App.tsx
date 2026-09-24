@@ -5,6 +5,7 @@ import { ChatPanel }            from './components/ChatPanel'
 import { AwarenessBar }         from './components/AwarenessBar'
 import { FamilyProfileGate }    from './components/FamilyProfileGate'
 import { OnboardingFlow }       from './components/OnboardingFlow'
+import { ApprovalSheet }        from './components/ApprovalCard'
 import {
   apiFetch,
   apiUrl,
@@ -141,6 +142,7 @@ function NaradSession({ profile, onSwitchProfile }: { profile: FamilyProfile; on
     pendingToolUi, clearToolUi,
     andonAlert, clearSession, resumeSession,
     guidedSession, answerGuided, skipGuided, exitGuided,
+    updateApproval,
   } = useAvatara(userId)
 
   const [activeSurface, setActiveSurface] = useState<AppSurface>('chat')
@@ -319,6 +321,7 @@ function NaradSession({ profile, onSwitchProfile }: { profile: FamilyProfile; on
               onGuidedAnswer={answerGuided}
               onGuidedSkip={skipGuided}
               onGuidedExit={() => exitGuided()}
+              onApprovalChange={updateApproval}
             />
           ) : (
             <Suspense fallback={<div className="h-full" style={{ background: 'var(--paper)' }} />}>
@@ -415,6 +418,9 @@ function NaradSession({ profile, onSwitchProfile }: { profile: FamilyProfile; on
           />
         </Suspense>
       )}
+
+      {/* Opened from an approval notification: /?approval=<id> */}
+      <ApprovalSheet onChange={updateApproval} />
 
       <Toaster />
     </>
