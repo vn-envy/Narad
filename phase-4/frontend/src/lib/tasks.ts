@@ -36,6 +36,14 @@ export interface TaskResult {
   answer?: string
   reason?: string
   url?: string
+  /** A phone task in verified mode: what Artemis's checker found. */
+  verification?: { status: string; failed_checks?: string[]; findings?: string[] }
+}
+
+/** A banking or UPI app a phone task needs, not yet allowed for it. */
+export interface BlockedApp {
+  package: string
+  name: string
 }
 
 export interface KriyaTask {
@@ -60,6 +68,9 @@ export interface KriyaTask {
   events?: TaskEvent[]
   /** The Anumati proposal the task waits on (waiting_approval only). */
   approval?: ApprovalProposal
+  /** Phone tasks: the phone's name and fast or verified mode. */
+  device?: string | null
+  mode?: string | null
 }
 
 export type TakeoverInput =
@@ -126,7 +137,23 @@ export async function takeoverTask(id: string, input: TakeoverInput): Promise<vo
   await postTask(id, 'takeover', input)
 }
 
-/** The latest viewport as a JPEG blob, or null when the page is not live. Never cached. */
+/** The banking or UPI apps the waiting approval still needs allowed (phone tasks). */
+export function blockedApps(task: KriyaTask): BlockedApp[] {
+  const preview = task.approval?.preview as { blocked_apps?: BlockedApp[] } | undefined
+  return Array.isArray(preview?.blocked_apps) ? preview.blocked_apps : []
+}
+
+/** Allow one banking or UPI app for this phone task: the approval is replaced by one that names it. */
+export async function allowTaskApp(id: string, pkg: string): Promise<KriyaTask> {
+  return (await postTask(id, 'allow-app', { package: pkg })).json() as Promise<KriyaTask>
+}
+
+/** Browser tasks can be helped on the live view; a phone or the Mac is used directly. */
+export function canTakeOver(task: Pick<KriyaTask, 'surface'>): boolean {
+  return task.surface === 'browser' || task.surface === 'cloud_browser'
+}
+
+/** The latest view (a page JPEG, the phone's screen, the Mac window as PNG), or null. Never cached. */
 export async function fetchTaskFrame(id: string, signal?: AbortSignal): Promise<Blob | null> {
   const response = await apiFetch(`/tasks/${encodeURIComponent(id)}/frame`, { cache: 'no-store', signal })
   if (response.status !== 200) return null
