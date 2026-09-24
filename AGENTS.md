@@ -113,9 +113,9 @@ document extraction, critical analysis (steelman + red-team), and the local file
 | `exa_contents` | Bounded full-text extraction for known public URLs |
 | `browse_url` | Playwright headless browser for JS SPAs and specific URLs |
 | `http_request` | Direct REST API / webhook calls |
-| `computer_use` | Persistent isolated Playwright or profile-granted signed-in BrowserSkill sessions; semantic actions, batched execution, and trace artifacts; desktop is opt-in |
-| `phone_use` | Optional profile-granted Android execution through Artemis; preview-first, verified mode for sensitive work |
-| `browser_screenshot` / `browser_fill` / `browser_upload_and_submit` | Compatible form helpers over one shared session: screenshot → preview → explicit confirmation → submit |
+| `computer_use` | Persistent isolated Playwright or profile-granted signed-in BrowserSkill sessions; semantic actions, batched execution, and trace artifacts; desktop is opt-in. Benign steps run; the first commit step returns `needs_approval` (Anumati) |
+| `phone_use` | Optional profile-granted Android execution through Artemis; consequential tasks need verified mode and an Anumati approval |
+| `browser_screenshot` / `browser_fill` / `browser_upload_and_submit` | Compatible form helpers over one shared session: screenshot → fill → approval card → Narad submits |
 | `search_arxiv` / `search_papers` / `search_hf_papers` / `search_hf_models` | Academic + model discovery |
 | `query_deepwiki` | GitHub repo architecture questions |
 | `extract_document` | Lightweight PDF/DOCX/PPTX/HTML/CSV/text extraction |
@@ -123,7 +123,7 @@ document extraction, critical analysis (steelman + red-team), and the local file
 | `search_last30days` | Cross-source recency sweep (Reddit/HN/GitHub) |
 
 Soft rules: primary sources over aggregators; cite every non-obvious claim; screenshot
-before any form fill; never submit without per-form user confirmation; quote source
+before any form fill; every submit is approved per form on the person's approval card; quote source
 location for document findings; extract health documents objectively — never diagnose.
 
 ---
@@ -151,7 +151,7 @@ screen, physical symptom triage with emergency red-flag halt).
 
 | Tool | Purpose |
 |---|---|
-| `compose_email` / `compose_rich_email` / `send_email` | Email — send is Dharma-gated and preview-first |
+| `compose_email` / `compose_rich_email` / `send_email` | Email — `send_email(dry_run=False)` puts the exact email on an approval card; Narad sends it (Dharma-gated) when the person approves |
 | `create_webpage` | HTML slide decks and pages → `/media/…/index.html` |
 | `generate_video_clip` | Veo AI video (needs `GEMINI_API_KEY`) |
 | `create_video` | Programmatic video via moviepy v2 (fallback + stitching) |
@@ -227,7 +227,39 @@ Two layers. Input: `_dharma_gate(query)` in `server.py` blocks prompt injection,
 collection, and crisis phrases (with resources) before any avatar runs. Side effects:
 `dharma.gate_action()` gates `executor`, `email_send`, `browser_submit`, and `desktop_control` — unknown
 actions are denied by default; every verdict lands in Karma. Policy file:
-`~/.narad/config/dharma_policy.json`.
+`~/.narad/config/dharma_policy.json`. Dharma decides whether an action may happen at
+all; Anumati decides whether this person approved this exact one.
+
+### Anumati (Approvals)
+Commit-class side effects run only against an `ActionProposal` the person approved on
+their phone (`anumati.py`). A model's `confirmed=True` or `dry_run=False` approves nothing.
+- **Proposal**: surface (email / browser / signed_in_browser / desktop / phone / workflow),
+  action, target, canonical args, and `args_hash` = sha256 over all four; a summary the tool
+  builds from the args; risk class; preview (email fields or a screenshot); 15-minute expiry
+  (24 h for path steps, `NARAD_APPROVAL_TTL_S`); decided by / at / device; result. Stored per
+  profile in `profiles/<id>/anumati.db` (SQLite WAL). `scope` is reserved for standing envelopes.
+- **Tools call `anumati.require(...)`**: an approved, unconsumed, unexpired proposal with the
+  same hash is consumed once and the tool proceeds; otherwise the tool returns
+  `needs_approval` with the pending proposal (an identical request reuses it, an executed
+  one returns `already_done`). Covered: `send_email`, commit steps in `computer_use`
+  (isolated, signed-in, desktop), `browser_fill` / `browser_upload_and_submit` submits,
+  consequential `phone_use` tasks, and workflow stage confirmations. The owner-only shell
+  tools keep their own allowlist gate.
+- **Deciding**: `GET /approvals?status=pending`, `GET /approvals/{id}`,
+  `POST /approvals/{id}/approve|reject|edit` (edit: email recipients, subject, body; it
+  creates a new proposal with a new hash). Profiles only see their own (others get 404).
+  Approving runs the stored args server-side through the surface's registered executor,
+  never another model call; browser executors first check that the page URL and the
+  target's label are unchanged. Every verdict goes to Karma with the hash; the result is
+  noted in the originating chat thread and sent as `vahana.deliver(kind="approval_result")`.
+  A new proposal sends `kind="approval_request"` (`data.url` = `/?approval=<id>`) and the
+  chat stream emits `approval_requested`, which the app renders as an approval card.
+- **Risk policy v2** (`risk_policy.py`, one ordered rule table, Hindi/Hinglish labels
+  included): approval only for commit steps — send, pay, book, buy, apply, submit a form,
+  upload, delete, account changes, public posts, typing a password/OTP/card/ID number,
+  unlabelled or coordinate clicks, all desktop input, and any non-read step on a page with
+  prompt-injection text. Reading, navigating, scrolling, typing into ordinary fields, search
+  boxes, filters, sorting, paging, cookie/consent banners and sign-in pages run freely.
 
 ### Privacy Gateway
 `privacy_gateway.py` is the single egress chokepoint:
