@@ -1,7 +1,11 @@
 """Versioned System One decision contracts used by Narad code.
 
 These are not agent tools. Keeping the schemas here makes routing, browser,
-Android, and evaluation behavior reviewable and independently testable.
+and evaluation behavior reviewable and independently testable. Android and
+desktop have none: phone admission is local (risk_policy.classify_phone_task)
+and verification is Artemis's own verified result; desktop input is always
+approved per step and verified by cua-driver's Effect contract and
+``verify_state``.
 """
 
 from __future__ import annotations
@@ -101,90 +105,6 @@ def browser_verify_v1(state: dict[str, Any], *, record_cost: bool = True) -> Dec
             "goal_complete": DecisionQuestion("noul", "Does the observed page prove the requested goal completed?"),
             "unexpected_effect": DecisionQuestion("noul", "Is there evidence of an unexpected or broader side effect?"),
             "needs_human": DecisionQuestion("noul", "Is the result ambiguous enough to require human inspection?"),
-        },
-        record_cost=record_cost,
-    )
-
-
-def android_admission_v1(state: dict[str, Any], *, record_cost: bool = True) -> DecisionResult:
-    return evaluate_decision(
-        "android_admission_v1",
-        state,
-        {
-            "risk": DecisionQuestion(
-                "choice",
-                "Classify the highest impact the Android task could create.",
-                {
-                    "read_only": "Navigation or inspection without changing external state",
-                    "reversible_write": "A local or easily reversible change",
-                    "external_side_effect": "A message, submission, booking, purchase, deletion, or account change",
-                    "sensitive": "Credentials, financial, medical, identity, or private records are involved",
-                },
-            ),
-            "recommended_mode": DecisionQuestion(
-                "choice",
-                "Which Artemis execution mode is appropriate?",
-                {
-                    "fast": "Bounded, deterministic, read-oriented work",
-                    "verified": "Multi-step, ambiguous, sensitive, or externally consequential work",
-                },
-            ),
-            "needs_human": DecisionQuestion("noul", "Must a person explicitly confirm before this task executes?"),
-        },
-        record_cost=record_cost,
-    )
-
-
-def android_verify_v1(state: dict[str, Any], *, record_cost: bool = True) -> DecisionResult:
-    return evaluate_decision(
-        "android_verify_v1",
-        state,
-        {
-            "goal_complete": DecisionQuestion("noul", "Does the result prove the Android task completed?"),
-            "unexpected_effect": DecisionQuestion("noul", "Does the result indicate an unexpected side effect?"),
-            "needs_human": DecisionQuestion("noul", "Does the final state require human inspection?"),
-        },
-        record_cost=record_cost,
-    )
-
-
-def desktop_admission_v1(state: dict[str, Any], *, record_cost: bool = True) -> DecisionResult:
-    return evaluate_decision(
-        "desktop_admission_v1",
-        state,
-        {
-            "risk": DecisionQuestion(
-                "choice",
-                "Classify the highest impact this desktop action batch could create.",
-                {
-                    "read_only": "Observation, pointer movement, or navigation without changing state",
-                    "reversible_write": "A local, bounded, and readily reversible edit",
-                    "external_side_effect": "A send, submission, purchase, deletion, booking, or account change",
-                    "sensitive": "Credentials, financial, medical, identity, or private records are involved",
-                },
-            ),
-            "needs_human": DecisionQuestion(
-                "noul", "Must a person explicitly confirm before this action batch executes?"
-            ),
-        },
-        record_cost=record_cost,
-    )
-
-
-def desktop_verify_v1(state: dict[str, Any], *, record_cost: bool = True) -> DecisionResult:
-    return evaluate_decision(
-        "desktop_verify_v1",
-        state,
-        {
-            "actions_succeeded": DecisionQuestion(
-                "noul", "Do the driver results prove the requested desktop actions succeeded?"
-            ),
-            "unexpected_effect": DecisionQuestion(
-                "noul", "Is there evidence of an unexpected or broader side effect?"
-            ),
-            "needs_human": DecisionQuestion(
-                "noul", "Is the result ambiguous enough to require human inspection?"
-            ),
         },
         record_cost=record_cost,
     )

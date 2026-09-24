@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Artemis Android service (its admin API on 127.0.0.1 only), kept alive by launchd. Installed only when Artemis is installed under NARAD_ARTEMIS_DIR and NARAD_ARTEMIS_URL points at this Mac. ThrottleInterval spaces restarts 60 s apart. Template: see scripts/install_launchd.sh. -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.narad.artemis</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>@ROOT@/scripts/run_artemis.sh</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>@ROOT@</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>@HOME@/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>60</integer>
+    <key>ExitTimeOut</key>
+    <integer>20</integer>
+    <key>StandardOutPath</key>
+    <string>@LOG_DIR@/artemis.log</string>
+    <key>StandardErrorPath</key>
+    <string>@LOG_DIR@/artemis.log</string>
+</dict>
+</plist>

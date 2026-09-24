@@ -1,24 +1,45 @@
-"""Lazy, profile-scoped Artemis Android task adapter."""
+"""Lazy, profile-scoped Artemis Android adapter.
+
+Artemis (google/artemis, Apache-2.0) drives an Android phone over local ADB
+with its own agent; its admin API listens on loopback. Narad talks to that API
+only through this module. Every endpoint below was read from the Artemis
+sources (apps/admin_console/routers/*.py and packages/artemis-client at
+371aa6d), not guessed:
+
+  GET  /api/status                      scheduler state (queue, active_tasks)
+  GET  /api/devices                     connected phones
+  POST /api/run                         admit a task (``session_id`` makes it idempotent)
+  GET  /api/sessions/{id}               one task's row (status, goal, device)
+  POST /api/stop {"session_id"}         cancel one queued or running task
+  GET  /api/sessions/{id}/steps         its steps: summary, screenshots, foreground app
+  GET  /api/images/{name}               a step screenshot (JPEG)
+  GET  /api/sessions/{id}/checks        the Checker's ledger and ``run_outcome``
+
+Phone work runs as a Kriya task (``kriya.phone``): Kriya holds the handle,
+polls, shows the steps and the latest screenshot, cancels on the server and
+maps the verified-mode result. ``phone_use`` is a thin wrapper that starts
+such a task and waits briefly. Artemis reports nothing about FLAG_SECURE, so
+Narad never forwards a screenshot to any model and shows none while a
+banking or UPI app is in front (see ``kriya.phone``).
+"""
 
 from __future__ import annotations
 
-import json
 import os
 import time
-import uuid
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 import requests
-from interaction_targets import operation_lock, resolve_interaction_target
+from interaction_targets import resolve_interaction_target
 
-from narad_config import ARTIFACTS_DIR
 from profile_context import current_profile_id, validate_profile_id
-from risk_policy import COMMIT, Verdict, classify_task
-from tool_result import artifact, envelope, ui_panel
+from tool_result import envelope, ui_panel
 
 _TERMINAL = frozenset({"completed", "success", "failed", "cancelled", "canceled", "rejected"})
 _SUCCESS = frozenset({"completed", "success"})
+# Endpoints a server answered 404/405 for: not asked again in this process.
+_MISSING: set[str] = set()
 
 
 class ArtemisAdapterError(RuntimeError):
@@ -56,13 +77,7 @@ def _headers() -> dict[str, str]:
     return headers
 
 
-def _request(
-    method: str,
-    path: str,
-    *,
-    payload: dict[str, Any] | None = None,
-    timeout_s: float = 10,
-) -> Any:
+def _send(method: str, path: str, *, payload: dict[str, Any] | None, timeout_s: float) -> requests.Response:
     base_url = _validate_base_url(_base_url())
     try:
         response = requests.request(
@@ -85,12 +100,36 @@ def _request(
             f"Artemis HTTP {response.status_code}: {str(detail)[:800]}",
             status_code=response.status_code,
         )
+    return response
+
+
+def _request(
+    method: str,
+    path: str,
+    *,
+    payload: dict[str, Any] | None = None,
+    timeout_s: float = 10,
+) -> Any:
+    response = _send(method, path, payload=payload, timeout_s=timeout_s)
     if not response.content:
         return {}
     try:
         return response.json()
     except ValueError as exc:
         raise ArtemisAdapterError("Artemis returned invalid JSON") from exc
+
+
+def _optional(kind: str, method: str, path: str, **kwargs: Any) -> Any:
+    """An endpoint a server may not have: None (and not asked again) on 404/405."""
+    if kind in _MISSING:
+        return None
+    try:
+        return _request(method, path, **kwargs)
+    except ArtemisAdapterError as exc:
+        if exc.status_code in {404, 405}:
+            _MISSING.add(kind)
+            return None
+        raise
 
 
 def artemis_status(*, include_devices: bool = False) -> dict[str, Any]:
@@ -130,19 +169,10 @@ def artemis_status(*, include_devices: bool = False) -> dict[str, Any]:
         }
 
 
-def _resolve_device(owner: str, requested: str) -> tuple[str, dict[str, Any] | None]:
-    grant = resolve_interaction_target("artemis", requested, profile_id=owner)
-    if grant:
-        return str(grant["external_id"]), grant
-    implicit = os.environ.get("NARAD_ARTEMIS_DEVICE", "").strip()
-    if owner == "default" and implicit and (not requested or requested == implicit):
-        return implicit, None
-    if requested:
-        raise ArtemisAdapterError("This Android device is not granted to the active Narad profile")
-    raise ArtemisAdapterError("Connect and grant an Android device to this Narad profile first")
+# ── The task API (used by kriya.phone) ───────────────────────────────────────
 
 
-def _task_payload(
+def task_payload(
     *,
     task: str,
     task_id: str,
@@ -151,6 +181,7 @@ def _task_payload(
     app_scope: str,
     verification_level: str,
 ) -> dict[str, Any]:
+    """The /api/run body: ``session_id`` is Narad's handle and makes a retry idempotent."""
     payload: dict[str, Any] = {
         "goal": task,
         "profile": "flash" if mode == "fast" else "pro",
@@ -165,67 +196,103 @@ def _task_payload(
     return payload
 
 
-def _android_admission_hint(task: str, mode: str, app_scope: str) -> tuple[dict[str, Any] | None, bool]:
-    decision_mode = os.environ.get("NARAD_JEV_PHONE_MODE", "shadow").strip().lower()
-    if decision_mode == "off":
-        return None, False
+def start_session(payload: dict[str, Any]) -> dict[str, Any]:
+    """Admit a task; returns the admitted task row (raises when Artemis refuses)."""
+    admission = _request("POST", "/api/run", payload=payload, timeout_s=30)
+    if not isinstance(admission, dict):
+        raise ArtemisAdapterError("Artemis did not admit the task")
+    tasks = admission.get("tasks")
+    if str(admission.get("status") or "").lower() == "rejected" or not tasks or not isinstance(tasks[0], dict):
+        raise ArtemisAdapterError(str(admission.get("error") or "Artemis did not admit the task"))
+    return dict(tasks[0])
+
+
+def get_session(session_id: str) -> dict[str, Any] | None:
+    """The task's row, or its live queue entry, or None when Artemis has neither."""
     try:
-        from decision_contracts import android_admission_v1, compact_decision
-        from decision_engine import jev_status
-
-        if not jev_status().get("available"):
-            return None, False
-        result = android_admission_v1({
-            "task": task[:1600],
-            "requested_mode": mode,
-            "app_scope": app_scope[:300] if app_scope else None,
-        })
-        hint = compact_decision(result)
-        hint["mode"] = decision_mode
-        risk = result.answers.get("risk")
-        human = result.answers.get("needs_human")
-        stricter_gate = bool(
-            decision_mode == "active"
-            and (
-                risk is not None
-                and risk.confidence >= 0.80
-                and risk.value in {"external_side_effect", "sensitive"}
-                or human is not None
-                and human.confidence >= 0.80
-                and bool(human.value)
-            )
-        )
-        return hint, stricter_gate
-    except Exception as exc:
-        return {
-            "decision_id": "android_admission_v1",
-            "status": "error",
-            "mode": decision_mode,
-            "error": f"{type(exc).__name__}: {exc}"[:300],
-        }, False
+        row = _request("GET", f"/api/sessions/{quote(session_id)}", timeout_s=15)
+        if isinstance(row, dict):
+            return row
+    except ArtemisAdapterError as exc:
+        if exc.status_code != 404:
+            raise
+    return live_task(session_id)
 
 
-def _android_verification_hint(task: str, result: dict[str, Any]) -> dict[str, Any] | None:
-    decision_mode = os.environ.get("NARAD_JEV_PHONE_MODE", "shadow").strip().lower()
-    if decision_mode == "off":
+def live_task(session_id: str) -> dict[str, Any] | None:
+    """The task in /api/status (queued or holding a device), else None."""
+    status = _request("GET", "/api/status", timeout_s=10)
+    if not isinstance(status, dict):
+        return None
+    for key, state in (("active_tasks", "running"), ("queue", "queued")):
+        for item in status.get(key) or []:
+            if isinstance(item, dict) and session_id in {str(item.get("session_id") or ""),
+                                                          str(item.get("task_id") or "")}:
+                return {"status": state, **item}
+    if str(status.get("session_id") or "") == session_id and status.get("status") in {"running", "paused"}:
+        return {"status": "running", "session_id": session_id, "goal": status.get("goal")}
+    return None
+
+
+def stop_session(session_id: str) -> bool:
+    """Ask Artemis to stop one task (queued or running). True when it did."""
+    answer = _optional("stop", "POST", "/api/stop", payload={"session_id": session_id}, timeout_s=15)
+    return isinstance(answer, dict) and str(answer.get("status") or "").lower() == "stopped"
+
+
+def session_steps(session_id: str) -> list[dict[str, Any]] | None:
+    """The task's recorded steps, oldest first (None: the server has no step API)."""
+    steps = _optional("steps", "GET", f"/api/sessions/{quote(session_id)}/steps", timeout_s=15)
+    if steps is None:
+        return None
+    return [step for step in steps if isinstance(step, dict)] if isinstance(steps, list) else []
+
+
+def session_checks(session_id: str) -> dict[str, Any] | None:
+    """The Checker's verdicts and ``run_outcome`` (None: the server has no checks API)."""
+    checks = _optional("checks", "GET", f"/api/sessions/{quote(session_id)}/checks", timeout_s=15)
+    return checks if isinstance(checks, dict) else None
+
+
+def session_image(image_name: str) -> bytes | None:
+    """One step screenshot as JPEG bytes, kept in memory by the caller."""
+    name = str(image_name or "")
+    if not name or "/" in name or ".." in name or "images" in _MISSING:
         return None
     try:
-        from decision_contracts import android_verify_v1, compact_decision
-        from decision_engine import jev_status
+        response = _send("GET", f"/api/images/{quote(name)}", payload=None, timeout_s=10)
+    except ArtemisAdapterError as exc:
+        if exc.status_code == 405:
+            _MISSING.add("images")
+        return None
+    kind = response.headers.get("content-type", "")
+    return response.content if response.content and kind.startswith("image/") else None
 
-        if not jev_status().get("available"):
-            return None
-        decision = android_verify_v1({"task": task[:1600], "artemis_result": result})
-        hint = compact_decision(decision)
-        hint["mode"] = decision_mode
-        return hint
-    except Exception as exc:
-        return {
-            "decision_id": "android_verify_v1",
-            "status": "error",
-            "mode": decision_mode,
-            "error": f"{type(exc).__name__}: {exc}"[:300],
-        }
+
+def is_terminal(status: str) -> bool:
+    return str(status or "").lower() in _TERMINAL
+
+
+def is_success(status: str) -> bool:
+    return str(status or "").lower() in _SUCCESS
+
+
+def resolve_device(owner: str, requested: str) -> tuple[str, dict[str, Any] | None]:
+    grant = resolve_interaction_target("artemis", requested, profile_id=owner)
+    if grant:
+        return str(grant["external_id"]), grant
+    implicit = os.environ.get("NARAD_ARTEMIS_DEVICE", "").strip()
+    if owner == "default" and implicit and (not requested or requested == implicit):
+        return implicit, None
+    if requested:
+        raise ArtemisAdapterError("This Android device is not granted to the active Narad profile")
+    raise ArtemisAdapterError("Connect and grant an Android device to this Narad profile first")
+
+
+_resolve_device = resolve_device  # the name earlier callers used
+
+
+# ── phone_use: the avatar tool ───────────────────────────────────────────────
 
 
 def phone_use(
@@ -238,44 +305,17 @@ def phone_use(
     confirmed: bool = False,
     timeout_s: int = 600,
 ) -> dict[str, Any]:
-    """Preview or execute a task on a profile-bound Android device via Artemis.
+    """Preview or start a task on a profile-bound Android phone via Artemis.
 
-    Use ``mode='fast'`` only for deterministic, read-oriented tasks. Use
-    ``mode='verified'`` for multi-app work, diagnostics, or anything requiring
-    checkpoints. A task that sends, pays, books, buys, deletes, posts, calls,
-    installs, or touches a bank, wallet, UPI app, password or OTP returns
-    status "needs_approval" with dry_run=False: the person approves this exact
-    task on an approval card and Narad dispatches it then. High-risk work is
-    never dispatched through fast mode. ``confirmed`` is accepted for
-    compatibility and approves nothing.
+    With dry_run=False the task runs as a background Kriya task: the person
+    sees a task card with the phone's steps and screen and a Stop button. A
+    task that sends, pays, books, buys, deletes, posts, calls, installs, or
+    touches a bank, wallet, UPI app, password or OTP waits for their approval
+    on that card first and always runs in verified mode; a banking or UPI app
+    must also be allowed for that task on the card. ``mode='fast'`` is for
+    deterministic, read-oriented tasks only. ``confirmed`` is accepted for
+    compatibility and approves nothing. ``timeout_s`` bounds the whole task.
     """
-    arguments = dict(
-        task=task, device_id=device_id, mode=mode, app_scope=app_scope,
-        verification_level=verification_level, dry_run=dry_run,
-        confirmed=confirmed, timeout_s=timeout_s,
-    )
-    if dry_run:  # a preview never touches the device
-        return _phone_use(**arguments)
-    try:
-        device_key, _ = _resolve_device(validate_profile_id(current_profile_id()), device_id)
-    except ArtemisAdapterError:
-        device_key = device_id
-    # Parallel tool calls must not interleave two tasks' taps on one phone.
-    with operation_lock(f"android:{device_key}"):
-        return _phone_use(**arguments)
-
-
-def _phone_use(
-    *,
-    task: str,
-    device_id: str,
-    mode: str,
-    app_scope: str,
-    verification_level: str,
-    dry_run: bool,
-    confirmed: bool,
-    timeout_s: int,
-) -> dict[str, Any]:
     owner = validate_profile_id(current_profile_id())
     clean_task = " ".join(str(task or "").split())
     if not clean_task:
@@ -291,7 +331,7 @@ def _phone_use(
             error="invalid_verification_level",
         )
     try:
-        resolved_device, grant = _resolve_device(owner, device_id)
+        resolved_device, grant = resolve_device(owner, device_id)
     except ArtemisAdapterError as exc:
         return envelope(
             status="unavailable",
@@ -300,12 +340,10 @@ def _phone_use(
             requires_confirmation=False,
             readiness=artemis_status(include_devices=False),
         )
-    readiness = artemis_status(include_devices=False)
-    verdict = classify_task(clean_task)
-    decision_hint, stricter_jev_gate = _android_admission_hint(clean_task, mode, app_scope)
-    if stricter_jev_gate and not verdict.needs_approval:
-        verdict = Verdict(COMMIT, "sensitive", "The admission check judged this task consequential")
-    high_risk = verdict.needs_approval
+    from risk_policy import classify_phone_task
+
+    admission = classify_phone_task(clean_task, app_scope)
+    high_risk = admission.needs_approval
     preview = {
         "task": clean_task,
         "device_id": resolved_device,
@@ -313,32 +351,30 @@ def _phone_use(
         "app_scope": app_scope or None,
         "verification_level": verification_level if mode == "verified" else None,
         "high_risk": high_risk,
-        "decision_hint": decision_hint,
+        "reason": admission.verdict.reason,
+        "banking_apps": [app["name"] for app in admission.apps],
     }
-    if dry_run:
+    if dry_run:  # a preview never touches the device
+        label = str((grant or {}).get("label") or resolved_device)
+        safety = "Read-oriented task; it runs as a task you can watch and stop."
+        if high_risk:
+            safety = "Waits for your approval in the Narad app, then runs in verified mode."
+        if admission.apps:
+            names = ", ".join(app["name"] for app in admission.apps)
+            safety += f" {names} is a banking or UPI app: you must allow it for this task on the card."
         return envelope(
             status="preview",
             summary=f"Prepared an Android {mode} task; nothing was executed.",
             ui=ui_panel(
                 title="Android task preview",
                 summary=clean_task,
-                sections=[
-                    {"title": "Device", "body": str((grant or {}).get("label") or resolved_device)},
-                    {"title": "Safety", "body": "Waits for approval in the Narad app." if high_risk else "Read-oriented task; execution is still observable and stoppable."},
-                ],
+                sections=[{"title": "Device", "body": label}, {"title": "Safety", "body": safety}],
                 tone="computer-use",
             ),
-            provenance={"engine": "artemis", "profile_id": owner, "decision_hint": decision_hint},
+            provenance={"engine": "artemis", "profile_id": owner},
             requires_confirmation=high_risk,
             planned_task=preview,
-            readiness=readiness,
-        )
-    if not readiness.get("ready"):
-        return envelope(
-            status="unavailable",
-            summary=str(readiness.get("reason") or "Artemis is unavailable"),
-            error="artemis_unavailable",
-            readiness=readiness,
+            readiness=artemis_status(include_devices=False),
         )
     if high_risk and mode != "verified":
         return envelope(
@@ -347,248 +383,79 @@ def _phone_use(
             error="verified_mode_required",
             planned_task=preview,
         )
-    consumed = None
-    if high_risk:
-        # `confirmed` approves nothing: the person approves this exact task.
-        import anumati
+    from kriya.runtime import runtime
+    from kriya.tool import _origin_session_id
 
-        gate = anumati.require(
-            **_phone_approval_spec(
-                clean_task, resolved_device, grant, mode, app_scope, verification_level, verdict
-            ),
+    try:
+        started = runtime().submit(
             profile_id=owner,
+            goal=clean_task,
+            surface="phone",
+            session_id=_origin_session_id(),
+            options={
+                "device": resolved_device,
+                "app_scope": app_scope,
+                "mode": mode,
+                "verification_level": verification_level,
+                "timeout_s": timeout_s,
+            },
         )
-        if gate.status == "needs_approval":
-            return anumati.needs_approval_result(
-                gate.proposal,
-                planned_task=preview,
-                provenance={"engine": "artemis", "profile_id": owner, "decision_hint": decision_hint},
-            )
-        if gate.status == "already_executed":
-            return anumati.already_executed_result(gate.proposal, planned_task=preview)
-        consumed = gate.proposal
-    result = _dispatch_phone_task(
-        owner=owner,
-        task=clean_task,
-        device_id=resolved_device,
-        grant=grant,
-        mode=mode,
-        app_scope=app_scope,
-        verification_level=verification_level,
-        timeout_s=timeout_s,
-        high_risk=high_risk,
-        decision_hint=decision_hint,
+    except (ValueError, PermissionError) as exc:
+        return envelope(status="error", summary=str(exc), error="phone_task_not_started", planned_task=preview)
+    return _wait_briefly(started)
+
+
+def _wait_briefly(started: Any) -> dict[str, Any]:
+    """Wait a few seconds: a quick read finishes here, anything else keeps its card."""
+    from kriya import store
+
+    wait_s = float(os.environ.get("NARAD_PHONE_USE_WAIT_S", "20") or 20)
+    deadline = time.monotonic() + max(0.0, wait_s)
+    task = started
+    while time.monotonic() < deadline:
+        task = store.get_task(started.task_id, profile_id=started.profile_id)
+        if task.status in {"done", "failed", "cancelled", "waiting_approval"}:
+            break
+        time.sleep(0.25)
+    payload = task.to_payload()
+    provenance = {"engine": "artemis", "task_id": task.task_id, "profile_id": task.profile_id}
+    if task.status in {"done", "failed", "cancelled"}:
+        result = task.result or {}
+        answer = str(result.get("answer") or "")
+        return envelope(
+            status="ok" if task.status == "done" else "error",
+            summary=" ".join(filter(None, (str(result.get("summary") or task.detail), answer)))[:4_000],
+            provenance=provenance,
+            requires_confirmation=False,
+            task=payload,
+            task_id=task.task_id,
+            verification=result.get("verification"),
+        )
+    waiting = task.status == "waiting_approval"
+    summary = (
+        f"The phone task is waiting for the person's OK on its task card: {task.detail}. Nothing has run on the "
+        "phone yet. Tell them in one sentence; do not start it again."
+        if waiting else
+        "The phone task is running on the phone; the person can watch its steps and stop it on the task card. "
+        "Tell them in one sentence; do not start it again."
     )
-    if consumed is not None:
-        import anumati
-
-        anumati.record_result(consumed.proposal_id, result, profile_id=owner)
-    return result
-
-
-def _phone_approval_spec(
-    task: str,
-    device_id: str,
-    grant: dict[str, Any] | None,
-    mode: str,
-    app_scope: str,
-    verification_level: str,
-    verdict: Verdict,
-) -> dict[str, Any]:
-    """The hash-bound part of a phone task: the exact goal, device and mode."""
-    label = str((grant or {}).get("label") or device_id)
-    return {
-        "surface": "phone",
-        "action": verdict.category,
-        "target": f"{label} ({device_id})",
-        "args": {
-            "task": task,
-            "device_id": device_id,
-            "mode": mode,
-            "app_scope": app_scope or "",
-            "verification_level": verification_level,
-        },
-        "summary": f"On {label}: {task}",
-        "risk_class": verdict.category,
-        "preview": {
-            "kind": "phone",
-            "device": label,
-            "mode": mode,
-            "app_scope": app_scope or None,
-            "reason": verdict.reason,
-        },
-    }
+    return envelope(
+        status="task_started",
+        summary=summary,
+        provenance=provenance,
+        requires_confirmation=waiting,
+        task=payload,
+        task_id=task.task_id,
+    )
 
 
 def _execute_phone_proposal(proposal: Any) -> dict[str, Any]:
-    """Dispatch an approved phone task, if the device is still granted and reachable."""
-    owner = proposal.profile_id
-    args = proposal.args
-    with operation_lock(f"android:{args['device_id']}"):
-        try:
-            resolved_device, grant = _resolve_device(owner, str(args["device_id"]))
-        except ArtemisAdapterError as exc:
-            return {"status": "error", "summary": str(exc)}
-        readiness = artemis_status(include_devices=False)
-        if not readiness.get("ready"):
-            return {"status": "unavailable", "summary": str(readiness.get("reason") or "Artemis is unavailable")}
-        return _dispatch_phone_task(
-            owner=owner,
-            task=str(args["task"]),
-            device_id=resolved_device,
-            grant=grant,
-            mode=str(args["mode"]),
-            app_scope=str(args.get("app_scope") or ""),
-            verification_level=str(args["verification_level"]),
-            timeout_s=600,
-            high_risk=True,
-            decision_hint=None,
-        )
-
-
-def _dispatch_phone_task(
-    *,
-    owner: str,
-    task: str,
-    device_id: str,
-    grant: dict[str, Any] | None,
-    mode: str,
-    app_scope: str,
-    verification_level: str,
-    timeout_s: int,
-    high_risk: bool,
-    decision_hint: dict[str, Any] | None,
-) -> dict[str, Any]:
-    clean_task, resolved_device = task, device_id
-    if high_risk:
-        try:
-            from dharma import gate_action
-
-            verdict = gate_action(
-                "mobile_control",
-                avatar="Matsya",
-                detail=clean_task[:240],
-                metadata={"profile_id": owner, "device_id": resolved_device},
-            )
-            if not verdict.allowed:
-                return envelope(status="blocked", summary="; ".join(verdict.reasons))
-        except Exception as exc:
-            return envelope(status="blocked", summary=f"Dharma gate unavailable: {exc}")
-
-    timeout_s = max(30, min(int(timeout_s), 1_800))
-    task_id = str(uuid.uuid4())
-    run_dir = ARTIFACTS_DIR / "phone-use" / owner / task_id
-    run_dir.mkdir(parents=True, exist_ok=True)
-    try:
-        admission = _request(
-            "POST",
-            "/api/run",
-            payload=_task_payload(
-                task=clean_task,
-                task_id=task_id,
-                device_id=resolved_device,
-                mode=mode,
-                app_scope=app_scope,
-                verification_level=verification_level,
-            ),
-            timeout_s=30,
-        )
-        tasks = admission.get("tasks", []) if isinstance(admission, dict) else []
-        if not tasks or not isinstance(tasks[0], dict):
-            raise ArtemisAdapterError(
-                str(admission.get("error") or "Artemis did not admit the task")
-                if isinstance(admission, dict)
-                else "Artemis did not admit the task"
-            )
-        task_id = str(tasks[0].get("session_id") or tasks[0].get("task_id") or task_id)
-        deadline = time.monotonic() + timeout_s
-        result: dict[str, Any] = {}
-        while time.monotonic() < deadline:
-            try:
-                result = _request("GET", f"/api/sessions/{task_id}", timeout_s=15)
-            except ArtemisAdapterError as exc:
-                if exc.status_code != 404:
-                    raise
-                status_payload = _request("GET", "/api/status", timeout_s=10)
-                live_rows = []
-                if isinstance(status_payload, dict):
-                    for key in ("tasks", "active_tasks", "queue", "running"):
-                        value = status_payload.get(key)
-                        if isinstance(value, list):
-                            live_rows.extend(item for item in value if isinstance(item, dict))
-                result = next(
-                    (
-                        dict(item)
-                        for item in live_rows
-                        if task_id in {
-                            str(item.get("session_id") or ""),
-                            str(item.get("task_id") or ""),
-                        }
-                    ),
-                    {"status": "launching", "session_id": task_id},
-                )
-            status = str(result.get("status") or "running").lower()
-            if status in _TERMINAL:
-                break
-            time.sleep(1.5)
-        else:
-            return envelope(
-                status="running",
-                summary="The Android task is still running; Artemis retained the task for later inspection.",
-                provenance={"engine": "artemis", "task_id": task_id, "profile_id": owner},
-                task_id=task_id,
-                device_id=resolved_device,
-            )
-    except ArtemisAdapterError as exc:
-        return envelope(
-            status="error",
-            summary=str(exc),
-            error="artemis_task_failed",
-            provenance={"engine": "artemis", "task_id": task_id, "profile_id": owner},
-            task_id=task_id,
-        )
-
-    manifest_path = run_dir / "result.json"
-    manifest_path.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
-    status = str(result.get("status") or "unknown").lower()
-    output = result.get("output") or result.get("result") or result.get("summary")
-    summary = str(output or result.get("error") or f"Android task finished with status {status}")[:4_000]
-    verification_hint = _android_verification_hint(clean_task, result)
-    return envelope(
-        status="ok" if status in _SUCCESS else "error",
-        summary=summary,
-        artifacts=[artifact(
-            type="report",
-            label="Android task result",
-            path=manifest_path,
-            mime_type="application/json",
-            description="Profile-scoped Artemis task manifest.",
-        )],
-        ui=ui_panel(
-            title="Android task",
-            summary=summary,
-            sections=[
-                {"title": "Device", "body": str((grant or {}).get("label") or resolved_device)},
-                {"title": "Mode", "body": mode},
-            ],
-            primary_artifact_label="Android task result",
-            tone="computer-use",
-        ),
-        provenance={
-            "engine": "artemis",
-            "task_id": task_id,
-            "profile_id": owner,
-            "device_id": resolved_device,
-            "admission_decision": decision_hint,
-            "verification_decision": verification_hint,
-        },
-        requires_confirmation=False,
-        task_id=task_id,
-        device_id=resolved_device,
-        result=result,
-        decision_hint=decision_hint,
-        verification_hint=verification_hint,
-    )
+    """Phone approvals are decided on their Kriya task now; an older ``phone``
+    proposal approved after the upgrade runs nothing."""
+    return {
+        "status": "error",
+        "summary": "Phone tasks now run as tasks with their own approval card; ask Narad again.",
+    }
 
 
 def _register_approvals() -> None:

@@ -117,6 +117,9 @@ _EXECUTOR_MODULES = {
     "desktop": "computer_use_skill",
     "phone": "artemis_adapter",
     "workflow": "workflow_engine",
+    # No executor: the task's own loop runs an approved step. kriya.phone
+    # registers the editor that allows a banking/UPI app for one phone task.
+    "task": "kriya.phone",
 }
 
 
@@ -917,6 +920,11 @@ def _vahana_deliver(**kwargs: Any) -> dict[str, Any]:
 def _notify_request(proposal: ActionProposal) -> None:
     from risk_policy import commit_label
 
+    # A decision that needs the task screen (allowing an app for a phone task) opens there.
+    task_id = str(proposal.preview.get("task_id") or "")
+    url = f"/?task={task_id}" if proposal.preview.get("open_in_task") and task_id else (
+        f"/?approval={proposal.proposal_id}"
+    )
     try:
         _vahana_deliver(
             user_id=proposal.profile_id,
@@ -925,7 +933,7 @@ def _notify_request(proposal: ActionProposal) -> None:
             body=proposal.summary,
             data={
                 "proposal_id": proposal.proposal_id,
-                "url": f"/?approval={proposal.proposal_id}",
+                "url": url,
                 "surface": proposal.surface,
                 "risk_class": proposal.risk_class,
                 "expires_at": _iso(proposal.expires_ts),

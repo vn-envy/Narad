@@ -10,6 +10,8 @@ Modules:
   store       per-profile task store and event log
   perception  viewport-scoped accessibility observations (about 2K tokens)
   browser     the isolated and cloud browser surfaces (act, settle, frames)
+  desktop     a window of the host Mac through the persistent cua-driver session
+  phone       Android tasks that Artemis runs, admitted, approved and followed here
   operator    the operator protocol: prompt, JSON actions, model and scripted
   runtime     queue, surface locks, the loop, approvals, help, delivery
   tool        ``start_task``, the avatars' entry point

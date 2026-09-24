@@ -153,9 +153,9 @@ Optional integrations expand Narad without becoming startup requirements.
 | **Google Workspace** | Gmail, Calendar, Drive, and Photos | One OAuth client for the installation; separate tokens and consent per profile. |
 | **Exa** | Current search, extraction, highlights, and cited research | Research only; it does not control authenticated pages. |
 | **BrowserSkill / Playwright** | Isolated browsing or a profile-granted signed-in Chromium session | Stateful submissions remain confirmation-gated. |
-| **CUA Driver** | Typed desktop control on the host Mac | Requires macOS Accessibility and Screen Recording permission plus a profile grant. |
-| **Artemis** | Android observation and action through local ADB | Devices are paired locally and granted to one profile at a time. |
-| **Jev** | Deterministic admission and post-action verification | Scores desktop and phone runs; it does not replace model reasoning. |
+| **CUA Driver** | Typed desktop control on the host Mac, over one persistent `cua-driver mcp` session | Owner only; requires macOS Accessibility and Screen Recording permission plus a grant; every input waits for an approval. |
+| **Artemis** | Android tasks on a family member's phone through local ADB, run as Kriya tasks | At home only for now; each phone is granted to one profile; see [Phones at home](#phones-at-home). |
+| **Jev** | Advisory decisions for browser steps and routing (off by default) | Phone admission is local rules; phone and desktop results come from Artemis's checker and cua-driver's own verification. |
 
 Narad works when these services are absent. Capability reporting tells the UI what is ready, preview-only, or unavailable instead of failing behind a generic tool error.
 
@@ -229,11 +229,13 @@ This installs per-user LaunchAgents; no sudo is needed. They read the same `.env
 |---|---|
 | `com.narad.backend` | Runs Narad and restarts it if it exits, at most once a minute |
 | `com.narad.tunnel` | Runs the Cloudflare tunnel, when `cloudflared`, the token file and `NARAD_PUBLIC_URL` all exist |
-| `com.narad.watchdog` | Checks `/health` every 2 minutes and restarts the backend after 3 failures in a row; also rotates logs over 10 MB |
+| `com.narad.watchdog` | Checks `/health` every 2 minutes and restarts the backend after 3 failures in a row; does the same for Artemis (`/api/status`) and Cua Driver (`cua-driver status`) when launchd runs them; also rotates logs over 10 MB |
 | `com.narad.uptime` | Runs `scripts/uptime_ping.py` every 5 minutes |
 | `com.narad.backup` | Makes the encrypted backup every day at 03:30 |
 | `com.narad.drill` | Runs the restore drill on Sundays at 04:30 |
 | `com.narad.awake` | Runs `caffeinate -s`, so the Mac doesn't sleep while it's on the charger |
+| `com.narad.cua-driver` | Runs the Cua Driver daemon (`cua-driver serve`) with telemetry off, for desktop tasks; installed only when Cua Driver is installed and nothing else already runs it |
+| `com.narad.artemis` | Runs the Artemis Android service on `127.0.0.1` (`scripts/run_artemis.sh`); installed only when Artemis is under `NARAD_ARTEMIS_DIR` (default `~/.narad/integrations/artemis`) and `NARAD_ARTEMIS_URL` is this Mac |
 
 A few things to know:
 - Logs are in `~/Library/Logs/Narad`.
@@ -295,6 +297,25 @@ The service worker also keeps the app shell (HTML, scripts, styles, icons, fonts
 10. Access: let the Access session expire, or clear the site's cookies, and open the app. Cloudflare's sign-in page should appear, not a stale app.
 11. Update: rebuild on the Mac. The next time the app opens (or after **Reload** on the "new version" message), it runs the new build. In `chrome://serviceworker-internals` on a desktop, the old `narad-shell-*` cache is gone.
 12. Turn off: tap **Turn off** in Profile. The phone drops out of **Your devices with notifications on** (seen from your other devices), new reminders no longer buzz it, and Activity still collects everything.
+
+### Phones at home
+
+Narad can do small jobs on a family member's own Android phone: read the latest message, change a setting, open an app and look something up. [Artemis](https://github.com/google/artemis) runs the task on the phone over ADB; Narad starts it as a task with a card in the chat, shows each step and the phone's latest screen, and has a **Stop** that stops it on the phone too. Anything that sends, pays, books, buys, deletes, posts or calls waits for that person's OK on the card first, and then runs in Artemis's verified mode, whose checker decides whether the task counts as done.
+
+**Banking and UPI apps.** Google Pay, PhonePe, Paytm, BHIM, CRED and the big banks' apps are on a denylist (`risk_policy.PHONE_APP_DENYLIST`; add your family's other apps in `~/.narad/config/phone_app_denylist.json`, which can only add). A task that needs one waits until the person taps **Allow <app> for this task** on the task screen and then approves it; a task that opens one without that is stopped. Narad never shows or sends a screenshot of such an app. Artemis itself does not report Android's FLAG_SECURE, which many of these apps set; their screenshots come out blank.
+
+**Where the phone's screen goes.** Artemis's own agent reads every screen with the model in its configuration (a Gemini model by default). Narad sends a task only when that model is a local or trusted provider in Narad's tiers; each task that uses a cloud model is one line in **What left my Mac**.
+
+**Enrolling a phone** (about 30 minutes per phone, at home, with a USB cable):
+
+1. Install Artemis under `~/.narad/integrations/artemis` (its README; keep its admin API on `127.0.0.1`), then run `scripts/install_launchd.sh install` so launchd keeps it running.
+2. On the phone: Settings → About phone → tap **Build number** seven times, then Developer options → **USB debugging** on. Plug it into the Mac, unlock it and accept the prompt.
+3. `brew install android-platform-tools`, then run `scripts/enroll_android.sh` to see the phone's serial.
+4. Run `scripts/enroll_android.sh --serial <serial> --profile <profile id> --label "<phone name>"` (add `--dry-run` first to see every command). It installs or updates the Artemis helper, lets it run in the background, and grants the phone to that profile. Nothing on a phone is touched until you name its serial, and it is safe to run again.
+5. Do what the script prints on the phone: battery **Unrestricted** for the helper, autostart on Xiaomi, Oppo, Vivo, Realme and OnePlus phones, and your decision on keeping USB debugging on.
+6. Try it: ask Narad to open an app on that phone, watch the card, and tap **Stop**.
+
+**Away from home, nothing works yet.** ADB reaches a phone only over the cable or the same Wi-Fi. A "Narad Companion" app that connects out to the Mac is future work.
 
 ### Google owner setup
 

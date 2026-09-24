@@ -510,7 +510,7 @@ def test_start_task_returns_at_once_with_a_task_card(home, monkeypatch) -> None:
     assert avatar_agents._task_payload({"status": "ok"}) is None
     with profile_scope("asha"):
         refused = start_task("Book it", surface="desktop")
-    assert refused["status"] == "error" and "not available yet" in refused["summary"]
+    assert refused["status"] == "error" and "owner" in refused["summary"]  # the Mac's desktop is owner-only
     gate.set()
     runtime.cancel(result["task_id"], profile_id="asha")
     _wait(runtime, result["task_id"], "cancelled")

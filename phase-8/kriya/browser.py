@@ -78,6 +78,7 @@ class ActResult:
     dialog: str | None = None
     error: str = ""
     settle_ms: int = 0
+    note: str = ""  # what the surface could confirm (the desktop driver's Effect), shown on the step line
 
 
 def cloud_browser_configured() -> bool:

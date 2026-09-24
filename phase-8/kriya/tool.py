@@ -1,4 +1,4 @@
-"""``start_task``: how an avatar hands a multi-step web errand to Kriya."""
+"""``start_task``: how an avatar hands a multi-step errand to Kriya (web, phone, Mac desktop)."""
 
 from __future__ import annotations
 
@@ -20,8 +20,15 @@ def _origin_session_id() -> str | None:
     return value if value and _SESSION_RE.fullmatch(value) else None
 
 
-def start_task(goal: str, start_url: str = "", surface: str = "browser", done_when: str = "") -> dict[str, Any]:
-    """Start a multi-step web errand that runs by itself in the background.
+def start_task(
+    goal: str,
+    start_url: str = "",
+    surface: str = "browser",
+    done_when: str = "",
+    device: str = "",
+    app: str = "",
+) -> dict[str, Any]:
+    """Start a multi-step errand that runs by itself in the background.
 
     Use this for anything that takes more than one or two browser actions:
     searching and comparing on a site, filling a form, booking, finding
@@ -39,9 +46,16 @@ def start_task(goal: str, start_url: str = "", surface: str = "browser", done_wh
             find the site itself.
         surface: "browser" (default; the task runtime picks the Mac's own
             isolated browser or, for public errands with no personal data,
-            the cloud browser). Desktop and phone tasks are not available yet.
+            the cloud browser); "phone" for a task on the person's own
+            Android phone (Artemis, at home over ADB: read a message, change
+            a setting, use an app); "desktop" for a task in the Mac's own
+            apps (the owner only; every click or keystroke waits for their OK).
         done_when: Optional finish condition in plain words, or exact checks
             such as "text: Booking confirmed" or "url: /confirmation".
+        device: Phone tasks only: which of the person's phones, when they
+            have more than one granted. Leave empty otherwise.
+        app: Phone tasks only: an Android package to keep the task inside
+            (e.g. "com.whatsapp"). Leave empty to let the task choose.
 
     Returns:
         status "task_started" with ``task`` (id, status, goal). Tell the person
@@ -60,14 +74,16 @@ def start_task(goal: str, start_url: str = "", surface: str = "browser", done_wh
             done_when=done_when,
             surface=surface,
             session_id=_origin_session_id(),
+            options={"device": device, "app_scope": app} if str(surface).strip().lower() == "phone" else None,
         )
     except (ValueError, PermissionError) as exc:
         return envelope(status="error", summary=str(exc), error="task_not_started")
+    from kriya.runtime import where
+
     payload = task.to_payload()
-    where = "the cloud browser" if task.surface == "cloud_browser" else "the browser on the Mac"
     summary = (
-        f"Started a background task on {where}: {task.goal[:160]}. The person can watch it live and stop it "
-        "on the task card; steps that pay, book, send or submit will wait for their OK on the phone."
+        f"Started a background task on {where(task)}: {task.goal[:160]}. The person can watch it live and "
+        "stop it on the task card; steps that pay, book, send or submit will wait for their OK on the phone."
     )
     return envelope(
         status="task_started",

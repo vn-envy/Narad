@@ -10,6 +10,11 @@
  * the page, scroll, go back, then Continue. Frames are fetched with the
  * session, shown from memory and never cached. TaskSheet opens the screen for
  * /?task=<id> links from notifications and Activity.
+ *
+ * Phone tasks (Artemis on an Android phone) show the phone's latest screen in
+ * a portrait frame and have no takeover: the phone is used directly. When one
+ * needs a banking or UPI app, the card asks to allow that app for this task
+ * before its approval can do anything. Desktop tasks show the Mac's window.
  */
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type MouseEvent } from 'react'
 import {
@@ -24,10 +29,13 @@ import {
   Loader,
   Maximize2,
   Minimize2,
+  Monitor,
   Play,
   RotateCcw,
   Send,
+  ShieldAlert,
   ShieldCheck,
+  Smartphone,
   Square,
   X,
   ZoomIn,
@@ -35,6 +43,9 @@ import {
 import {
   TASK_ID_RE,
   TASK_STATUS_LABELS,
+  allowTaskApp,
+  blockedApps,
+  canTakeOver,
   continueTask,
   fetchTask,
   fetchTaskFrame,
@@ -54,6 +65,17 @@ const SCREEN_POLL_MS = 1_000
 const FRAME_MS = 600 // about 1.5 frames a second
 const CARD_FRAME_MS = 2_500
 const FRAME_ASPECT = '1280 / 800'
+const PHONE_ASPECT = '9 / 19.5'
+
+function frameAspect(task: KriyaTask): string {
+  return task.surface === 'phone' ? PHONE_ASPECT : FRAME_ASPECT
+}
+
+function frameLabel(task: KriyaTask): string {
+  if (task.surface === 'phone') return `The screen of ${task.device || 'the phone'}`
+  if (task.surface === 'desktop') return "The Mac's window the task is working in"
+  return 'The page the task is working on'
+}
 
 function accentFor(task: KriyaTask): string {
   if (task.status === 'waiting_approval' || task.status === 'waiting_help') return 'var(--sindoor)'
@@ -152,7 +174,7 @@ function StatusChip({ task }: { task: KriyaTask }) {
         className="text-chip px-2 py-1 rounded organic-border inline-flex items-center gap-1.5 uppercase"
         style={{ color: 'var(--sindoor)', borderColor: 'rgba(var(--rgb-sindoor), 0.30)', background: 'rgba(var(--rgb-sindoor), 0.07)' }}
       >
-        <Globe size={13} />
+        {task.surface === 'phone' ? <Smartphone size={13} /> : task.surface === 'desktop' ? <Monitor size={13} /> : <Globe size={13} />}
         Task
       </span>
       <span className="font-mono text-[10px] uppercase tracking-wider" style={{ color: accentFor(task) }}>
@@ -189,12 +211,14 @@ function FrameBox({
   onTap,
   label,
   zoomable,
+  aspect = FRAME_ASPECT,
 }: {
   src: string | null
   interactive?: boolean
   onTap?: (x: number, y: number) => void
   label: string
   zoomable?: boolean
+  aspect?: string
 }) {
   const [dot, setDot] = useState<{ x: number; y: number } | null>(null)
   // The page is a desktop-width view: zoomed, it is 2.5x wide and scrolls, so
@@ -214,17 +238,19 @@ function FrameBox({
     position: 'relative',
     background: 'var(--surface-2)',
     border: interactive ? '2px solid var(--sindoor)' : 'var(--folk-border)',
-    ...(zoomed ? { height: 'min(62vh, 520px)', overflow: 'auto' } : { aspectRatio: FRAME_ASPECT, overflow: 'hidden' }),
+    ...(zoomed ? { height: 'min(62vh, 520px)', overflow: 'auto' } : { aspectRatio: aspect, overflow: 'hidden' }),
   }
   const inner: CSSProperties = {
     position: 'relative',
     width: zoomed ? '250%' : '100%',
-    aspectRatio: FRAME_ASPECT,
+    aspectRatio: aspect,
     cursor: interactive ? 'crosshair' : 'default',
     touchAction: zoomed ? 'pan-x pan-y' : 'manipulation',
   }
+  // A phone's portrait screen stays phone-sized instead of filling the width.
+  const portrait = aspect !== FRAME_ASPECT
   return (
-    <div className="relative w-full" style={{ flexShrink: 0 }}>
+    <div className="relative w-full" style={{ flexShrink: 0, ...(portrait ? { maxWidth: 280, margin: '0 auto' } : {}) }}>
       <div className="w-full rounded" style={outer}>
         <div style={inner} onClick={tap} role={interactive ? 'button' : undefined} aria-label={label}>
           {src ? (
@@ -303,6 +329,51 @@ function StopButton({ task, onChange, large }: { task: KriyaTask; onChange: (nex
   )
 }
 
+/** A phone task that needs a banking or UPI app: allow it for this task, then approve. */
+function AppAllowPanel({ task, onChange }: { task: KriyaTask; onChange: (next: KriyaTask) => void }) {
+  const apps = blockedApps(task)
+  const [busy, setBusy] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  if (task.status !== 'waiting_approval' || !apps.length) return null
+  const allow = async (pkg: string) => {
+    setBusy(pkg)
+    setError(null)
+    try {
+      onChange(await allowTaskApp(task.id, pkg))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not reach Narad.')
+    } finally {
+      setBusy(null)
+    }
+  }
+  return (
+    <div className="flex flex-col gap-2 rounded px-3 py-3" style={{ background: 'rgba(var(--rgb-sindoor), 0.06)', border: '1px solid rgba(var(--rgb-sindoor), 0.22)' }}>
+      <p className="flex items-start gap-2 text-[13px] leading-snug" style={{ color: 'var(--kajal)' }}>
+        <ShieldAlert size={15} className="shrink-0 mt-px" style={{ color: 'var(--kesari)' }} />
+        <span>
+          {apps.map(app => app.name).join(', ')} {apps.length > 1 ? 'are banking or UPI apps' : 'is a banking or UPI app'}. Narad
+          will not open {apps.length > 1 ? 'them' : 'it'} for this task unless you allow {apps.length > 1 ? 'them' : 'it'} here first,
+          then approve below.
+        </span>
+      </p>
+      {apps.map(app => (
+        <button
+          key={app.package}
+          type="button"
+          onClick={() => void allow(app.package)}
+          disabled={busy !== null}
+          className="w-full rounded-[10px] text-[13px] font-semibold inline-flex items-center justify-center gap-2"
+          style={{ minHeight: 48, border: '1px solid var(--ink-12)', background: 'var(--surface)', color: 'var(--kajal)' }}
+        >
+          {busy === app.package ? <Loader size={15} className="animate-spin" /> : <ShieldCheck size={15} />}
+          Allow {app.name} for this task
+        </button>
+      ))}
+      {error && <p className="text-[12px]" role="alert" style={{ color: 'var(--kesari)' }}>{error}</p>}
+    </div>
+  )
+}
+
 /** In the chat: one running errand. */
 export function TaskCard({ task: incoming }: { task: KriyaTask }) {
   const [task, setTask] = useTask(incoming, CARD_POLL_MS)
@@ -324,11 +395,12 @@ export function TaskCard({ task: incoming }: { task: KriyaTask }) {
       <p className="text-[14px] leading-snug font-semibold break-words">{task.goal}</p>
       <Detail task={task} />
       {showFrame && (
-        <button type="button" onClick={() => openTaskScreen(task.id)} className="block w-full text-left" aria-label="Watch the page live">
-          <FrameBox src={frame} label="The page the task is working on" />
+        <button type="button" onClick={() => openTaskScreen(task.id)} className="block w-full text-left" aria-label="Watch it live">
+          <FrameBox src={frame} label={frameLabel(task)} aspect={frameAspect(task)} />
         </button>
       )}
-      {task.status === 'waiting_approval' && task.approval && <ApprovalCard proposal={task.approval} />}
+      <AppAllowPanel task={task} onChange={setTask} />
+      {task.status === 'waiting_approval' && task.approval && <ApprovalCard key={task.approval.id} proposal={task.approval} />}
       <Result task={task} />
       <div className="flex gap-2 pt-1">
         <button
@@ -391,6 +463,8 @@ function HelpPanel({ task, onChange }: { task: KriyaTask; onChange: (next: Kriya
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const expired = task.help?.kind === 'approval_expired'
+  // Only a page can be helped from here; a phone or the Mac is used directly.
+  const typing = !expired && canTakeOver(task)
 
   const send = async (input: TakeoverInput, label: string) => {
     setBusy(label)
@@ -419,7 +493,7 @@ function HelpPanel({ task, onChange }: { task: KriyaTask; onChange: (next: Kriya
   return (
     <div className="flex flex-col gap-2.5 rounded px-3 py-3" style={{ background: 'rgba(var(--rgb-sindoor), 0.06)', border: '1px solid rgba(var(--rgb-sindoor), 0.22)' }}>
       <p className="text-[13px] leading-snug font-semibold" style={{ color: 'var(--kajal)' }}>{task.help?.reason || task.detail}</p>
-      {!expired && (
+      {typing && (
         <>
           <p className="text-[12px] leading-snug" style={{ color: 'var(--ink-70)' }}>
             Tap a field on the page above, then type here. Narad never saves what you type.
@@ -497,7 +571,7 @@ export function TaskScreen({ task: incoming, onClose }: { task: KriyaTask; onClo
     },
     [task.id],
   )
-  const host = hostOf(task.last_url || task.help?.url)
+  const host = task.device || (canTakeOver(task) ? hostOf(task.last_url || task.help?.url) : '')
   return (
     <div role="dialog" aria-modal="true" aria-label="Task" style={{ position: 'fixed', inset: 0, zIndex: 60, background: 'var(--paper)', display: 'flex', flexDirection: 'column' }}>
       <div className="flex items-center gap-2 px-3" style={{ minHeight: 56, borderBottom: '1px solid var(--ink-12)', paddingTop: 'env(safe-area-inset-top)' }}>
@@ -513,15 +587,17 @@ export function TaskScreen({ task: incoming, onClose }: { task: KriyaTask; onClo
         {live && (
           <FrameBox
             src={frame}
-            interactive={helping}
+            interactive={helping && canTakeOver(task)}
             onTap={tap}
-            zoomable
-            label={helping ? 'The page: tap where you want to click' : 'The page the task is working on'}
+            zoomable={task.surface !== 'phone'}
+            aspect={frameAspect(task)}
+            label={helping && canTakeOver(task) ? 'The page: tap where you want to click' : frameLabel(task)}
           />
         )}
         {tapError && <p className="text-[12px]" role="alert" style={{ color: 'var(--kesari)' }}>{tapError}</p>}
         {helping && <HelpPanel task={task} onChange={setTask} />}
-        {task.status === 'waiting_approval' && task.approval && <ApprovalCard proposal={task.approval} />}
+        <AppAllowPanel task={task} onChange={setTask} />
+        {task.status === 'waiting_approval' && task.approval && <ApprovalCard key={task.approval.id} proposal={task.approval} />}
         <Result task={task} />
         {task.events && task.events.length > 0 && (
           <div className="pt-1">
