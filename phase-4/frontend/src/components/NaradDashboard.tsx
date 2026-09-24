@@ -18,6 +18,7 @@ import { KunjiTab } from './KunjiTab'
 import { WorkflowPathsPanel } from './WorkflowPathsPanel'
 import { ProfileBadge } from './ProfileBadge'
 import { ProfileTab } from './ProfileTab'
+import { ActivityPanel } from './ActivityPanel'
 
 type SystemSection = 'status' | 'trace' | 'models' | 'profile'
 
@@ -39,6 +40,13 @@ interface Props {
   activeWorkflowRunId?: string | null
   onContinueWorkflow: (run: WorkflowRun, prompt: string) => void
   onOpenSetup: () => void
+  /** Activity item to highlight (a notification tap). */
+  focusEventId?: string | null
+  /** Open a same-origin deep link such as "/?approval=<id>". */
+  onOpenUrl: (url: string) => void
+  /** Open one path on the Workflows surface. */
+  onOpenRun: (runId: string) => void
+  onUnreadChange: (count: number) => void
 }
 
 const SURFACE_META: Record<DashboardSurface, {
@@ -46,6 +54,11 @@ const SURFACE_META: Record<DashboardSurface, {
   label: string
   description: string
 }> = {
+  activity: {
+    eyebrow: 'सूचना',
+    label: 'Activity',
+    description: 'What needs you, what is running, and what Narad has finished.',
+  },
   workspaces: {
     eyebrow: 'कर्म',
     label: 'Workflows',
@@ -142,6 +155,10 @@ export function NaradDashboard({
   activeWorkflowRunId,
   onContinueWorkflow,
   onOpenSetup,
+  focusEventId,
+  onOpenUrl,
+  onOpenRun,
+  onUnreadChange,
 }: Props) {
   const [systemSection, setSystemSection] = useState<SystemSection>('status')
   const isMobile = useIsMobile()
@@ -324,6 +341,18 @@ export function NaradDashboard({
           <strong style={{ color: 'var(--kesari)' }}>Needs attention · {andonAlert.avatar}</strong>
           <span style={{ marginLeft: 8 }}>{andonAlert.trigger}</span>
         </div>
+      )}
+
+      {surface === 'activity' && (
+        <SurfaceFrame>
+          <ActivityPanel
+            userId={userId}
+            focusEventId={focusEventId}
+            onOpenUrl={onOpenUrl}
+            onOpenRun={onOpenRun}
+            onUnreadChange={onUnreadChange}
+          />
+        </SurfaceFrame>
       )}
 
       {surface === 'workspaces' && (

@@ -16,6 +16,33 @@ interface Props {
   onNavigate: (surface: AppSurface) => void
   /** Phone layout: render as a bottom bar instead of the right-edge rail. */
   horizontal?: boolean
+  /** Unread Activity items, shown as a badge on Activity. */
+  unread?: number
+}
+
+function CountBadge({ count, tone, horizontal }: { count: number; tone: string; horizontal: boolean }) {
+  return (
+    <span
+      aria-hidden="true"
+      style={{
+        position: 'absolute',
+        top: 5,
+        right: horizontal ? '22%' : 6,
+        minWidth: 15,
+        height: 15,
+        padding: '0 4px',
+        borderRadius: 999,
+        background: tone,
+        color: '#fcfaf2',
+        fontSize: 8,
+        fontWeight: 700,
+        display: 'grid',
+        placeItems: 'center',
+      }}
+    >
+      {count > 99 ? '99+' : count}
+    </span>
+  )
 }
 
 export function AwarenessBar({
@@ -24,6 +51,7 @@ export function AwarenessBar({
   activeSurface,
   onNavigate,
   horizontal = false,
+  unread = 0,
 }: Props) {
   const [hoveredAvatar, setHoveredAvatar] = useState<AvatarName | null>(null)
 
@@ -177,7 +205,7 @@ export function AwarenessBar({
         style={{
           width: horizontal ? '100%' : 'auto',
           display: 'grid',
-          gridTemplateColumns: horizontal ? 'repeat(4, minmax(0, 1fr))' : '1fr',
+          gridTemplateColumns: horizontal ? `repeat(${SURFACE_ITEMS.length}, minmax(0, 1fr))` : '1fr',
           gap: horizontal ? 0 : 5,
           borderTop: horizontal ? 'none' : '1px solid rgba(252,250,242,0.08)',
           paddingTop: horizontal ? 0 : 9,
@@ -190,7 +218,7 @@ export function AwarenessBar({
               key={item.id}
               type="button"
               aria-current={active ? 'page' : undefined}
-              aria-label={`Open ${item.label}`}
+              aria-label={item.id === 'activity' && unread > 0 ? `Open ${item.label}, ${unread} unread` : `Open ${item.label}`}
               title={item.label}
               onClick={() => onNavigate(item.id)}
               style={{
@@ -224,24 +252,10 @@ export function AwarenessBar({
                 {item.label}
               </span>
               {horizontal && item.id === 'chat' && activeSteps > 0 && (
-                <span
-                  style={{
-                    position: 'absolute',
-                    top: 5,
-                    right: '25%',
-                    minWidth: 15,
-                    height: 15,
-                    borderRadius: 999,
-                    background: 'var(--sindoor)',
-                    color: '#fcfaf2',
-                    fontSize: 8,
-                    fontWeight: 700,
-                    display: 'grid',
-                    placeItems: 'center',
-                  }}
-                >
-                  {activeSteps}
-                </span>
+                <CountBadge count={activeSteps} tone="var(--sindoor)" horizontal={horizontal} />
+              )}
+              {item.id === 'activity' && unread > 0 && (
+                <CountBadge count={unread} tone="var(--kesari)" horizontal={horizontal} />
               )}
             </button>
           )

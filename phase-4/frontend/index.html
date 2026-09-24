@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Narad — Avatāra</title>
     <meta name="theme-color" content="#1e2447" />
+    <!-- The service worker caches a page as the offline shell only if it has
+         this marker, so a Cloudflare Access sign-in page never becomes it. -->
+    <meta name="narad-shell" content="1" />
     <!-- use-credentials: behind Cloudflare Access an uncredentialed manifest
          fetch is redirected to the login page and Android will not install. -->
     <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials" />
