@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """Live HTTP smoke test for Narad's six durable Workflow Paths.
 
-This validates orchestration state only. It never executes a browser submission,
-booking, calendar write, payment, or other external side effect.
+This validates orchestration state only: every path starts, its context and
+schedules work, another profile is refused, and no stage completes without
+evidence. It never executes a browser submission, booking, calendar write,
+payment, or other external side effect. The evidence-backed walk through every
+stage runs in the test suite (phase-9/test_workflow_paths.py).
 """
 
 from __future__ import annotations
@@ -75,7 +78,6 @@ CASES = (
         "deliverable": "Presentation",
         "objective": "Turn synthetic donor-retention data into three board decisions",
         "audience": "Nonprofit board with mixed data literacy",
-        "source_paths": "/tmp/synthetic-donor-retention.csv",
         "tone": "Clear, humane, decision-oriented",
         "constraints": "Eight slides, 16:9, cite every number",
         "recurring_report": False,
@@ -146,51 +148,35 @@ def main() -> int:
                 if toggle_status != 200:
                     failures.append(f"{case.workflow_id}: schedule toggle failed")
 
-        confirmations = 0
-        for _ in range(20):
-            if run["status"] == "completed":
-                break
-            if run["status"] == "waiting_confirmation":
-                confirmations += 1
-                status, updated = request_json(
-                    "POST",
-                    f"{base}/workflow-runs/{run_id}/actions",
-                    params={"user_id": user_id},
-                    json={"action": "approve"},
-                )
-            else:
-                stage = run.get("current_stage") or {}
-                status, updated = request_json(
-                    "POST",
-                    f"{base}/workflow-runs/{run_id}/actions",
-                    params={"user_id": user_id},
-                    json={
-                        "action": "complete",
-                        "summary": f"Synthetic validation completed {stage.get('title', 'stage')}",
-                        "payload": {"synthetic": True, "persona": case.persona},
-                        "citations": [{"title": "Synthetic fixture", "url": "https://example.com/synthetic"}],
-                    },
-                )
-            if status != 200:
-                failures.append(f"{case.workflow_id}: transition failed ({status}) {updated.get('detail')}")
-                break
-            run = updated["run"]
-        if run["status"] != "completed":
-            failures.append(f"{case.workflow_id}: did not reach completed")
-        if len(run.get("tasks", [])) != expected_task_count:
+        # Stages finish only on evidence the server can check (Workflows v2), so
+        # a bare "complete" must be refused unless the stage takes the person's word.
+        stage = run.get("current_stage") or {}
+        if not any(item.get("kind") == "user_confirmed" for item in stage.get("done_when", [])):
+            status, refused = request_json(
+                "POST",
+                f"{base}/workflow-runs/{run_id}/actions",
+                params={"user_id": user_id},
+                json={"action": "complete", "summary": f"Synthetic claim: {stage.get('title', 'stage')} done"},
+            )
+            if status != 409:
+                failures.append(f"{case.workflow_id}: a free completion was not refused ({status})")
+        status, reread = request_json("GET", f"{base}/workflow-runs/{run_id}", params={"user_id": user_id})
+        if status != 200 or reread.get("current_stage_id") != run["current_stage_id"]:
+            failures.append(f"{case.workflow_id}: the stage moved without evidence")
+        if not all(item.get("done_when_text") for item in reread.get("stages", [])):
+            failures.append(f"{case.workflow_id}: a stage has no finish line")
+        if len(reread.get("tasks", [])) != expected_task_count:
             failures.append(f"{case.workflow_id}: task mirror count changed")
-        if any(stage.get("requires_confirmation") for stage in run["stages"]) and confirmations == 0:
-            failures.append(f"{case.workflow_id}: confirmation stage did not pause")
 
         report.append({
             "workflow": case.workflow_id,
             "persona": case.persona,
             "run_id": run_id,
-            "status": run["status"],
-            "progress": run["progress_percent"],
-            "tasks": len(run.get("tasks", [])),
-            "schedules": len(run.get("schedules", [])),
-            "confirmations": confirmations,
+            "status": reread.get("status"),
+            "stage": reread.get("current_stage_id"),
+            "next": (reread.get("next_action") or {}).get("label"),
+            "tasks": len(reread.get("tasks", [])),
+            "schedules": len(reread.get("schedules", [])),
         })
 
     print(json.dumps({"base_url": base, "runs": report, "failures": failures}, indent=2))

@@ -4,6 +4,7 @@ import { apiPath, apiUrl, apiFetch, type ApprovalProposal } from '@/lib/api'
 import { CONSENT_REQUIRED_EVENT, type PrivacyReceipt } from '@/lib/trust'
 import { emitDocumentReview } from '@/lib/document-review'
 import type { KriyaTask } from '@/lib/tasks'
+import type { PathSuggestion } from '@/components/PathSuggestionCard'
 
 export type AvatarName = 'Matsya' | 'Rama' | 'Krishna' | 'Parashurama'
 
@@ -74,8 +75,9 @@ function storedTurnTrust(turn: StoredThreadTurn): Pick<Message, 'turnId' | 'priv
 export interface Message {
   id: string
   /** 'approval': an Anumati card, never a reply to speak, copy or replay.
-   *  'task': a Kriya task card (a background errand), likewise. */
-  role: 'user' | 'assistant' | 'approval' | 'task'
+   *  'task': a Kriya task card (a background errand), likewise.
+   *  'path': a guided-path suggestion card (Start / Not now), likewise. */
+  role: 'user' | 'assistant' | 'approval' | 'task' | 'path'
   text: string
   avatarsInvolved?: AvatarName[]
   sessionId?: string
@@ -96,6 +98,8 @@ export interface Message {
   privacyReceipt?: PrivacyReceipt
   /** Kriya: present when this message is a task card, not prose. */
   task?: KriyaTask
+  /** Workflow Paths: present when this message offers a guided path. */
+  pathSuggestion?: PathSuggestion
 }
 
 export interface SessionInfo {
@@ -1332,6 +1336,17 @@ export function useAvatara(userId = 'default') {
             case 'document_review': {
               // extract_fields made a review; the chat shows a card for it.
               emitDocumentReview(evt.data)
+              break
+            }
+
+            case 'path_suggestion': {
+              // The message looks like a guided path: offer it under the answer (never auto-started).
+              const offer = evt.data as unknown as PathSuggestion
+              if (!offer?.workflow_id) break
+              setState(s => ({
+                ...s,
+                messages: [...s.messages, { id: `path-${offer.workflow_id}-${Date.now()}`, role: 'path', text: offer.title, pathSuggestion: offer }],
+              }))
               break
             }
 

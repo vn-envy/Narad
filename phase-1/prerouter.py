@@ -9,6 +9,9 @@ goes to the supervisor as before.
 The rules are deliberately conservative: a miss costs one routing call, a
 wrong route costs a wrong answer. Pure functions only — the caller gathers the
 facts. NARAD_PREROUTER=off disables it.
+
+``suggest_path`` reads the same facts to recognise one of the six guided paths
+(path_intent.py); the server only offers it on a card, never starts it.
 """
 from __future__ import annotations
 
@@ -17,6 +20,8 @@ import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
+
+from path_intent import PathMatch, match_path
 
 AVATARS = ("Matsya", "Rama", "Krishna", "Parashurama")
 
@@ -131,3 +136,17 @@ def route_turn(facts: TurnFacts) -> PreRoute | None:
         if applies(facts):
             return PreRoute(avatar=avatar or facts.stage_owner, reason=reason)
     return None
+
+
+def suggest_path(facts: TurnFacts) -> PathMatch | None:
+    """The guided path to *offer* for this turn (the server never starts one).
+
+    Nothing while a path stage is bound to the thread or a lesson check is
+    pending; a bank-statement CSV offers Personal Finance; otherwise the
+    table-driven phrase match in path_intent decides.
+    """
+    if facts.stage_owner or facts.check_answer:
+        return None
+    if _bank_statement_csv(facts):
+        return PathMatch(workflow_id="finance", phrase="bank statement", reason="bank_statement_csv")
+    return match_path(facts.query)

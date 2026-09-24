@@ -100,7 +100,21 @@ async def save_document_review(review_id: str, req: SaveRequest):
         raise HTTPException(status_code=404, detail="Not Found")
     if result.get("status") == "error":
         raise HTTPException(status_code=409, detail=result.get("message"))
+    if result.get("status") == "ok":
+        # A path stage waiting on these values (Health lab report, Finance
+        # statement) finishes now rather than on the next check.
+        result["paths_advanced"] = await asyncio.to_thread(_settle_own_paths)
     return result
+
+
+def _settle_own_paths() -> int:
+    try:
+        from profile_context import current_profile_id
+        from workflow_engine import settle_active_runs
+
+        return settle_active_runs(user_id=current_profile_id())
+    except Exception:
+        return 0
 
 
 @document_review_router.post("/documents/reviews/{review_id}/escalate")

@@ -495,7 +495,7 @@ def test_sync_tools_on_the_worker_pool_carry_the_turn(ledger: Path) -> None:
     assert [row.get("turn_id") for row in _egress_rows(ledger)] == ["feedfacefeedface"]
 
 
-def test_workflow_stage_owner_gets_the_turn_and_the_stage_advances(
+def test_workflow_stage_owner_gets_the_turn_but_free_text_never_advances(
     monkeypatch: pytest.MonkeyPatch, harness: dict[str, list]
 ) -> None:
     run = workflow_engine.start_workflow_run(
@@ -518,9 +518,12 @@ def test_workflow_stage_owner_gets_the_turn_and_the_stage_advances(
     start = next(e["data"] for e in events if e["type"] == "avatar_start")
     assert "[NARAD WORKFLOW CONTEXT" in start["task"] and "I know plants need sunlight" in start["task"]
     assert any(e["type"] == "workflow_updated" for e in events)
-    stage_ids = [stage["id"] for stage in workflow_engine.get_pack("teach")["stages"]]
-    advanced = workflow_engine.get_workflow_run(run.run_id)
-    assert stage_ids.index(advanced.current_stage_id) > stage_ids.index(run.current_stage_id)
+    # The answer was plain text with no stage result: the stage stays open,
+    # and the turn is on the record as one that reported nothing.
+    after = workflow_engine.get_workflow_run(run.run_id)
+    assert after.current_stage_id == run.current_stage_id == "diagnostic"
+    assert after.session_id == "thread-teach"
+    assert "chat_turn" in [event.event_type for event in workflow_engine.list_workflow_events(run.run_id)]
 
 
 def _chunk(*parts: Any) -> SimpleNamespace:

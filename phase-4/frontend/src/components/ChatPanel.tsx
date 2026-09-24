@@ -19,6 +19,7 @@ import { ApprovalCard, type ApprovalChange } from './ApprovalCard'
 import { MessageFooter } from './MessageFooter'
 import { DocumentReviewHost } from './DocumentReview'
 import { TaskCard } from './TaskCard'
+import { PathSuggestionCard } from './PathSuggestionCard'
 import { cn } from '@/lib/utils'
 import {
   Archive,
@@ -747,6 +748,15 @@ export function ChatPanel({
             return (
               <div key={msg.id} className="w-full max-w-[92%] self-start">
                 <ApprovalCard proposal={msg.approval} onChange={onApprovalChange} />
+              </div>
+            )
+          }
+
+          // Workflow Paths: a guided path offered for this ask (Start / Not now).
+          if (msg.role === 'path' && msg.pathSuggestion) {
+            return (
+              <div key={msg.id} className="w-full max-w-[92%] self-start">
+                <PathSuggestionCard suggestion={msg.pathSuggestion} userId={userId} />
               </div>
             )
           }

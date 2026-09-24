@@ -11,39 +11,17 @@ import pytest
 
 _root = next(path for path in Path(__file__).resolve().parents if (path / "narad_paths.py").exists())
 sys.path[:0] = [str(_root)]
+import path_fixtures as paths
+
 import kala_scheduler
 import narad_paths  # noqa: F401
-import profile_context
-import vahana
 import workflow_engine
 
 
 @pytest.fixture(autouse=True)
 def isolated_workflows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(workflow_engine, "WORKFLOW_DB", tmp_path / "workflows.db")
-    # A finished path notifies its person (task_done): keep that inbox and ledger here.
-    monkeypatch.setattr(vahana, "INBOX_DIR", tmp_path / "inbox")
-    monkeypatch.setattr(profile_context, "PROFILES_DIR", tmp_path / "profiles")
-    monkeypatch.setitem(sys.modules, "karma_log", SimpleNamespace(log_karma=lambda *args, **kwargs: None))
-    monkeypatch.setattr(
-        workflow_engine,
-        "_capability_flags",
-        lambda: {
-            "planning": True,
-            "learning": True,
-            "health": True,
-            "finance": True,
-            "documents": True,
-            "presentation": True,
-            "filesystem": True,
-            "sql": True,
-            "tts": True,
-            "search": True,
-            "computer": True,
-            "calendar": True,
-            "email": True,
-        },
-    )
+    # Workflows, inboxes, profiles, artifacts and the task runtime all live here.
+    return paths.isolate(tmp_path, monkeypatch)
 
 
 def _career_inputs() -> dict:
@@ -89,8 +67,9 @@ def test_run_persists_stages_and_recurring_schedule() -> None:
     tasks_by_stage = {item["workflow_stage_id"]: item for item in payload["tasks"]}
     assert tasks_by_stage["intake"]["status"] == "done"
     assert tasks_by_stage["market_scan"]["status"] == "active"
-    assert len(payload["schedules"]) == 1
-    assert payload["schedules"][0]["payload"]["target_stage"] == "market_scan"
+    schedules = {item["payload"]["template_id"]: item for item in payload["schedules"]}
+    assert set(schedules) == {"weekly_scan", "reply_watch"}
+    assert schedules["weekly_scan"]["payload"]["target_stage"] == "market_scan"
 
     reloaded = workflow_engine.get_workflow_run(run.run_id)
     assert reloaded is not None
@@ -100,9 +79,7 @@ def test_run_persists_stages_and_recurring_schedule() -> None:
 
 def test_external_action_requires_preview_and_approval() -> None:
     run = workflow_engine.start_workflow_run("career", user_id="asha", inputs=_career_inputs())
-    for stage in ("market_scan", "shortlist", "tailor"):
-        assert run.current_stage_id == stage
-        run = workflow_engine.complete_current_stage(run.run_id, summary=f"Completed {stage}")
+    run = paths.walk(run, until="apply")
     assert run.current_stage_id == "apply"
 
     with pytest.raises(PermissionError):
@@ -120,21 +97,27 @@ def test_external_action_requires_preview_and_approval() -> None:
     with pytest.raises(PermissionError):
         workflow_engine.approve_stage(run.run_id, approved_by="asha")
 
-    with patch("dharma.gate_action", return_value=SimpleNamespace(allowed=True, reasons=[])):
-        run = workflow_engine.approve_pending_stage(run.run_id, approved_by="asha")
+    run = paths.approve(run.run_id, "asha")
     assert run.status == "active"
     assert run.state["confirmation"]["status"] == "approved"
     import anumati
 
     assert anumati.get(proposal_id, profile_id="asha").status == "executed"
 
-    run = workflow_engine.complete_current_stage(run.run_id, summary="Application submitted after approval")
+    # Approved is not done: the application itself must have gone through.
+    with pytest.raises(workflow_engine.StageNotDone, match="application task finished"):
+        workflow_engine.complete_current_stage(run.run_id, summary="Application submitted after approval")
+    task_id = paths.kriya_task("asha")
+    run = workflow_engine.complete_current_stage(
+        run.run_id, summary="Application submitted after approval",
+        evidence={"receipts": [paths.receipt("start_task", status="task_started", task_id=task_id)]},
+    )
     assert run.current_stage_id == "track"
 
 
 def test_feedback_reopens_the_declared_stage_and_cycle() -> None:
     run = workflow_engine.start_workflow_run("career", user_id="asha", inputs=_career_inputs())
-    run = workflow_engine.complete_current_stage(run.run_id, summary="Market scan complete")
+    run = paths.satisfy(run)
     assert run.current_stage_id == "shortlist"
 
     run = workflow_engine.record_workflow_feedback(
@@ -146,6 +129,9 @@ def test_feedback_reopens_the_declared_stage_and_cycle() -> None:
     assert run.state["cycle"] == 2
     assert "market_scan" not in run.state["completed_stage_ids"]
     assert run.state["feedback"][-1]["routed_to"] == "market_scan"
+    # The reopened stage starts with no evidence: last cycle's search proves nothing now.
+    assert workflow_engine._check(run, workflow_engine.get_pack("career"), workflow_engine._stage(
+        workflow_engine.get_pack("career"), "market_scan"))["met"] is False
 
 
 def _make_due(run_id: str, template_id: str, due: datetime) -> workflow_engine.WorkflowSchedule:
@@ -168,13 +154,6 @@ def _fire(run_id: str, template_id: str, due: datetime) -> workflow_engine.Workf
     run = workflow_engine.get_workflow_run(run_id)
     assert run is not None
     return run
-
-
-def _approve_and_complete(run_id: str, summary: str) -> workflow_engine.WorkflowRun:
-    workflow_engine.request_stage_confirmation(run_id, summary=f"Preview: {summary}")
-    with patch("dharma.gate_action", return_value=SimpleNamespace(allowed=True, reasons=[])):
-        workflow_engine.approve_pending_stage(run_id, approved_by="user")
-    return workflow_engine.complete_current_stage(run_id, summary=summary)
 
 
 def test_due_schedule_is_idempotent_and_records_check_in() -> None:
@@ -204,8 +183,7 @@ def test_due_schedule_is_idempotent_and_records_check_in() -> None:
 
 def test_scheduled_check_in_never_drops_a_pending_or_approved_confirmation() -> None:
     run = workflow_engine.start_workflow_run("career", user_id="asha", inputs=_career_inputs())
-    for stage in ("market_scan", "shortlist", "tailor"):
-        run = workflow_engine.complete_current_stage(run.run_id, summary=f"Completed {stage}")
+    run = paths.walk(run, until="apply")
     workflow_engine.request_stage_confirmation(run.run_id, summary="Submit application to Example Co")
 
     run = _fire(run.run_id, "weekly_scan", datetime(2026, 9, 14, 3, 30, tzinfo=timezone.utc))
@@ -216,14 +194,13 @@ def test_scheduled_check_in_never_drops_a_pending_or_approved_confirmation() -> 
     assert run.state["scheduled_prompt"]["mode"] == "queued"
     assert run.state["scheduled_prompt"]["stage_id"] == "market_scan"
 
-    with patch("dharma.gate_action", return_value=SimpleNamespace(allowed=True, reasons=[])):
-        run = workflow_engine.approve_pending_stage(run.run_id, approved_by="asha")
+    run = paths.approve(run.run_id, "asha")
     run = _fire(run.run_id, "weekly_scan", datetime(2026, 9, 21, 3, 30, tzinfo=timezone.utc))
     assert run.current_stage_id == "apply"
     assert run.state["confirmation"]["status"] == "approved"
     assert run.state["scheduled_prompt"]["mode"] == "queued"
 
-    run = workflow_engine.complete_current_stage(run.run_id, summary="Application submitted after approval")
+    run = paths.satisfy(run)
     assert run.current_stage_id == "track"
 
 
@@ -236,47 +213,34 @@ _TRAVEL_INPUTS = {
 }
 
 
-def test_price_watch_never_rewinds_a_booked_trip() -> None:
-    run = workflow_engine.start_workflow_run(
-        "travel",
-        user_id="priya",
-        inputs={
-            "origin": "Delhi",
-            "destination": "Japan",
-            "dates": "10-18 November",
-            "travelers": "2 adults",
-            "budget": "INR 300,000",
-            "price_watch": True,
-        },
-    )
-    for stage in ("research", "compare", "itinerary"):
-        run = workflow_engine.complete_current_stage(run.run_id, summary=f"Completed {stage}")
-    run = _approve_and_complete(run.run_id, "Booked flights and hotel")
-    assert run.current_stage_id == "trip_ready"
+def test_price_watch_never_rewinds_a_booked_trip(isolated_workflows) -> None:
+    run = workflow_engine.start_workflow_run("travel", user_id="priya", inputs={**_TRAVEL_INPUTS, "price_watch": True})
+    run = paths.walk(run, until="trip_ready")
+    assert "booking" in run.state["completed_stage_ids"]
 
     run = _fire(run.run_id, "price_watch", datetime(2026, 9, 12, 4, 30, tzinfo=timezone.utc))
     assert run.current_stage_id == "trip_ready"
     assert run.status == "active"
     assert "booking" in run.state["completed_stage_ids"]
-    assert run.state["scheduled_prompt"]["mode"] == "check_in"
+    assert run.state["scheduled_prompt"]["mode"] == "watch"
     assert run.state["scheduled_prompt"]["stage_id"] == "research"
+    # The watch only appended a finding: a fare check running as a task.
+    finding = workflow_engine.workflow_run_payload(run)["findings"][0]
+    assert finding["kind"] == "price_check" and finding["status"] == "started"
+    assert finding["task_id"] == isolated_workflows.kriya.submitted[-1]
 
-    for stage in ("trip_ready", "review"):
-        run = workflow_engine.complete_current_stage(run.run_id, summary=f"Completed {stage}")
+    run = paths.walk(run)
     assert run.status == "completed"
     run = _fire(run.run_id, "price_watch", datetime(2026, 9, 13, 4, 30, tzinfo=timezone.utc))
     assert run.status == "completed"
     assert run.current_stage_id is None
     assert run.completed_at is not None
+    assert run.state["scheduled_prompt"]["mode"] == "closed"
 
 
 def test_weekly_scan_starts_a_new_cycle_once_the_career_path_is_complete() -> None:
     run = workflow_engine.start_workflow_run("career", user_id="asha", inputs=_career_inputs())
-    for stage in ("market_scan", "shortlist", "tailor"):
-        run = workflow_engine.complete_current_stage(run.run_id, summary=f"Completed {stage}")
-    run = _approve_and_complete(run.run_id, "Application submitted")
-    while run.current_stage_id:
-        run = workflow_engine.complete_current_stage(run.run_id, summary=f"Completed {run.current_stage_id}")
+    run = paths.walk(run)
     assert run.status == "completed"
 
     due = datetime(2026, 9, 14, 3, 30, tzinfo=timezone.utc)
@@ -297,41 +261,60 @@ def test_weekly_scan_starts_a_new_cycle_once_the_career_path_is_complete() -> No
 
 
 def test_schedule_pushes_match_what_the_schedule_did() -> None:
-    run = workflow_engine.start_workflow_run(
-        "travel",
-        user_id="priya",
-        inputs={**_TRAVEL_INPUTS, "price_watch": True},
-    )
+    run = workflow_engine.start_workflow_run("career", user_id="asha", inputs=_career_inputs())
     due = datetime(2026, 9, 12, 4, 30, tzinfo=timezone.utc)
-    _make_due(run.run_id, "price_watch", due)
+    _make_due(run.run_id, "weekly_scan", due)
     with patch("vahana.deliver", return_value={"status": "delivered"}) as deliver:
         workflow_engine.fire_due_workflow_schedules(due)
     body = deliver.call_args.kwargs["body"]
     assert "ready for its next checkpoint" not in body
     assert body.startswith("Reminder for ")
 
-    for stage in ("research", "compare", "itinerary"):
-        run = workflow_engine.complete_current_stage(run.run_id, summary=f"Completed {stage}")
-    workflow_engine.request_stage_confirmation(run.run_id, summary="Book flights")
-    later = datetime(2026, 9, 13, 4, 30, tzinfo=timezone.utc)
-    _make_due(run.run_id, "price_watch", later)
+    run = paths.walk(run, until="apply")
+    workflow_engine.request_stage_confirmation(run.run_id, summary="Submit the application")
+    later = datetime(2026, 9, 19, 4, 30, tzinfo=timezone.utc)
+    _make_due(run.run_id, "weekly_scan", later)
     with patch("vahana.deliver", return_value={"status": "delivered"}) as deliver:
         workflow_engine.fire_due_workflow_schedules(later)
     assert "waiting for your approval" in deliver.call_args.kwargs["body"]
 
-    with patch("dharma.gate_action", return_value=SimpleNamespace(allowed=True, reasons=[])):
-        workflow_engine.approve_pending_stage(run.run_id, approved_by="priya")
-    run = workflow_engine.complete_current_stage(run.run_id, summary="Booked")
-    while run.current_stage_id:
-        run = workflow_engine.complete_current_stage(run.run_id, summary=f"Completed {run.current_stage_id}")
-    finished = datetime(2026, 9, 20, 4, 30, tzinfo=timezone.utc)
-    _make_due(run.run_id, "price_watch", finished)
+
+def test_a_price_watch_stays_quiet_until_it_has_something_and_never_touches_an_approval(
+    isolated_workflows, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run = workflow_engine.start_workflow_run("travel", user_id="priya", inputs={**_TRAVEL_INPUTS, "price_watch": True})
+    run = paths.walk(run, until="booking")
+    workflow_engine.request_stage_confirmation(run.run_id, summary="Book the 10 Nov flight")
+
+    due = datetime(2026, 9, 13, 4, 30, tzinfo=timezone.utc)
+    _make_due(run.run_id, "price_watch", due)
     with patch("vahana.deliver") as deliver:
-        fired = workflow_engine.fire_due_workflow_schedules(finished)
-    deliver.assert_not_called()  # a finished trip is not "ready for a checkpoint"
+        fired = workflow_engine.fire_due_workflow_schedules(due)
+    deliver.assert_not_called()  # the task notifies when it finishes
     assert fired["items"][0]["delivery"]["status"] == "skipped"
     run = workflow_engine.get_workflow_run(run.run_id)
-    assert run is not None and run.status == "completed"
+    assert run.status == "waiting_confirmation"
+    assert run.state["confirmation"]["status"] == "pending"
+    assert run.current_stage_id == "booking"
+
+    # The fare check finishes: its answer lands on the finding, the run stays put.
+    from kriya import store
+
+    task_id = isolated_workflows.kriya.submitted[-1]
+    store.update_task(task_id, profile_id="priya", status="done",
+                      result={"summary": "Done", "answer": "Cheapest: 41,200 total, 10 Nov."})
+    run = workflow_engine.settle_run(run.run_id)
+    finding = workflow_engine.workflow_run_payload(run)["findings"][0]
+    assert finding["status"] == "done" and "41,200" in finding["answer"]
+    assert run.current_stage_id == "booking" and run.state["confirmation"]["status"] == "pending"
+
+    # No browser: the person is reminded instead of silently missing the check.
+    monkeypatch.setattr(workflow_engine, "_capability_flags", lambda: {**paths.ALL_CAPABILITIES, "computer": False})
+    later = datetime(2026, 9, 14, 4, 30, tzinfo=timezone.utc)
+    _make_due(run.run_id, "price_watch", later)
+    with patch("vahana.deliver", return_value={"status": "delivered"}) as deliver:
+        workflow_engine.fire_due_workflow_schedules(later)
+    assert "could not run by itself" in deliver.call_args.kwargs["body"]
 
 
 def test_recurring_loop_stage_reopens_only_after_the_run_reaches_it() -> None:
@@ -346,17 +329,13 @@ def test_recurring_loop_stage_reopens_only_after_the_run_reaches_it() -> None:
             "daily_checkin": True,
         },
     )
-    assert run.current_stage_id == "safety"
+    assert run.current_stage_id == "labs"
     run = _fire(run.run_id, "daily_checkin", datetime(2026, 9, 11, 15, 0, tzinfo=timezone.utc))
-    assert run.current_stage_id == "safety"
+    assert run.current_stage_id == "labs"
     assert run.status == "active"
     assert run.state["scheduled_prompt"]["mode"] == "check_in"
 
-    for stage in ("safety", "weekly_plan"):
-        run = workflow_engine.complete_current_stage(run.run_id, summary=f"Completed {stage}")
-    run = _approve_and_complete(run.run_id, "Calendar blocks created")
-    for stage in ("daily_track", "weekly_review"):
-        run = workflow_engine.complete_current_stage(run.run_id, summary=f"Completed {stage}")
+    run = paths.walk(run)
     assert run.status == "completed"
 
     run = _fire(run.run_id, "daily_checkin", datetime(2026, 9, 12, 15, 0, tzinfo=timezone.utc))
@@ -365,31 +344,43 @@ def test_recurring_loop_stage_reopens_only_after_the_run_reaches_it() -> None:
     assert run.completed_at is None
     assert run.state["scheduled_prompt"]["mode"] == "reopened"
     assert "schedule" in run.state["completed_stage_ids"]
+    # Reopened means open again: yesterday's check-in does not count for today.
+    health = workflow_engine.get_pack("health")
+    assert workflow_engine._check(run, health, workflow_engine._stage(health, "daily_track"))["met"] is False
 
 
 def test_chat_turn_advances_only_the_thread_bound_to_the_run() -> None:
     run = workflow_engine.start_workflow_run("career", user_id="asha", inputs=_career_inputs())
     assert run.session_id is None
 
+    # A reply, however confident, is not a stage result: the turn binds the thread only.
     run = workflow_engine.record_chat_stage_result(
         run.run_id, user_id="asha", session_id="thread-a", response_text="Five credible roles found."
     )
-    assert run.current_stage_id == "shortlist"
+    assert run.current_stage_id == "market_scan"
     assert run.session_id == "thread-a"
 
     with pytest.raises(PermissionError, match="another chat session"):
         workflow_engine.record_chat_stage_result(
             run.run_id, user_id="asha", session_id="thread-b", response_text="Your blood report looks fine."
         )
+    with pytest.raises(PermissionError, match="another chat session"):
+        workflow_engine.submit_stage_result(
+            run.run_id, user_id="asha", session_id="thread-b", status="done", summary="Done",
+            fields={"roles": ["x"]}, receipts=[paths.receipt("exa_search")],
+        )
     unchanged = workflow_engine.get_workflow_run(run.run_id)
     assert unchanged is not None
-    assert unchanged.current_stage_id == "shortlist"
-    assert "shortlist" not in unchanged.state["completed_stage_ids"]
+    assert unchanged.current_stage_id == "market_scan"
 
+    # The turn's search receipt plus the owner's report finish it, from its own thread.
     run = workflow_engine.record_chat_stage_result(
-        run.run_id, user_id="asha", session_id="thread-a", response_text="Ranked shortlist ready."
+        run.run_id, user_id="asha", session_id="thread-a", receipts=[paths.receipt("exa_search")], reported=False,
     )
-    assert run.current_stage_id == "tailor"
+    assert run.current_stage_id == "market_scan"
+    verdict = paths.report(run, fields={"roles": [{"title": "Product lead", "url": "https://example.com/1"}]})
+    assert verdict["status"] == "completed"
+    assert workflow_engine.get_workflow_run(run.run_id).current_stage_id == "shortlist"
 
 
 def test_checkpoint_does_not_advance_current_stage() -> None:
@@ -422,3 +413,13 @@ def test_kala_tick_includes_workflow_schedule_pass() -> None:
 
     workflow_pass.assert_called_once_with(now)
     assert result["workflow_fired"] == 2
+
+
+def test_dharma_still_gates_the_stage_approval() -> None:
+    run = workflow_engine.start_workflow_run("career", user_id="asha", inputs=_career_inputs())
+    run = paths.walk(run, until="apply")
+    workflow_engine.request_stage_confirmation(run.run_id, summary="Submit the application")
+    with patch("dharma.gate_action", return_value=SimpleNamespace(allowed=False, reasons=["blocked by policy"])):
+        with pytest.raises(PermissionError):
+            workflow_engine.approve_pending_stage(run.run_id, approved_by="asha")
+    assert workflow_engine.get_workflow_run(run.run_id).state["confirmation"]["status"] == "pending"

@@ -122,3 +122,106 @@ def test_schedule_is_not_mutated_before_ownership_check(client: TestClient) -> N
     )
     assert accepted.status_code == 200
     assert accepted.json()["schedule"]["enabled"] is False
+
+
+# ── Workflows v2: evidence, the person's own actions, chat-card starts ──────
+
+_HEALTH = {"goal": "More energy", "baseline": "Desk job", "dietary_context": "Vegetarian", "activity_limits": "None"}
+
+
+@pytest.fixture()
+def evidence_client(client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
+    import path_fixtures
+
+    path_fixtures.isolate(tmp_path, monkeypatch)
+    return client
+
+
+def test_a_free_complete_is_refused_with_what_is_missing(evidence_client: TestClient) -> None:
+    run = evidence_client.post("/workflows/health/runs?user_id=miguel", json={"inputs": _HEALTH}).json()["run"]
+    assert run["current_stage_id"] == "labs"
+    labs = next(stage for stage in run["stages"] if stage["id"] == "labs")
+    assert labs["done_when_text"][0]["text"] == "Lab values you confirmed are saved"
+    assert run["next_action"]["can_skip"] is True and run["next_action"]["can_confirm"] is False
+
+    refused = evidence_client.post(
+        f"/workflow-runs/{run['run_id']}/actions?user_id=miguel",
+        json={"action": "complete", "summary": "Synthetic validation completed Lab report"},
+    )
+    assert refused.status_code == 409
+    assert "Lab values you confirmed are saved" in refused.json()["detail"]
+    again = evidence_client.get(f"/workflow-runs/{run['run_id']}?user_id=miguel").json()
+    assert again["current_stage_id"] == "labs"
+
+    skipped = evidence_client.post(f"/workflow-runs/{run['run_id']}/actions?user_id=miguel", json={"action": "skip"})
+    assert skipped.status_code == 200
+    assert skipped.json()["run"]["current_stage_id"] == "safety"
+    assert next(s for s in skipped.json()["run"]["stages"] if s["id"] == "labs")["status"] == "skipped"
+
+
+def test_reading_a_run_settles_evidence_that_landed_since(evidence_client: TestClient) -> None:
+    import document_review
+    import path_fixtures
+
+    import profile_context
+    import workflow_engine
+
+    run = evidence_client.post("/workflows/health/runs?user_id=miguel", json={"inputs": _HEALTH}).json()["run"]
+    rid = path_fixtures.lab_review("miguel", save=False)
+    workflow_engine.record_chat_stage_result(
+        run["run_id"], user_id="miguel", session_id="thread-m",
+        receipts=[path_fixtures.receipt("extract_fields", review_id=rid)],
+    )
+    pending = evidence_client.get(f"/workflow-runs/{run['run_id']}?user_id=miguel").json()
+    assert pending["next_action"]["kind"] == "review" and pending["next_action"]["url"] == f"/?review={rid}"
+    with profile_context.profile_scope("miguel"):
+        document_review.save_review(rid, [{"id": "i1", "action": "confirm"}], document={"test_date": "2026-09-01"})
+    listed = evidence_client.get("/workflow-runs?user_id=miguel").json()["runs"][0]
+    assert listed["current_stage_id"] == "safety"
+    done = next(stage for stage in listed["stages"] if stage["id"] == "labs")
+    assert done["status"] == "done"
+    assert done["output"]["evidence"][0]["url"] == f"/?review={rid}"
+
+
+def test_a_chat_card_start_is_bound_to_its_thread_and_asks_two_questions(evidence_client: TestClient) -> None:
+    intake = evidence_client.get("/workflows/travel/intake?user_id=priya").json()
+    assert [item["key"] for item in intake["questions"]] == ["origin", "destination"]
+
+    started = evidence_client.post(
+        "/workflows/travel/runs?user_id=priya",
+        json={"inputs": {"destination": "Goa"}, "partial": True, "session_id": "thread-goa"},
+    )
+    assert started.status_code == 200
+    run = started.json()["run"]
+    assert (run["current_stage_id"], run["status"], run["session_id"]) == ("intake", "waiting_for_user", "thread-goa")
+    assert [item["key"] for item in run["intake_questions"]] == ["origin", "dates"]
+
+    answered = evidence_client.post(
+        f"/workflow-runs/{run['run_id']}/actions?user_id=priya",
+        json={"action": "update_inputs", "payload": {"origin": "Delhi", "dates": "10-14 Dec"}},
+    ).json()["run"]
+    assert [item["key"] for item in answered["intake_questions"]] == ["travelers", "budget"]
+    done = evidence_client.post(
+        f"/workflow-runs/{run['run_id']}/actions?user_id=priya",
+        json={"action": "update_inputs", "payload": {"travelers": "2", "budget": "INR 60,000"}},
+    ).json()["run"]
+    assert done["current_stage_id"] == "research"
+
+    # Without partial, missing details are still a clear 422.
+    assert evidence_client.post("/workflows/travel/runs?user_id=priya", json={"inputs": {}}).status_code == 422
+    # A thread id must look like one.
+    assert evidence_client.post("/workflows/travel/runs?user_id=priya",
+                                json={"partial": True, "session_id": "../x"}).status_code == 422
+
+
+def test_resume_here_binds_an_open_run_to_the_thread(evidence_client: TestClient) -> None:
+    run = evidence_client.post("/workflows/health/runs?user_id=miguel", json={"inputs": _HEALTH}).json()["run"]
+    bound = evidence_client.post(
+        f"/workflow-runs/{run['run_id']}/actions?user_id=miguel",
+        json={"action": "bind", "payload": {"session_id": "thread-9"}},
+    )
+    assert bound.status_code == 200 and bound.json()["run"]["session_id"] == "thread-9"
+    assert evidence_client.post(
+        f"/workflow-runs/{run['run_id']}/actions?user_id=someone-else",
+        json={"action": "bind", "payload": {"session_id": "thread-9"}},
+    ).status_code == 403

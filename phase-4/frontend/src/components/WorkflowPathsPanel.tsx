@@ -17,7 +17,8 @@ import {
   WalletCards,
   X,
 } from 'lucide-react'
-import { apiFetch, apiUrl, type WorkflowDefinition, type WorkflowRun } from '@/lib/api'
+import { apiFetch, apiPath, apiUrl, type WorkflowDefinition, type WorkflowRun, type WorkflowStage } from '@/lib/api'
+import { OPEN_URL_EVENT } from '@/lib/pwa'
 import { useIsMobile } from '@/hooks/useIsMobile'
 
 interface Props {
@@ -28,6 +29,91 @@ interface Props {
 }
 
 type PackIcon = typeof BriefcaseBusiness
+
+// Workflows v2 fields on a run: every stage's finish line (done_when) in plain
+// words, what proves the current one, and a concrete "what's next".
+interface FinishCondition {
+  kind?: string
+  text: string
+  met?: boolean
+  detail?: string
+}
+
+interface EvidenceRef {
+  kind: string
+  id: string
+  label?: string
+  url?: string
+  status?: string
+  type?: string
+}
+
+type PathStage = WorkflowStage & {
+  optional?: boolean
+  done_when_text?: FinishCondition[]
+  check?: { met: boolean; conditions: FinishCondition[]; missing: string[] }
+  output?: (NonNullable<WorkflowStage['output']> & { evidence?: EvidenceRef[]; done_when?: FinishCondition[] }) | null
+}
+
+interface PathNextAction {
+  kind: string
+  label: string
+  prompt: string
+  url?: string
+  detail?: string
+  questions?: string[]
+  can_confirm?: boolean
+  can_skip?: boolean
+}
+
+type PathRun = Omit<WorkflowRun, 'stages' | 'current_stage' | 'next_action'> & {
+  stages: PathStage[]
+  current_stage?: PathStage | null
+  next_action: PathNextAction
+  evidence?: EvidenceRef[]
+  intake_questions?: Array<{ key: string; label: string; question: string }>
+  applications?: Array<{ record_id: string; company: string; role: string; status: string; next_step?: string; link?: string; reply_seen?: { subject?: string } }>
+  findings?: Array<{ record_id: string; kind: string; status: string; at?: string; answer?: string; detail?: string; task_id?: string; replies?: Array<{ company: string; subject: string }> }>
+  versions?: Array<{ version: number; label?: string; stage_title?: string; url?: string }>
+}
+
+type IntakeField = WorkflowDefinition['intake'][number] & { ask?: string }
+
+/** Required details two at a time, then optional ones, then the rhythm settings. */
+function intakeSteps(definition: WorkflowDefinition): IntakeField[][] {
+  const rhythmField = (field: IntakeField) => field.kind === 'boolean' || field.kind === 'time' || field.key === 'timezone'
+  const pairs = (fields: IntakeField[]) => fields.reduce<IntakeField[][]>((groups, field, index) => {
+    if (index % 2 === 0) groups.push([field])
+    else groups[groups.length - 1].push(field)
+    return groups
+  }, [])
+  const fields = definition.intake as IntakeField[]
+  const rhythm = fields.filter(field => !field.required && rhythmField(field))
+  return [
+    ...pairs(fields.filter(field => field.required)),
+    ...pairs(fields.filter(field => !field.required && !rhythmField(field))),
+    ...(rhythm.length ? [rhythm] : []),
+  ]
+}
+
+/** Evidence links: files open in a new tab; reviews, tasks and approvals open in the app. */
+function openEvidence(url?: string) {
+  if (!url) return
+  if (url.startsWith('/media/')) {
+    window.open(apiPath(url), '_blank', 'noopener,noreferrer')
+    return
+  }
+  window.dispatchEvent(new CustomEvent(OPEN_URL_EVENT, { detail: { url } }))
+}
+
+const EVIDENCE_WORDS: Record<string, string> = {
+  review: 'Review',
+  task: 'Web task',
+  approval: 'Approval',
+  artifact: 'File',
+  confirmation: 'You confirmed',
+  tool: 'Tool',
+}
 
 const PACK_ICONS: Record<string, PackIcon> = {
   career: BriefcaseBusiness,
@@ -78,6 +164,8 @@ export function WorkflowPathsPanel({ userId, streaming, activeRunId, onContinue 
   const [selectedRun, setSelectedRun] = useState<WorkflowRun | null>(null)
   const [intakeDefinition, setIntakeDefinition] = useState<WorkflowDefinition | null>(null)
   const [intake, setIntake] = useState<Record<string, unknown>>({})
+  const [intakeStep, setIntakeStep] = useState(0)
+  const [answers, setAnswers] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -127,6 +215,9 @@ export function WorkflowPathsPanel({ userId, streaming, activeRunId, onContinue 
     if (activeRunId && activeRunId !== selectedRun?.run_id) void loadRun(activeRunId).catch(() => {})
   }, [activeRunId, loadRun, selectedRun?.run_id])
 
+  // Intake answers typed on the Paths screen belong to one run.
+  useEffect(() => { setAnswers({}) }, [selectedRun?.run_id])
+
   useEffect(() => {
     const handleRuntimeEvent = (event: Event) => {
       const detail = (event as CustomEvent<{ data?: { workflow_run_id?: string } }>).detail
@@ -152,8 +243,14 @@ export function WorkflowPathsPanel({ userId, streaming, activeRunId, onContinue 
   const startIntake = (definition: WorkflowDefinition) => {
     setIntakeDefinition(definition)
     setIntake(defaultsFor(definition))
+    setIntakeStep(0)
     setSelectedRun(null)
     setError(null)
+    // Prefilled from the phone's time zone and this person's last run of the path.
+    apiFetch(apiUrl(`/workflows/${definition.id}/intake`, { user_id: userId }))
+      .then(response => response.ok ? response.json() as Promise<{ values?: Record<string, unknown> }> : null)
+      .then(data => { if (data?.values) setIntake(current => ({ ...current, ...data.values })) })
+      .catch(() => {})
   }
 
   const startRun = async () => {
@@ -218,7 +315,7 @@ export function WorkflowPathsPanel({ userId, streaming, activeRunId, onContinue 
     }
   }
 
-  const renderField = (field: WorkflowDefinition['intake'][number]) => {
+  const renderField = (field: IntakeField) => {
     const value = intake[field.key]
     const update = (next: unknown) => setIntake(current => ({ ...current, [field.key]: next }))
     const inputStyle = {
@@ -242,7 +339,7 @@ export function WorkflowPathsPanel({ userId, streaming, activeRunId, onContinue 
     return (
       <label key={field.key} style={{ display: 'grid', gap: 5 }}>
         <span style={{ fontSize: 10.5, fontWeight: 750, color: 'rgba(45,42,38,0.62)' }}>
-          {field.label}{field.required ? ' *' : ''}
+          {field.ask || field.label}{field.required ? ' *' : ''}
         </span>
         {field.kind === 'textarea' ? (
           <textarea rows={3} value={String(value ?? '')} placeholder={field.placeholder} onChange={event => update(event.target.value)} style={{ ...inputStyle, resize: 'vertical' }} />
@@ -265,6 +362,8 @@ export function WorkflowPathsPanel({ userId, streaming, activeRunId, onContinue 
   }
 
   const selectedDefinition = selectedRun ? definitionById[selectedRun.workflow_id] : null
+  // The same run with its Workflows v2 fields typed (read only inside the selectedRun branch).
+  const pathRun = selectedRun as unknown as PathRun
   const activeRuns = runs.filter(run => !['completed', 'cancelled'].includes(run.status))
 
   return (
@@ -372,15 +471,40 @@ export function WorkflowPathsPanel({ userId, streaming, activeRunId, onContinue 
                   Starts in limited mode. Optional connections not ready: {intakeDefinition.readiness.missing_optional.join(', ')}. The path will preserve state and clearly flag unavailable actions.
                 </div>
               )}
-              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, minmax(0,1fr))', gap: 12, marginTop: 20 }}>
-                {intakeDefinition.intake.map(renderField)}
-              </div>
-              <div style={{ marginTop: 18, display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
-                <div style={{ display: 'flex', gap: 6, alignItems: 'center', color: 'rgba(45,42,38,0.45)', fontSize: 10.5 }}><ShieldCheck size={13} /> External actions always pause for approval.</div>
-                <button type="button" disabled={busy} onClick={() => void startRun()} style={{ border: 0, borderRadius: 9, background: intakeDefinition.accent, color: '#fff', display: 'flex', gap: 7, alignItems: 'center', padding: '10px 14px', fontSize: 11.5, fontWeight: 750, cursor: busy ? 'wait' : 'pointer' }}>
-                  {busy ? <LoaderCircle size={14} className="animate-spin" /> : <ArrowRight size={14} />} Start path
-                </button>
-              </div>
+              {(() => {
+                // One or two questions at a time; files come later as chat attachments.
+                const steps = intakeSteps(intakeDefinition)
+                const step = Math.min(intakeStep, Math.max(steps.length - 1, 0))
+                const fields = steps[step] ?? []
+                const last = step >= steps.length - 1
+                const blocked = fields.some(field => field.required && (intake[field.key] === undefined || intake[field.key] === ''))
+                return (
+                  <>
+                    <div style={{ marginTop: 20, fontFamily: 'var(--font-mono)', fontSize: 9.5, fontWeight: 750, textTransform: 'uppercase', letterSpacing: '0.12em', color: 'rgba(45,42,38,0.42)' }}>
+                      Step {step + 1} of {steps.length}{fields.every(field => !field.required) ? ' · optional' : ''}
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, minmax(0,1fr))', gap: 12, marginTop: 10 }}>
+                      {fields.map(renderField)}
+                    </div>
+                    <div style={{ marginTop: 18, display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+                      {step > 0 ? (
+                        <button type="button" onClick={() => setIntakeStep(step - 1)} style={{ border: 0, background: 'transparent', display: 'flex', gap: 5, alignItems: 'center', padding: 0, color: 'rgba(45,42,38,0.55)', fontSize: 11, cursor: 'pointer' }}><ArrowLeft size={13} /> Back</button>
+                      ) : (
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center', color: 'rgba(45,42,38,0.45)', fontSize: 10.5 }}><ShieldCheck size={13} /> External actions always pause for approval.</div>
+                      )}
+                      {last ? (
+                        <button type="button" disabled={busy || blocked} onClick={() => void startRun()} style={{ border: 0, borderRadius: 9, background: intakeDefinition.accent, color: '#fff', display: 'flex', gap: 7, alignItems: 'center', padding: '10px 14px', fontSize: 11.5, fontWeight: 750, cursor: busy ? 'wait' : 'pointer', opacity: blocked ? 0.5 : 1 }}>
+                          {busy ? <LoaderCircle size={14} className="animate-spin" /> : <ArrowRight size={14} />} Start path
+                        </button>
+                      ) : (
+                        <button type="button" disabled={blocked} onClick={() => setIntakeStep(step + 1)} style={{ border: 0, borderRadius: 9, background: 'var(--kajal)', color: 'var(--paper)', display: 'flex', gap: 7, alignItems: 'center', padding: '10px 14px', fontSize: 11.5, fontWeight: 750, cursor: 'pointer', opacity: blocked ? 0.5 : 1 }}>
+                          Next <ArrowRight size={14} />
+                        </button>
+                      )}
+                    </div>
+                  </>
+                )
+              })()}
             </div>
           ) : selectedRun ? (
             <div style={{ maxWidth: 980, margin: '0 auto' }}>
@@ -414,9 +538,19 @@ export function WorkflowPathsPanel({ userId, streaming, activeRunId, onContinue 
                       <div style={{ marginTop: 4, fontFamily: 'var(--font-hero)', fontSize: 20, color: 'var(--kajal)' }}>{selectedRun.current_stage.title}</div>
                       <p style={{ margin: '6px 0 0', fontSize: 12, lineHeight: 1.5, color: 'rgba(45,42,38,0.6)' }}>{selectedRun.current_stage.purpose}</p>
                     </div>
-                    {selectedRun.next_action.kind === 'chat' && (
+                    {['chat', 'answer', 'blocked'].includes(pathRun.next_action.kind) && (
                       <button type="button" disabled={busy || streaming || selectedRun.status === 'paused'} onClick={() => onContinue(selectedRun, selectedRun.next_action.prompt)} style={{ border: 0, borderRadius: 9, padding: '10px 13px', display: 'flex', alignItems: 'center', gap: 7, background: 'var(--kajal)', color: 'var(--paper)', fontSize: 11.5, fontWeight: 750, cursor: busy || streaming ? 'wait' : 'pointer' }}>
                         Continue in Chat <ArrowRight size={14} />
+                      </button>
+                    )}
+                    {['review', 'wait'].includes(pathRun.next_action.kind) && pathRun.next_action.url && (
+                      <button type="button" onClick={() => openEvidence(pathRun.next_action.url)} style={{ border: 0, borderRadius: 9, padding: '10px 13px', display: 'flex', alignItems: 'center', gap: 7, background: 'var(--kajal)', color: 'var(--paper)', fontSize: 11.5, fontWeight: 750, cursor: 'pointer' }}>
+                        {pathRun.next_action.kind === 'review' ? 'Confirm the values' : 'Watch the task'} <ArrowRight size={14} />
+                      </button>
+                    )}
+                    {pathRun.next_action.kind === 'export' && (
+                      <button type="button" disabled={busy} onClick={() => void mutateRun('export')} style={{ border: 0, borderRadius: 9, padding: '10px 13px', display: 'flex', alignItems: 'center', gap: 7, background: 'var(--kajal)', color: 'var(--paper)', fontSize: 11.5, fontWeight: 750, cursor: busy ? 'wait' : 'pointer' }}>
+                        Export <ArrowRight size={14} />
                       </button>
                     )}
                     {selectedRun.next_action.kind === 'approve' && (
@@ -431,6 +565,65 @@ export function WorkflowPathsPanel({ userId, streaming, activeRunId, onContinue 
                       <div style={{ marginTop: 4, whiteSpace: 'pre-wrap', fontSize: 11.5, lineHeight: 1.5, color: 'rgba(45,42,38,0.65)' }}>{selectedRun.state.confirmation.summary}</div>
                     </div>
                   )}
+
+                  {/* What's next, in plain words, with the person's own controls. */}
+                  <div style={{ marginTop: 13, paddingTop: 12, borderTop: '1px solid rgba(45,42,38,0.1)' }}>
+                    <div style={{ fontSize: 10, fontWeight: 750, color: 'rgba(45,42,38,0.55)' }}>What's next</div>
+                    <div style={{ marginTop: 4, fontSize: 12, fontWeight: 700, color: 'var(--kajal)' }}>{pathRun.next_action.label}</div>
+                    {pathRun.next_action.detail && <div style={{ marginTop: 3, fontSize: 11.5, lineHeight: 1.45, color: 'rgba(45,42,38,0.6)' }}>{pathRun.next_action.detail}</div>}
+                    {pathRun.current_stage?.id === 'intake' && (pathRun.intake_questions ?? []).length > 0 ? (
+                      <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
+                        {(pathRun.intake_questions ?? []).map(item => (
+                          <label key={item.key} style={{ display: 'grid', gap: 4 }}>
+                            <span style={{ fontSize: 10.5, fontWeight: 750, color: 'rgba(45,42,38,0.62)' }}>{item.question}</span>
+                            <input value={answers[item.key] ?? ''} onChange={event => setAnswers(current => ({ ...current, [item.key]: event.target.value }))} style={{ width: '100%', border: '1px solid rgba(45,42,38,0.14)', borderRadius: 8, background: 'rgba(252,250,242,0.82)', color: 'var(--kajal)', fontSize: 12, padding: '9px 10px', outline: 'none' }} />
+                          </label>
+                        ))}
+                        <button type="button" disabled={busy || !Object.values(answers).some(value => value.trim())} onClick={() => { void mutateRun('update_inputs', answers); setAnswers({}) }} style={{ ...cardStyle, justifySelf: 'start', display: 'flex', gap: 6, alignItems: 'center', padding: '7px 10px', fontSize: 10.5, cursor: 'pointer' }}>
+                          <Check size={13} /> Save answers
+                        </button>
+                      </div>
+                    ) : (pathRun.next_action.questions ?? []).length > 0 && (
+                      <ul style={{ margin: '5px 0 0', paddingLeft: 16, fontSize: 11.5, lineHeight: 1.5, color: 'rgba(45,42,38,0.65)' }}>
+                        {(pathRun.next_action.questions ?? []).map(question => <li key={question}>{question}</li>)}
+                      </ul>
+                    )}
+                    {(pathRun.next_action.can_confirm || pathRun.next_action.can_skip) && (
+                      <div style={{ display: 'flex', gap: 7, marginTop: 9, flexWrap: 'wrap' }}>
+                        {pathRun.next_action.can_confirm && (
+                          <button type="button" disabled={busy} onClick={() => void mutateRun('confirm')} style={{ ...cardStyle, display: 'flex', gap: 6, alignItems: 'center', padding: '7px 10px', fontSize: 10.5, cursor: 'pointer' }}><Check size={13} /> I did this</button>
+                        )}
+                        {pathRun.next_action.can_skip && (
+                          <button type="button" disabled={busy} onClick={() => void mutateRun('skip')} style={{ ...cardStyle, display: 'flex', gap: 6, alignItems: 'center', padding: '7px 10px', fontSize: 10.5, cursor: 'pointer' }}><X size={13} /> Skip this step</button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* The finish line: this stage completes only when these hold. */}
+                  <div style={{ marginTop: 13, paddingTop: 12, borderTop: '1px solid rgba(45,42,38,0.1)' }}>
+                    <div style={{ fontSize: 10, fontWeight: 750, color: 'rgba(45,42,38,0.55)' }}>Done when</div>
+                    <div style={{ display: 'grid', gap: 5, marginTop: 6 }}>
+                      {(pathRun.current_stage?.check?.conditions ?? pathRun.current_stage?.done_when_text ?? []).map(condition => (
+                        <div key={condition.text} style={{ display: 'grid', gridTemplateColumns: '16px minmax(0,1fr)', gap: 6, alignItems: 'start', fontSize: 11.5, lineHeight: 1.4 }}>
+                          <span style={{ marginTop: 1, width: 14, height: 14, borderRadius: 99, display: 'grid', placeItems: 'center', border: `1px solid ${condition.met ? 'var(--tulsi)' : 'rgba(45,42,38,0.2)'}`, background: condition.met ? 'var(--tulsi)' : 'transparent', color: '#fff' }}>{condition.met && <Check size={9} />}</span>
+                          <span style={{ color: condition.met ? 'var(--kajal)' : 'rgba(45,42,38,0.65)' }}>
+                            {condition.text}
+                            {!condition.met && condition.detail && <span style={{ display: 'block', fontSize: 10.5, color: 'rgba(45,42,38,0.45)' }}>{condition.detail}</span>}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    {(pathRun.evidence ?? []).length > 0 && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 9 }}>
+                        {(pathRun.evidence ?? []).map(ref => (
+                          <button type="button" key={`${ref.kind}:${ref.id}`} onClick={() => openEvidence(ref.url)} title={ref.label} style={{ border: '1px solid rgba(45,42,38,0.12)', background: 'transparent', borderRadius: 999, padding: '5px 9px', fontSize: 9.5, color: 'rgba(45,42,38,0.62)', cursor: ref.url ? 'pointer' : 'default', maxWidth: 260, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {EVIDENCE_WORDS[ref.kind] ?? ref.kind}{ref.status ? ` · ${statusLabel(ref.status)}` : ''}{ref.label ? ` · ${ref.label}` : ''}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -438,8 +631,9 @@ export function WorkflowPathsPanel({ userId, streaming, activeRunId, onContinue 
                 <div style={{ ...cardStyle, padding: 15 }}>
                   <div style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.12em', color: 'rgba(45,42,38,0.43)' }}>Path stages</div>
                   <div style={{ display: 'grid', gap: 0, marginTop: 10 }}>
-                    {selectedRun.stages.map((stage, index) => {
+                    {pathRun.stages.map((stage, index) => {
                       const done = stage.status === 'done'
+                      const skipped = stage.status === 'skipped'
                       const current = stage.id === selectedRun.current_stage_id
                       return (
                         <div key={stage.id} style={{ display: 'grid', gridTemplateColumns: '24px minmax(0,1fr)', gap: 9, minHeight: 48 }}>
@@ -448,8 +642,20 @@ export function WorkflowPathsPanel({ userId, streaming, activeRunId, onContinue 
                             {index < selectedRun.stages.length - 1 && <span style={{ width: 1, flex: 1, minHeight: 18, background: done ? `${selectedRun.definition.accent}55` : 'rgba(45,42,38,0.11)' }} />}
                           </div>
                           <div style={{ paddingBottom: 12, opacity: !done && !current ? 0.52 : 1 }}>
-                            <div style={{ display: 'flex', gap: 7, alignItems: 'baseline', flexWrap: 'wrap' }}><span style={{ fontSize: 11.5, fontWeight: current ? 800 : 650 }}>{stage.title}</span><span style={{ fontSize: 9.5, color: 'rgba(45,42,38,0.43)' }}>{stage.owner}</span></div>
+                            <div style={{ display: 'flex', gap: 7, alignItems: 'baseline', flexWrap: 'wrap' }}><span style={{ fontSize: 11.5, fontWeight: current ? 800 : 650 }}>{stage.title}</span><span style={{ fontSize: 9.5, color: 'rgba(45,42,38,0.43)' }}>{stage.owner}{skipped ? ' · skipped' : stage.optional && !done ? ' · optional' : ''}</span></div>
+                            {!done && !skipped && !current && (stage.done_when_text ?? []).length > 0 && (
+                              <div style={{ marginTop: 3, fontSize: 10, lineHeight: 1.4, color: 'rgba(45,42,38,0.5)' }}>Done when: {(stage.done_when_text ?? []).map(item => item.text).join('; ')}</div>
+                            )}
                             {stage.output?.summary && <div style={{ marginTop: 3, fontSize: 10.5, lineHeight: 1.4, color: 'rgba(45,42,38,0.55)' }}>{stage.output.summary.slice(0, 220)}</div>}
+                            {done && (stage.output?.evidence ?? []).length > 0 && (
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 5 }}>
+                                {(stage.output?.evidence ?? []).slice(0, 4).map(ref => (
+                                  <button type="button" key={`${ref.kind}:${ref.id}`} onClick={() => openEvidence(ref.url)} title={ref.label} style={{ border: '1px solid rgba(45,42,38,0.1)', background: 'transparent', borderRadius: 999, padding: '3px 7px', fontSize: 9, color: 'rgba(45,42,38,0.55)', cursor: ref.url ? 'pointer' : 'default', maxWidth: 200, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                    {EVIDENCE_WORDS[ref.kind] ?? ref.kind}{ref.label ? ` · ${ref.label}` : ''}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         </div>
                       )
@@ -470,6 +676,55 @@ export function WorkflowPathsPanel({ userId, streaming, activeRunId, onContinue 
                       ))}
                     </div>
                   </div>
+
+                  {(pathRun.applications ?? []).length > 0 && (
+                    <div style={{ ...cardStyle, padding: 14 }}>
+                      <div style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.11em', color: 'rgba(45,42,38,0.43)' }}>Applications</div>
+                      <div style={{ display: 'grid', gap: 7, marginTop: 9 }}>
+                        {(pathRun.applications ?? []).map(item => (
+                          <div key={item.record_id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', gap: 8, fontSize: 10.5 }}>
+                            <span style={{ minWidth: 0 }}>
+                              <span style={{ display: 'block', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.company} · {item.role}</span>
+                              {(item.next_step || item.reply_seen?.subject) && <span style={{ display: 'block', marginTop: 1, fontSize: 9.5, color: 'rgba(45,42,38,0.47)' }}>{item.reply_seen?.subject ? `Reply: ${item.reply_seen.subject}` : item.next_step}</span>}
+                            </span>
+                            <span style={{ fontSize: 9.5, color: 'rgba(45,42,38,0.55)' }}>{statusLabel(item.status)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {(pathRun.findings ?? []).length > 0 && (
+                    <div style={{ ...cardStyle, padding: 14 }}>
+                      <div style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.11em', color: 'rgba(45,42,38,0.43)' }}>Watch findings</div>
+                      <div style={{ marginTop: 4, fontSize: 10, color: 'rgba(45,42,38,0.45)' }}>Checks only add findings; they never change the plan.</div>
+                      <div style={{ display: 'grid', gap: 7, marginTop: 9 }}>
+                        {(pathRun.findings ?? []).slice(0, 5).map(item => (
+                          <div key={item.record_id} style={{ fontSize: 10.5, lineHeight: 1.4 }}>
+                            <span style={{ fontWeight: 700 }}>{readableDate(item.at)} · {statusLabel(item.status)}</span>
+                            {item.answer && <span style={{ display: 'block', color: 'rgba(45,42,38,0.6)' }}>{item.answer.slice(0, 220)}</span>}
+                            {(item.replies ?? []).map(reply => <span key={reply.subject} style={{ display: 'block', color: 'rgba(45,42,38,0.6)' }}>{reply.company}: {reply.subject}</span>)}
+                            {item.task_id && item.status === 'started' && (
+                              <button type="button" onClick={() => openEvidence(`/?task=${item.task_id}`)} style={{ border: 0, background: 'transparent', padding: 0, fontSize: 10, color: selectedRun.definition.accent, cursor: 'pointer' }}>Watch the check</button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {(pathRun.versions ?? []).length > 0 && (
+                    <div style={{ ...cardStyle, padding: 14 }}>
+                      <div style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.11em', color: 'rgba(45,42,38,0.43)' }}>Versions</div>
+                      <div style={{ display: 'grid', gap: 6, marginTop: 9 }}>
+                        {[...(pathRun.versions ?? [])].reverse().map(item => (
+                          <button type="button" key={item.version} onClick={() => openEvidence(item.url)} style={{ border: 0, background: 'transparent', padding: 0, textAlign: 'left', fontSize: 10.5, color: 'var(--kajal)', cursor: item.url ? 'pointer' : 'default' }}>
+                            <span style={{ fontWeight: 700 }}>v{item.version}</span> · {item.label}{item.stage_title ? <span style={{ color: 'rgba(45,42,38,0.47)' }}> · {item.stage_title}</span> : null}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {selectedDefinition && Object.keys(selectedDefinition.feedback_routes).length > 0 && (
                     <div style={{ ...cardStyle, padding: 14 }}>
