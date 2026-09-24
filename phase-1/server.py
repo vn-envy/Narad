@@ -2767,13 +2767,33 @@ def _log_profile_ids() -> list[str]:
     return sorted({OWNER_PROFILE_ID, *(str(row["user_id"]) for row in list_profiles())})
 
 
-def _profile_log_rows(load: Any, profile_id: str | None) -> list[dict]:
+# Fields that carry what someone asked or got back. The owner's ?scope=all view
+# is for running the Mac: other profiles' rows keep their counts, kinds and
+# times, never this text (docs/PILOT_CONSENT_AND_METRICS.md promises as much).
+_PRIVATE_LOG_FIELDS = frozenset({
+    "task_preview", "result_preview", "detail", "metadata", "query", "result",
+    "text", "preview", "content", "context",
+})
+
+
+def _private_log_row(row: dict, viewer: str | None) -> dict:
+    """*row* as *viewer* may see it: another profile's text is withheld."""
+    if viewer is None or row.get("profile_id") == viewer:
+        return row
+    hidden = {key: value for key, value in row.items() if key not in _PRIVATE_LOG_FIELDS}
+    if len(hidden) != len(row):
+        hidden["text_hidden"] = True
+    return hidden
+
+
+def _profile_log_rows(load: Any, profile_id: str | None, viewer: str | None = None) -> list[dict]:
     """Rows of a per-profile log (``profile_data_path`` files), newest first.
 
     Each row is stamped with the profile it is about: its own ``profile_id``,
     else the profile whose file holds it. The owner's file is the pre-family
     global one, where shared writers (Smriti's mutation ledger) also file
-    rows for other profiles, so every view reads it."""
+    rows for other profiles, so every view reads it. With *viewer*, rows about
+    anyone else lose their text fields (_PRIVATE_LOG_FIELDS)."""
     from profile_context import OWNER_PROFILE_ID, profile_scope
 
     sources = _log_profile_ids() if profile_id is None else sorted({OWNER_PROFILE_ID, profile_id})
@@ -2789,7 +2809,7 @@ def _profile_log_rows(load: Any, profile_id: str | None) -> list[dict]:
                 continue
             if marker:
                 seen.add(marker)
-            rows.append({**row, "profile_id": about})
+            rows.append(_private_log_row({**row, "profile_id": about}, viewer))
     rows.sort(key=lambda row: str(row.get("ts") or ""), reverse=True)
     return rows
 
@@ -2799,7 +2819,7 @@ async def get_sutras(request: Request, scope: Optional[str] = None):
     from sutra_engine import COOLDOWN_HOURS, get_all_sutras
     from tapas import PROMOTE_THRESHOLD
 
-    sutras = _profile_log_rows(get_all_sutras, _log_scope(request, scope))
+    sutras = _profile_log_rows(get_all_sutras, _log_scope(request, scope), _profile_from_request(request))
     by_avatar: dict[str, int] = {}
     for row in sutras:
         avatar = str(row.get("avatar") or "unknown")
@@ -3415,7 +3435,9 @@ async def xai_oauth_disconnect(request: Request):
 async def get_karma(request: Request, scope: Optional[str] = None):
     from karma_log import karma_summary, load_karma
 
-    events = _profile_log_rows(lambda: load_karma(limit=1000), _log_scope(request, scope))
+    events = _profile_log_rows(
+        lambda: load_karma(limit=1000), _log_scope(request, scope), _profile_from_request(request)
+    )
     return karma_summary(events[:1000])
 
 
@@ -3423,7 +3445,9 @@ async def get_karma(request: Request, scope: Optional[str] = None):
 async def get_karma_mutations(request: Request, limit: int = 100, scope: Optional[str] = None):
     from karma_log import load_mutations
 
-    events = _profile_log_rows(lambda: load_mutations(limit=limit), _log_scope(request, scope))
+    events = _profile_log_rows(
+        lambda: load_mutations(limit=limit), _log_scope(request, scope), _profile_from_request(request)
+    )
     return {"mutations": events[:limit]}
 
 
@@ -3434,6 +3458,15 @@ async def get_sankalpa(request: Request, user_id: str = "", scope: Optional[str]
     from smriti_core import load_commitments
 
     profile_id = _log_scope(request, scope, user_id)
+    if profile_id is None:
+        # Style notes and commitments are drawn from what people said: the
+        # owner's every-profile view gets totals, and their own rows only.
+        viewer = _profile_from_request(request)
+        return {
+            "summary":    {pid: sankalpa_summary(pid)["total"] for pid in _log_profile_ids()},
+            "sankalpas":  get_all_sankalpas(viewer),
+            "commitments": load_commitments(viewer),
+        }
     return {
         "summary":    sankalpa_summary(profile_id),
         "sankalpas":  get_all_sankalpas(profile_id),
@@ -3464,7 +3497,9 @@ async def revert_sankalpa_endpoint(sankalpa_id: str, user_id: str = "default"):
 async def get_andon_log(request: Request, limit: int = 50, scope: Optional[str] = None):
     from andon import load_andon_log
 
-    events = _profile_log_rows(lambda: load_andon_log(limit=limit), _log_scope(request, scope))
+    events = _profile_log_rows(
+        lambda: load_andon_log(limit=limit), _log_scope(request, scope), _profile_from_request(request)
+    )
     return {"events": events[:limit]}
 
 
@@ -3472,7 +3507,9 @@ async def get_andon_log(request: Request, limit: int = 50, scope: Optional[str] 
 async def get_andon_stats(request: Request, days: int = 7, scope: Optional[str] = None):
     from andon import andon_stats, load_andon_log
 
-    events = _profile_log_rows(lambda: load_andon_log(limit=500), _log_scope(request, scope))
+    events = _profile_log_rows(
+        lambda: load_andon_log(limit=500), _log_scope(request, scope), _profile_from_request(request)
+    )
     return andon_stats(days=days, events=events)
 
 
@@ -3534,7 +3571,10 @@ async def get_provenance_endpoint(
     entity_id: str, request: Request, user_id: str = "", scope: Optional[str] = None
 ):
     from smriti_core import get_provenance
-    return get_provenance(entity_id, user_id=_log_scope(request, scope, user_id))
+
+    # Provenance quotes the records themselves, so it is always the caller's own.
+    del scope
+    return get_provenance(entity_id, user_id=_assert_profile_match(request, user_id or None))
 
 
 @app.get("/architecture/scorecard")
@@ -3656,7 +3696,7 @@ async def unified_search(
     try:
         from sutra_engine import get_all_sutras  # type: ignore
         sutra_count = 0
-        for s in _profile_log_rows(get_all_sutras, log_profile):
+        for s in _profile_log_rows(get_all_sutras, log_profile, user_id):
             if q_lower in s.get("query", "").lower() or q_lower in s.get("result", "").lower():
                 results.append({
                     "id": s.get("id", ""),
@@ -3677,7 +3717,7 @@ async def unified_search(
     try:
         from andon import load_andon_log  # type: ignore
         andon_count = 0
-        for e in _profile_log_rows(lambda: load_andon_log(limit=50), log_profile):
+        for e in _profile_log_rows(lambda: load_andon_log(limit=50), log_profile, user_id):
             if q_lower in e.get("task_preview", "").lower() or q_lower in e.get("trigger", "").lower():
                 results.append({
                     "id": e.get("id", ""),
@@ -3704,7 +3744,8 @@ async def unified_search(
             about = record_profile_id(entry)
             if log_profile is not None and about != log_profile:
                 continue
-            preview = entry.get("task_preview", "")
+            # Another profile's task text is neither searched nor shown.
+            preview = entry.get("task_preview", "") if about == user_id else ""
             if q_lower in preview.lower() or q_lower in entry.get("avatar", "").lower():
                 results.append({
                     "id": f"audit_{len(results)}",
@@ -3744,13 +3785,15 @@ async def get_audit_log(
     from profile_context import record_profile_id
 
     profile_id = _log_scope(request, scope, user_id)
+    viewer = _profile_from_request(request)
     records: list[dict] = []
     for entry in read_audit_log():
-        if profile_id is not None and record_profile_id(entry) != profile_id:
+        about = record_profile_id(entry)
+        if profile_id is not None and about != profile_id:
             continue
         if event and entry.get("event") != event:
             continue
-        records.append(entry)
+        records.append(_private_log_row({**entry, "profile_id": about}, viewer))
         if len(records) >= limit:
             break
     return records

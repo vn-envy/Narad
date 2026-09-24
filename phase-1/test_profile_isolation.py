@@ -239,6 +239,10 @@ class ProfileLogTests(_FamilyServer):
         self.assertEqual([(row["id"], row["profile_id"]) for row in owner_rows], [("sut-legacy", "default")])
         everyone = self._get("default", "/sutras?scope=all")["sutras"]
         self.assertEqual({row["profile_id"] for row in everyone}, {"alice", "bob", "default"})
+        # The owner reads the learned rules they accept or revert, not the
+        # question and answer each rule was learned from.
+        others = [row for row in everyone if row["profile_id"] != "default"]
+        self.assertTrue(all(row["rule"] and "query" not in row and "result" not in row for row in others))
         self.assertEqual(self.client.get("/sutras?scope=all", headers=self._headers("alice")).status_code, 403)
 
         alice_sutra = alice_rows[0]["id"]
@@ -306,21 +310,27 @@ class ProfileLogTests(_FamilyServer):
         self.assertEqual(self._get("default", "/costs")["entries"], 1)
         self.assertEqual(details(self._get("default", "/audit"), "task_preview"), {"owner legacy task"})
 
-        # The owner's explicit switch shows everyone; a member cannot use it.
-        everyone = {"owner legacy task", "alice private task", "bob private task"}
-        self.assertEqual(details(self._get("default", "/andon/log?scope=all")["events"], "task_preview"), everyone)
+        # The owner's explicit switch counts everyone, but shows only the
+        # owner's own text: other profiles' rows keep kind and time, no text.
+        andon_all = self._get("default", "/andon/log?scope=all")["events"]
+        self.assertEqual(details(andon_all, "profile_id"), {"default", "alice", "bob"})
+        self.assertEqual({row.get("task_preview") for row in andon_all}, {"owner legacy task", None})
+        self.assertTrue(all(row.get("text_hidden") for row in andon_all if row["profile_id"] != "default"))
         self.assertEqual(self._get("default", "/andon/stats?scope=all")["total"], 3)
-        self.assertEqual(
-            details(self._get("default", "/karma/mutations?scope=all")["mutations"], "profile_id"),
-            {"default", "alice", "bob"},
-        )
+        mutations_all = self._get("default", "/karma/mutations?scope=all")["mutations"]
+        self.assertEqual(details(mutations_all, "profile_id"), {"default", "alice", "bob"})
+        self.assertFalse(any("detail" in row for row in mutations_all if row["profile_id"] != "default"))
+        karma_all = self._get("default", "/karma?scope=all")
+        self.assertNotIn("alice private task", json.dumps(karma_all))
         self.assertEqual(self._get("default", "/costs?scope=all")["entries"], 3)
-        self.assertEqual(details(self._get("default", "/audit?scope=all"), "task_preview"), everyone)
+        audit_all = self._get("default", "/audit?scope=all")
+        self.assertEqual(details(audit_all, "profile_id"), {"default", "alice", "bob"})
+        self.assertEqual({row.get("task_preview") for row in audit_all}, {"owner legacy task", None})
         alice = self._headers("alice")
         for path in (
             "/andon/log?scope=all", "/andon/stats?scope=all", "/karma?scope=all",
             "/karma/mutations?scope=all", "/costs?scope=all", "/audit?scope=all", "/sankalpa?scope=all",
-            "/search?q=private&scope=all", "/provenance/bob-episode?scope=all",
+            "/search?q=private&scope=all",
         ):
             self.assertEqual(self.client.get(path, headers=alice).status_code, 403, path)
         # Naming another profile never reaches its records.
@@ -336,12 +346,13 @@ class ProfileLogTests(_FamilyServer):
         self.assertEqual({hit["type"] for hit in alice_hits}, {"andon", "audit"})
         self.assertEqual({hit["preview"].split(" — ")[-1] for hit in alice_hits}, {"alice private task"})
         self.assertEqual({hit["profile_id"] for hit in owner_hits}, {"default"})
-        self.assertEqual({hit["profile_id"] for hit in everyone}, {"alice", "bob"})
+        # Other profiles' task text is neither matched nor shown to the owner.
+        self.assertEqual(everyone, [])
 
         self.assertEqual(self._get("alice", "/provenance/bob-episode")["kind"], "unknown")
         self.assertEqual(self._get("bob", "/provenance/bob-episode")["kind"], "mutation")
         self.assertEqual(self._get("default", "/provenance/bob-episode")["kind"], "unknown")
-        self.assertEqual(self._get("default", "/provenance/bob-episode?scope=all")["kind"], "mutation")
+        self.assertEqual(self._get("default", "/provenance/bob-episode?scope=all")["kind"], "unknown")
 
     def test_sankalpa_and_commitments_are_the_callers_own(self) -> None:
         for profile_id in ("alice", "bob"):
@@ -358,8 +369,9 @@ class ProfileLogTests(_FamilyServer):
         self.assertEqual([row["id"] for row in alice["commitments"]], ["alice-goal"])
         self.assertEqual(self._get("default", "/sankalpa")["sankalpas"], [])
         everyone = self._get("default", "/sankalpa?scope=all")
-        self.assertEqual({row["id"] for row in everyone["sankalpas"]}, {"alice-style", "bob-style"})
-        self.assertEqual({row["id"] for row in everyone["commitments"]}, {"alice-goal", "bob-goal"})
+        self.assertEqual(everyone["summary"], {"default": 0, "alice": 1, "bob": 1})
+        self.assertEqual(everyone["sankalpas"], [])
+        self.assertEqual(everyone["commitments"], [])
         # Accepting a style pattern stays self-service, and only for your own.
         bob = self._headers("bob")
         self.assertEqual(self.client.post("/sankalpa/alice-style/accept", headers=bob).status_code, 404)

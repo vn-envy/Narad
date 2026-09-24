@@ -64,6 +64,7 @@ Everyone in the pilot sees the list of profiles on the sign-in screen: names, co
 In the app, the owner:
 
 - **cannot** open your conversations, memories, files, health or money entries, or your list of cloud calls. Narad checks who is asking on the Mac itself, not only in the app;
+- **can** see, in Narad's system views, that something happened for you and when, without its text: for example that a helper hit an error at 10:02, or that a task was checked by the safety rules. The owner can also read the short rules Narad learns from everyone's use (such as "give recipe weights in grams"), because accepting or undoing them is the owner's job, but not the question each rule was learned from;
 - **can** see whether you accepted this sheet and when, and your pilot numbers as totals: how many questions you asked, how many were answered, failed or stopped, how long answers took, how many approvals you were asked for, how many turns used a guided path, your thumbs up and down with the reasons you picked, how often you used voice, and how many cloud calls were made for you in each group.
 
 There are also limits to be honest about:
