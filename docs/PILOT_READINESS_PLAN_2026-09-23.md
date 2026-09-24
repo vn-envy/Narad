@@ -30,6 +30,23 @@ Still open in Stage A:
 - `launchd` supervision and backups;
 - consent and metric definitions.
 
+**Stage B progress (2026-09-24), the fast path core:**
+- **Token streaming.** Narad and every avatar run with `StreamingMode.SSE`. Text reaches the phone as `text_delta` events, each source through its own `<think>` filter. Thought parts are never sent. `text_reset` drops routing chatter that came before a tool call. `narad_synthesis` still carries the complete reply, so persistence, workflow stages, learning records and Tapas are unchanged.
+- **Hand-off, not rewrite.** A single-avatar turn ends with the avatar's own streamed answer (`skip_summarization`): 2 model calls instead of 3. Parallel turns always get a synthesis (guarded in the avatar tool). The `usage` event and the `turn` ledger row fire once per turn and now include the routing call.
+- **Deterministic pre-router** (`phase-1/prerouter.py`, `NARAD_PREROUTER=off` disables). It sends five kinds of turn straight to their avatar: bound workflow stages (except Parashurama's), `/teach`, Gurukul check answers, bank-statement CSVs, and document-summary or bare-URL turns. That is 1 model call, with a `route` event in the trace.
+- **Streaming-safe privacy.** `StreamRestorer` holds back a placeholder split across chunks. Failover still happens only before the first byte.
+- **PWA.** The answer renders as it streams, throttled to animation frames. The final reply replaces it in place.
+- **Evidence** (stubbed models, `test_streaming_fast_path.py`):
+
+  | Turn | Model calls | Serial |
+  |---|---|---|
+  | Hand-off | 2 | 2 |
+  | `hand_off=false` | 3 | 3 |
+  | Two avatars in parallel | 4 | 3 |
+  | Pre-routed | 1 | 1 |
+
+- **Still open:** live time-to-first-token on the Mac (Pariksha), the prompt diet, and caching.
+
 ## Stack decisions (2026-09-24): Indic voice, Indic documents, local decision models
 
 These decisions come from two source-checked research passes, one on Sarvam and Indic open models, one on Jev, CUA-S1 and Laya. They put experience and functionality first, then privacy, then cost. Sarvam and Laya numbers are vendor-reported unless marked otherwise. Every Mac figure is an estimate until `scripts/bench_local_stack.py` has been run on the M5 Air.
