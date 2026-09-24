@@ -6,7 +6,7 @@ model before any output has escaped.
 
 Every request passes through privacy_gateway first: `redact`-tier providers
 (DeepSeek and unknown hosts) only ever see pseudonymised text, and their replies
-are restored on the Mac.
+are restored on the Mac, streamed chunks included.
 
 Owner policy (2026-09-23): xAI/Grok is out. An `xai/*` model is never called:
 a stale session or explicit override naming one is served by the default
@@ -23,6 +23,7 @@ from typing import Any
 from google.adk.models.lite_llm import LiteLlm
 from google.adk.models.llm_request import LlmRequest
 from google.adk.models.llm_response import LlmResponse
+from google.genai import types
 
 import privacy_gateway
 
@@ -66,6 +67,20 @@ def _copy_request(llm_request: LlmRequest) -> LlmRequest:
         return llm_request.model_copy(deep=True)
     except AttributeError:
         return copy.deepcopy(llm_request)
+
+
+def _held_text_response(
+    restorer: privacy_gateway.StreamRestorer, like: LlmResponse | None = None
+) -> LlmResponse | None:
+    """The text a stream restorer still holds, as one last partial chunk."""
+    tail = restorer.flush()
+    if not tail:
+        return None
+    return LlmResponse(
+        content=types.Content(role="model", parts=[types.Part(text=tail)]),
+        partial=True,
+        model_version=getattr(like, "model_version", None),
+    )
 
 
 def _exception_chain_text(exc: BaseException) -> str:
@@ -199,12 +214,29 @@ class NaradLiteLlm(LiteLlm):
                 yield response
             return
         emitted = False
+        # Streamed chunks can split a placeholder, so partial responses share
+        # one restorer; each aggregated response is restored in full, once.
+        restorer = privacy_gateway.StreamRestorer() if tier == privacy_gateway.REDACT else None
         try:
             async for response in super().generate_content_async(primary_request, stream):
+                # The provider has answered: from here on, no failover, even
+                # while the restorer still holds this chunk's text back.
                 emitted = True
-                if tier == privacy_gateway.REDACT:
-                    response = privacy_gateway.restore_llm_response(response)
+                if restorer is not None:
+                    if response.partial:
+                        response = privacy_gateway.restore_partial_response(response, restorer)
+                        if response is None:
+                            continue
+                    else:
+                        tail = _held_text_response(restorer, response)
+                        if tail is not None:
+                            yield tail
+                        response = privacy_gateway.restore_llm_response(response)
                 yield response
+            if restorer is not None:
+                tail = _held_text_response(restorer)
+                if tail is not None:
+                    yield tail
         except Exception as exc:
             # Once any content or tool-call response has escaped, replaying the
             # request on another provider could duplicate user-visible effects.

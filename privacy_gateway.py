@@ -16,6 +16,8 @@ through this module, which:
   3. re-checks the outgoing payload with the rules and fails closed on a leak;
   4. restores placeholders in the reply before it reaches local tools or the user,
      except in arguments of tools that send text to the internet (search, HTTP);
+     streamed replies are restored chunk by chunk (StreamRestorer holds back a
+     placeholder split across chunks);
   5. appends one line per cloud call to the profile's egress ledger.
 
 Tier overrides: NARAD_PROVIDER_TIERS="deepseek=redact,nebius=trusted" or
@@ -754,6 +756,72 @@ def restore_llm_response(llm_response: Any) -> Any:
         call = getattr(part, "function_call", None)
         if call is not None and call.args and call.name not in OUTBOUND_TOOLS:
             call.args = _walk(dict(call.args), restore_text)
+    return llm_response
+
+
+# ── Streamed replies ──────────────────────────────────────────────────────────
+
+# A trailing fragment that may still grow into a placeholder: "<", the label,
+# "_" and the counter. Longer than this, it is plain text.
+_MAX_PLACEHOLDER_LEN = 32
+_PARTIAL_PLACEHOLDER_RE = re.compile(r"<(?:[A-Z]+(?:_\d*)?)?")
+
+
+class StreamRestorer:
+    """Restores placeholders in a reply that arrives in chunks.
+
+    A placeholder can straddle chunks ("<PER" + "SON_1> said"), so restoring
+    each chunk alone would show the placeholder or miss it. The trailing
+    fragment that could still become one is held back until the next chunk
+    settles it; flush() releases it when the stream ends.
+    """
+
+    def __init__(self) -> None:
+        self._held = ""
+
+    def feed(self, text: str) -> str:
+        text = self._held + (text or "")
+        self._held = ""
+        start = text.rfind("<")
+        if (
+            start != -1
+            and len(text) - start <= _MAX_PLACEHOLDER_LEN
+            and _PARTIAL_PLACEHOLDER_RE.fullmatch(text, start)
+        ):
+            text, self._held = text[:start], text[start:]
+        return restore_text(text)
+
+    def flush(self) -> str:
+        text, self._held = self._held, ""
+        return restore_text(text)
+
+
+def restore_partial_response(llm_response: Any, restorer: StreamRestorer) -> Any | None:
+    """restore_llm_response for one streamed chunk.
+
+    Visible text goes through *restorer*; thought text is never shown and is
+    restored as it comes. Returns None when every part was held back.
+    """
+    content = getattr(llm_response, "content", None)
+    parts = list(getattr(content, "parts", None) or [])
+    if not parts:
+        return llm_response
+    kept = []
+    for part in parts:
+        if getattr(part, "text", None):
+            if getattr(part, "thought", False):
+                part.text = restore_text(part.text)
+            else:
+                part.text = restorer.feed(part.text)
+                if not part.text and getattr(part, "function_call", None) is None:
+                    continue
+        call = getattr(part, "function_call", None)
+        if call is not None and call.args and call.name not in OUTBOUND_TOOLS:
+            call.args = _walk(dict(call.args), restore_text)
+        kept.append(part)
+    if not kept:
+        return None
+    content.parts = kept
     return llm_response
 
 
