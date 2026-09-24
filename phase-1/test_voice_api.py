@@ -24,8 +24,8 @@ import voice_engine as voice_module
 from fastapi.testclient import TestClient
 
 import family_profiles
-import pilot_metrics
 import onboarding
+import pilot_metrics
 import profile_context
 
 _WAV = b"RIFF\x24\x00\x00\x00WAVEfmt "
