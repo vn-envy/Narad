@@ -23,9 +23,9 @@ The phases further down are still the backlog. The stages above set the order an
 - The privacy gateway now covers every agent call, background learner, embedding, Jev decision and text-to-speech call. It uses the OpenMed and India-ID detectors. It fails closed, keeps an egress ledger at `/privacy/egress`, and has 30+ tests.
 - The pilot hostname is out of the code.
 - Browser-step and turn-routing Jev are off by default. They added 0.5–2 s per step for advisory output only.
+- Logs and generated artifacts are scoped per profile, and the other Phase 0 carryovers are closed (see Phase 0 below).
 
 Still open in Stage A:
-- per-profile scoping for logs and artifacts;
 - Cloudflare Access;
 - `launchd` supervision and backups;
 - consent and metric definitions.
@@ -279,12 +279,12 @@ Each phase is one reviewable PR (or a small stack). Exit gates are hard: a phase
 
 > **Status: done (`e4c8d9a`).** 329 tests pass (baseline 226), 1 is skipped; ruff is clean; the frontend builds. A live strict-mode smoke test confirmed the auth boundaries. An adversarial review found 24 issues and all 24 were fixed. The most important was a pre-existing hole: family profiles could reach host secrets through the shell tools, which are now owner-only.
 >
-> **Carryovers (not blockers):**
-> - Executor, Imagen and Veo output under `artifacts/<run_id>/` is readable by any signed-in profile that knows the run id.
-> - `/sutras`, `/andon/log`, `/karma` and the audit part of `/search` are not filtered by profile.
-> - There is no UI yet for changing your own PIN or signing out all devices; the APIs exist.
-> - The Security Floor section of `AGENTS.md` is out of date.
-> - The signed-in browser does not re-check the URL after redirects.
+> **Carryovers (not blockers): all closed (2026-09-24).**
+> - *Closed:* executor, Imagen and Veo output was readable by any signed-in profile that knew the run id. New output lands in `artifacts/runs/<profile_id>/<run_id>/`, and `/media` serves it only to that profile. Top-level run folders from before are served only to the owner.
+> - *Closed:* `/sutras`, `/andon/log` and `/karma` were not filtered by profile, nor was the audit part of `/search`. Records now name their profile when written. These endpoints show each profile only its own records, and so do `/sankalpa`, `/costs`, `/audit` and `/provenance`. The owner sees everyone's with `?scope=all`, and sutra accept/revert is owner-only. An audit of query, body and path ids found one more leak, now closed: a learning workspace id such as `../<profile>/<id>` could open another profile's learning folder.
+> - *Closed:* there was no UI for changing your own PIN or signing out all devices. System → Profile in the app now does both. The owner can also reset a member's PIN there and sign them out.
+> - *Closed:* the Security Floor section of `AGENTS.md` was out of date; it now describes the current floor.
+> - *Closed:* the signed-in browser did not re-check the URL after redirects. Both browsers now check where a page lands after every navigation, click or history move. On a refused address the signed-in browser goes back, or closes the session if it cannot; the isolated browser blanks the page or closes the tab. Either way the result says it was refused.
 
 - **Identity**
   - Every route derives `user_id` from the authenticated session through one FastAPI dependency. Remove all `user_id="default"` defaults.
