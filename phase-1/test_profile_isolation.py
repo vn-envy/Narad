@@ -209,37 +209,62 @@ class ProfileRunTests(_FamilyServer):
                 self.assertEqual(host_access.path_access_error(own), "That file belongs to another family profile")
 
 
-    def test_document_and_disk_tools_follow_the_same_file_rule(self) -> None:
+    def test_matsya_file_tools_keep_family_members_to_their_own_files(self) -> None:
+        import hashlib
+
         import docling_skill
         import local_skill
 
         profiles = self.root / "profiles"
+        uploads = self.root / "attachments"
         host = self.root / "host"
+        bob_upload_dir = uploads / "content" / hashlib.sha256(b"bob").hexdigest()[:16]
         files = {
             "alice": profiles / "alice" / "notes.txt",
-            "bob": profiles / "bob" / "notes.txt",
+            "bob_profile": profiles / "bob" / "notes.txt",
+            "bob_upload": bob_upload_dir / "lab_report.txt",
             "host": host / "notes.txt",
         }
         for path in files.values():
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("Blood test on Monday", encoding="utf-8")
-        with patch.object(host_access, "PROFILES_DIR", profiles):
+        trashed: list[str] = []
+        fake_send2trash = SimpleNamespace(send2trash=trashed.append)
+
+        with patch.object(host_access, "PROFILES_DIR", profiles), \
+             patch.object(host_access, "ATTACHMENTS_DIR", uploads), \
+             patch.dict(sys.modules, {"send2trash": fake_send2trash}):
             with profile_scope("alice"):
                 self.assertEqual(docling_skill.extract_document(str(files["alice"]))["status"], "ok")
-                for other in ("bob", "host"):
+                for other in ("bob_profile", "bob_upload", "host"):
                     refused = docling_skill.extract_document(str(files[other]))
                     self.assertEqual(refused["status"], "error", other)
-                    self.assertEqual(refused["content"], "")
-                self.assertEqual(local_skill.scan_directory(str(host))["status"], "error")
-                self.assertEqual(local_skill.find_large_files(str(host))["status"], "error")
+                    self.assertEqual(refused["content"], "", other)
+                for folder in (bob_upload_dir, host):
+                    self.assertEqual(local_skill.scan_directory(str(folder))["status"], "error", folder)
+                    self.assertEqual(local_skill.find_large_files(str(folder))["status"], "error", folder)
                 # Moving files on the host is the owner's call.
-                self.assertEqual(local_skill.move_to_trash([str(files["alice"])])["status"], "blocked")
+                self.assertEqual(local_skill.move_to_trash([str(files["bob_upload"])])["status"], "blocked")
                 self.assertEqual(local_skill.organize_by_type(str(host))["status"], "blocked")
+
             with profile_scope("default"):
+                # The owner keeps the host Mac.
                 self.assertEqual(docling_skill.extract_document(str(files["host"]))["status"], "ok")
                 self.assertEqual(local_skill.scan_directory(str(host))["status"], "ok")
-                self.assertEqual(docling_skill.extract_document(str(files["alice"]))["status"], "error")
-                self.assertEqual(local_skill.scan_directory(str(profiles / "bob"))["status"], "error")
+                self.assertEqual(local_skill.find_large_files(str(host))["status"], "ok")
+                self.assertEqual(local_skill.organize_by_type(str(host))["status"], "ok")
+                # ...but, as path_access_error promises and the consent sheet tells
+                # the family, gets no pass into a member's files or uploads.
+                for other in ("alice", "bob_upload"):
+                    self.assertEqual(docling_skill.extract_document(str(files[other]))["status"], "error", other)
+                self.assertEqual(local_skill.scan_directory(str(bob_upload_dir))["status"], "error")
+                # Every path is checked first: one refused path moves nothing.
+                mixed = local_skill.move_to_trash([str(files["host"]), str(files["bob_upload"])], dry_run=False)
+                self.assertEqual(mixed["status"], "blocked")
+                self.assertEqual(trashed, [])
+                moved = local_skill.move_to_trash([str(files["host"])], dry_run=False)
+                self.assertEqual(moved["status"], "ok", moved)
+                self.assertEqual(trashed, [str(files["host"].resolve())])
 
 
 class ProfileLogTests(_FamilyServer):

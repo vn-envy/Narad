@@ -57,12 +57,16 @@ def _check_blocked(p: Path) -> str | None:
     for blocked in _BLOCKED_PATHS:
         if ps == blocked or ps.startswith(blocked + "/"):
             return f"Blocked: '{ps}' is a protected system path. Narad cannot operate on system directories."
-    # Narad's secrets and other profiles' folders are off limits to everyone;
-    # family members are kept to their own Narad files (host_access).
+    denied = _access_error(p)
+    return f"Blocked: {denied}." if denied else None
+
+
+def _access_error(p: Path) -> str | None:
+    """Narad's secrets and other profiles' folders are off limits to everyone;
+    family members are kept to their own Narad files (host_access)."""
     from host_access import path_access_error
 
-    denied = path_access_error(p)
-    return f"Blocked: {denied}." if denied else None
+    return path_access_error(p)
 
 
 def _owner_only(tool: str) -> dict | None:
@@ -157,6 +161,11 @@ def move_to_trash(paths: list[str], dry_run: bool = True) -> dict:
     refused = _owner_only("move_to_trash")
     if refused:
         return refused
+    # Every path is checked before anything moves: one refused path refuses the call.
+    for raw in paths:
+        denied = _access_error(_resolve(raw))
+        if denied:
+            return {"status": "blocked", "message": f"{denied}: {raw}"}
     try:
         import send2trash
     except ImportError:
