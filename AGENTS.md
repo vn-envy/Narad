@@ -114,9 +114,9 @@ document extraction, critical analysis (steelman + red-team), and the local file
 | `exa_contents` | Bounded full-text extraction for known public URLs |
 | `browse_url` | Playwright headless browser for JS SPAs and specific URLs |
 | `http_request` | Direct REST API / webhook calls; POST/PUT/PATCH/DELETE wait for an Anumati approval |
-| `start_task` | Every multi-step web errand (search and compare, fill a form, book, find something on a long page). Returns a task id at once; Kriya runs it in the background, the person watches and stops it on the task card (see Kriya below) |
-| `computer_use` | Single quick looks or actions: persistent isolated Playwright or profile-granted signed-in BrowserSkill sessions; semantic actions, batched execution, and trace artifacts; desktop is opt-in. Benign steps run; the first commit step returns `needs_approval` (Anumati) |
-| `phone_use` | Optional profile-granted Android execution through Artemis; consequential tasks need verified mode and an Anumati approval |
+| `start_task` | Every multi-step errand. `surface="browser"` (default): search and compare, fill a form, book, find something on a long page. `surface="phone"` (+ `device`, `app`): a task on the person's own Android phone through Artemis. `surface="desktop"`: a task in the Mac's apps, owner only. Returns a task id at once; Kriya runs it in the background, the person watches and stops it on the task card (see Kriya below) |
+| `computer_use` | Single quick looks or actions: persistent isolated Playwright or profile-granted signed-in BrowserSkill sessions; semantic actions, batched execution, and trace artifacts; desktop is opt-in and goes through the host's persistent `cua-driver mcp` session. Benign steps run; the first commit step returns `needs_approval` (Anumati) |
+| `phone_use` | Thin wrapper over a Kriya phone task: `dry_run=True` previews; `dry_run=False` starts the task and waits up to `NARAD_PHONE_USE_WAIT_S` (20 s), returning its result or `task_started` (the card, with its approval when one is needed). Consequential tasks run only in verified mode |
 | `browser_screenshot` / `browser_fill` / `browser_upload_and_submit` | Compatible form helpers over one shared session: screenshot → fill → approval card → Narad submits |
 | `search_arxiv` / `search_papers` / `search_hf_papers` / `search_hf_models` | Academic + model discovery |
 | `query_deepwiki` | GitHub repo architecture questions |
@@ -240,7 +240,7 @@ Two layers. Input, in `/chat` before any avatar runs:
   them for `redact` providers.
 
 Side effects:
-`dharma.gate_action()` gates `executor`, `email_send`, `browser_submit`, and `desktop_control` — unknown
+`dharma.gate_action()` gates `executor`, `email_send`, `browser_submit`, `desktop_control` and `mobile_control` — unknown
 actions are denied by default; every verdict lands in Karma. Policy file:
 `~/.narad/config/dharma_policy.json`. Dharma decides whether an action may happen at
 all; Anumati decides whether this person approved this exact one.
@@ -258,7 +258,7 @@ their phone (`anumati.py`). A model's `confirmed=True` or `dry_run=False` approv
   `needs_approval` with the pending proposal (an identical request reuses it, an executed
   one returns `already_done`). Covered: `send_email`, commit steps in `computer_use`
   (isolated, signed-in, desktop), `browser_fill` / `browser_upload_and_submit` submits,
-  consequential `phone_use` tasks, workflow stage confirmations, `http_request` POST /
+  consequential phone tasks (a Kriya task, surface `task`), workflow stage confirmations, `http_request` POST /
   PUT / PATCH / DELETE (GET, HEAD and OPTIONS run at once; secret headers are masked on the
   card), and commit steps inside Kriya tasks (surface `task`: no executor is registered, so
   approving leaves the proposal `approved` and the task's own loop consumes it and runs that
@@ -272,8 +272,10 @@ their phone (`anumati.py`). A model's `confirmed=True` or `dry_run=False` approv
   never another model call; browser executors first check that the page URL and the
   target's label are unchanged. Every verdict goes to Karma with the hash; the result is
   noted in the originating chat thread and sent as `vahana.deliver(kind="approval_result")`.
-  A new proposal sends `kind="approval_request"` (`data.url` = `/?approval=<id>`) and the
-  chat stream emits `approval_requested`, which the app renders as an approval card.
+  A new proposal sends `kind="approval_request"` (`data.url` = `/?approval=<id>`, or
+  `/?task=<id>` when the decision needs the task screen: a phone task that must allow a
+  banking or UPI app first) and the chat stream emits `approval_requested`, which the app
+  renders as an approval card.
 - **Risk policy v2** (`risk_policy.py`, one ordered rule table, Hindi/Hinglish labels
   included): approval only for commit steps — send, pay, book, buy, apply, submit a form,
   upload, delete, account changes, public posts, typing a password/OTP/card/ID number,
@@ -306,10 +308,43 @@ operator model (`NARAD_OPERATOR_MODEL`, default Matsya's worker model), always t
   `waiting_help` and a `question` push; instruction-like page text is shown to the operator
   as untrusted and every non-read step there needs approval; the Phase 0 URL policy runs
   before every navigation and wherever a page lands.
+- **Phone surface** (`kriya/phone.py`, `start_task(surface="phone")` or `phone_use`): Artemis
+  runs the task on the phone; Kriya holds the handle. Admission is local
+  (`risk_policy.classify_phone_task`: the task classifier with English, Hinglish and Hindi
+  side-effect phrases such as bhejo, pay karo, recharge, order, cancel, UPI, OTP, plus the
+  banking/UPI/wallet app denylist `PHONE_APP_DENYLIST`, extendable but never shortened by
+  `NARAD_HOME/config/phone_app_denylist.json`); no cloud decision service. A commit-class
+  task waits in `waiting_approval` on a `task` proposal (preview kind `phone`) before
+  anything reaches the phone and always runs in verified mode; a denylisted app must be
+  allowed for that task first (`POST /tasks/{id}/allow-app`: an Anumati edit, so a new
+  proposal whose hash includes `allowed_apps`), otherwise the approved task is refused.
+  Dispatch stores the Artemis session id before `POST /api/run`, so a restart re-attaches
+  and never sends twice. The loop polls `/api/sessions/{id}` and `/steps`: each Artemis step
+  is a step line, the latest step screenshot is the live frame (fetched from
+  `/api/images/{name}`, memory only, never while a denylisted app is in front), and a
+  denylisted foreground app that was not allowed stops the task. Cancel calls
+  `POST /api/stop`; a task Artemis no longer tracks (no row, no queue entry, no device lease)
+  for a minute is stopped and failed. Artemis's verified result (`/api/sessions/{id}/checks`
+  → `run_outcome`: all checks passed = verified; a failed check, `partial` or `blocked` =
+  failed; nothing proven = done but unverified) decides the outcome, stored as
+  `result.verification`. Artemis's own agent sees every screen, so before dispatch the model
+  it reports in `/api/status` `model_info` must pass `privacy_gateway.allow_raw` (local or
+  trusted only; one `kriya_phone` line in the egress ledger), or nothing is sent. Artemis
+  does not report FLAG_SECURE; Narad itself never sends a phone screenshot to any model.
+- **Desktop surface** (`kriya/desktop.py`, `start_task(surface="desktop")`, owner only, with
+  the `cua` grant): the same loop on one window of the Mac through the host's persistent
+  `cua-driver mcp` session (`phase-8/cua_session.py`: one process on its own thread and
+  loop, restarted on failure, telemetry off, a startup self-check of every tool and
+  argument Narad sends against `tools/list`). Observation is `get_window_state`'s
+  accessibility elements with refs derived from role, label and tree path; actions go by
+  `element_token` with `delivery_mode: background`; every input step waits for an approval
+  (risk_policy); the step line carries the driver's Effect (confirmed / partial /
+  unverifiable / suspected_noop / refused) and `verify_state` for the step's expectation.
 - **Store and control**: `profiles/<id>/kriya.db` (SQLite WAL, 0600) with the task and its
   event log (the phone's step list); states queued / running / waiting_approval /
   waiting_help / done / failed / cancelled. One browser task per profile at a time (the
-  isolated and cloud browser share the lock), desktop and phone exclusive, `NARAD_KRIYA_WORKERS`
+  isolated and cloud browser share the lock), one task per phone (`phone:<serial>`, plus
+  the `android:<serial>` operation lock), one desktop task on the host, `NARAD_KRIYA_WORKERS`
   (3) at once, `NARAD_KRIYA_MAX_ACTIVE` (3) per profile, `NARAD_KRIYA_MAX_STEPS` (30). Cancel
   is checked before every action and while waiting (stops within one step). Server shutdown
   suspends tasks at a checkpoint; startup resumes unfinished ones from their last page.
@@ -317,8 +352,10 @@ operator model (`NARAD_OPERATOR_MODEL`, default Matsya's worker model), always t
   id is 404): `GET /tasks`, `GET /tasks/{id}` (with events, and the approval while one
   waits), `POST /tasks/{id}/cancel`, `POST /tasks/{id}/resume`, `POST /tasks/{id}/takeover`
   (click at a fraction of the frame, type, key, scroll, back; only while `waiting_help`;
-  typed text is never logged or stored), `GET /tasks/{id}/frame` (latest viewport JPEG, kept
-  in memory only, `Cache-Control: no-store`; the app polls it at about 1.5 fps).
+  typed text is never logged or stored; browser tasks only), `POST /tasks/{id}/allow-app`
+  (phone tasks), `GET /tasks/{id}/frame` (latest viewport JPEG, the phone's latest
+  screenshot, or the Mac window as PNG; kept in memory only, `Cache-Control: no-store`; the
+  app polls it at about 1.5 fps).
 - **Cloud browser** (owner decision 2): with `NARAD_CLOUD_BROWSER_URL` (CDP websocket of a
   self-hosted Steel or browserless; `NARAD_CLOUD_BROWSER_TOKEN` is added as `?token=`,
   `NARAD_CLOUD_BROWSER_TOKEN_PARAM` renames it) the runtime uses it only for tasks with no
@@ -475,6 +512,11 @@ WEB ERRANDS: User → Narad → Matsya start_task() → task card in chat
         → Kriya [perceive → decide → act → settle → verify] in the background
         → commit step: approval card on the phone · sign-in: live view takeover
         → task_done push + a note in the chat thread
+
+PHONE TASKS (at home, over ADB): User → Narad → Matsya start_task(surface="phone") or phone_use
+        → local admission (risk_policy) → commit-class: approval card (+ allow a banking/UPI app)
+        → Artemis /api/run, verified mode → steps and the latest screen on the task card, Stop
+        → Artemis's checker result → task_done push + a note in the chat thread
 ```
 
 ---

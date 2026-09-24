@@ -166,7 +166,19 @@ Still open in Stage A:
   | 800 links on one screen | budget held | — | — | ~1,930 tokens | — |
 
   Times are the runtime's own (browser, settle, verify) with no model; on the Mac the operator model's latency adds to each step. Cancel stopped a running task within one step in under 5 s.
-- **Still open:** the scorecard with the real operator model on the Mac (`scripts/pariksha_browser.py`); desktop and phone tasks (still `computer_use` / `phone_use`); standing envelopes; the signed-in BrowserSkill surface and `request-help` as takeover; Prompt Guard as a second injection check; downloads and uploads inside tasks beyond a single download; per-profile `storage_state` with consent; a Running section for tasks in Activity.
+- **Still open:** the scorecard with the real operator model on the Mac (`scripts/pariksha_browser.py`); desktop and phone tasks (landed since: see the next block); standing envelopes; the signed-in BrowserSkill surface and `request-help` as takeover; Prompt Guard as a second injection check; downloads and uploads inside tasks beyond a single download; per-profile `storage_state` with consent; a Running section for tasks in Activity.
+
+**Stage C progress (2026-09-24), phones and the desktop as Kriya surfaces** (Phase 4 Desktop and Android, Fix J, the Phase 7 launchd units):
+- **Android as an async Kriya task, at home over ADB** (`phase-8/kriya/phone.py`; `start_task(surface="phone")`, and `phone_use` is now a thin wrapper that starts one and waits up to 20 s). Every Artemis endpoint used was read from google/artemis at 371aa6d: `/api/run` (with Narad's session id, which makes a retry idempotent), `/api/sessions/{id}`, `/api/status`, `/api/stop`, `/api/sessions/{id}/steps`, `/api/images/{name}` and `/api/sessions/{id}/checks`.
+  - Kriya stores the Artemis session id before dispatch, so a restart re-attaches and never sends a task twice; cancel calls `/api/stop` (also for a task nobody is following after a restart); a task Artemis no longer tracks for a minute is stopped and failed, so no `running` task is left orphaned.
+  - Each Artemis step is a step line; the latest step screenshot is the live frame (memory only, `no-store`, never while a banking or UPI app is in front).
+  - The outcome is Artemis's own verified result (`run_outcome`: all checks passed, a failed check, `partial`, `blocked`, or nothing proven), stored as `result.verification`; `android_verify_v1` is gone.
+  - One task per phone (Kriya's `phone:<serial>` key plus the `android:<serial>` operation lock); two phones run side by side.
+- **Android admission, locally** (`risk_policy.classify_phone_task`): the task classifier gains Hinglish and Hindi side-effect phrases (bhejo, pay karo, paise bhejo, recharge, order, cancel, hatao, भेज दो, भुगतान, रिचार्ज, ऑर्डर, कैंसिल, UPI, OTP, ...) and a banking/UPI/wallet app denylist (Google Pay, PhonePe, Paytm, BHIM, CRED, MobiKwik, Freecharge, and the SBI, HDFC, ICICI, Axis, Kotak and Bank of Baroda apps; `~/.narad/config/phone_app_denylist.json` can only add). A commit-class task waits for an approval before dispatch and always runs verified; a denylisted app must be allowed for that task on the card (`POST /tasks/{id}/allow-app`, an Anumati edit with a new hash), and one that turns up on screen without that stops the task. The cloud `android_admission_v1` call and `NARAD_JEV_PHONE_MODE` are removed. Artemis's own agent sees every screen, so a task is dispatched only when the model Artemis reports (`model_info`) passes `privacy_gateway.allow_raw` (local or trusted, one egress-ledger line). **Gap:** Artemis does not report FLAG_SECURE; Narad never sends phone screenshots to a model and hides frames of denylisted apps, but Artemis's own agent still sees whatever the phone renders (usually a blank screen for those apps).
+- **Desktop as a persistent cua-driver session** (`phase-8/cua_session.py`, `phase-8/kriya/desktop.py`): one `cua-driver mcp` process (MCP over stdio, the 2025-06-18 initialize flow) on its own thread and loop, restarted on failure (never retrying a call), telemetry off; a startup self-check compares every tool and argument Narad sends with the server's `tools/list` and refuses to run on a mismatch. The tool table and its source files (trycua/cua `libs/cua-driver` at 912a455) are in `cua_session.TOOLS`. `computer_use(environment="desktop")` now runs over the session, with explicit `delivery_mode`, `direction`/`amount` scroll and the Effect contract as its verification. `start_task(surface="desktop")` is owner only: observation is the window's accessibility elements with refs derived from role, label and tree path, actions go by `element_token` with background delivery, every input step waits for an approval, and the step line carries the driver's Effect and `verify_state`. `desktop_admission_v1` / `desktop_verify_v1` are gone.
+- **Supervision:** `com.narad.cua-driver` (`cua-driver serve`, telemetry off, installed only when Cua Driver is installed and not already supervised) and `com.narad.artemis` (`scripts/run_artemis.sh`, installed only when Artemis is under `NARAD_ARTEMIS_DIR` and `NARAD_ARTEMIS_URL` is this Mac); the watchdog restarts either after 3 failed checks. `scripts/enroll_android.sh` sets a phone up at home (adb check, device list, the Artemis helper through `artemis helper install`, background running, the profile grant, the manual steps; `--dry-run`; nothing touched without a serial the person names).
+- **Evidence:** `phase-1/test_kriya_phone.py` (a stub Artemis HTTP server: admission, approval before dispatch, async steps and frames, cancel, restart re-attach, orphans, one task per phone, the denylist and allow-app, verified-result mapping, `phone_use`), `phase-1/test_cua_session.py` (a stub MCP server, `evals/pariksha/cua_driver_stub.py`: one process, telemetry, self-check, restart, scroll arguments, a desktop task end to end), and `phase-1/test_pilot_ops_scripts.py` (the new units and the enrollment dry run).
+- **Still open:** phones away from home (the Narad Companion app); a Laya check that can only tighten phone admission; checking the denylist against the family's own banking and UPI apps (owner question 9); a real run on the Mac with a phone and with Cua Driver (the stubs follow the sources above, not a live device); the desktop surface's operator in the bake-off.
 
 ## Stack decisions (2026-09-24): Indic voice, Indic documents, local decision models
 
@@ -207,9 +219,9 @@ The pipeline has five steps:
 | `route_turn_v1` | Cloud call off (done). Add a deterministic pre-router now. Later, a fine-tuned **Laya-multilingual** classifier head runs in shadow mode and becomes a "skip the supervisor" fast path only at ≥95% accuracy with ≥50% coverage. |
 | `browser_step_v1` | Off the synchronous path (done). **Page state** comes from DOM rules: password fields, captcha frames, dialogs, HTTP errors. **Injection** is caught by **Prompt Guard 2 86M** plus the existing regex. Next-action suggestions are dropped, because the operator model already plans. |
 | `browser_verify_v1` | Dead code: delete it. Use deterministic postconditions instead: URL, field value, toast, download. A small VLM yes/no check runs only for high-risk final states. |
-| `desktop_admission_v1` / `desktop_verify_v1` | Admission is dropped, since desktop is always confirmation-gated. Verification uses the cua-driver Effect contract plus `verify_state`. |
-| `android_admission_v1` | Keep, but run it locally: the existing regex, extended with Hinglish and Hindi side-effect phrases, plus a Laya-multilingual check that can only **tighten** gating. |
-| `android_verify_v1` | Drop it. Use Artemis's own verified-mode result instead. |
+| `desktop_admission_v1` / `desktop_verify_v1` | Admission is dropped, since desktop is always confirmation-gated. Verification uses the cua-driver Effect contract plus `verify_state`. *(Done 2026-09-24: both contracts deleted.)* |
+| `android_admission_v1` | Keep, but run it locally: the existing regex, extended with Hinglish and Hindi side-effect phrases, plus a Laya-multilingual check that can only **tighten** gating. *(Done 2026-09-24 as local rules plus a banking/UPI app denylist; the cloud contract is deleted; the Laya check is still open.)* |
+| `android_verify_v1` | Drop it. Use Artemis's own verified-mode result instead. *(Done 2026-09-24.)* |
 | `tapas_score_v1` | A local idle-time judge (Gemma E4B), or the cloud through the gateway (already enforced). |
 
 **Plumbing.** Keep the `decision_engine.py` boundary. A Jev-compatible Laya server on loopback is treated as `local` by the gateway. **CUA-S1-4B** enters the Kriya bake-off as a fast action selector over 20 options or fewer. It is research-grade, so it doesn't replace anything yet.
@@ -336,7 +348,7 @@ Evidence for every finding below was read from the code at `98c23c5` and spot-ch
 
 **J. Adapter bugs against the actual vendor APIs.**
 - BrowserSkill: `effect_state` lives under `data.effect_state`, so every uncertain write is read as `none`, and auto-update is on.
-- cua-driver:
+- cua-driver *(all fixed by 2026-09-24; see Stage C progress, phones and the desktop)*:
   - scroll sends `delta_*` where the tool requires `direction`/`amount`;
   - the permission check passes on "❌ not granted";
   - telemetry is on by default;
@@ -548,7 +560,7 @@ Each phase is one reviewable PR (or a small stack). Exit gates are hard: a phase
 
 ### Phase 4: Kriya, the computer and phone use engine
 
-> **Status (2026-09-24): Kriya v0 for the browser surfaces has landed** (see Stage C progress): the task runtime, perception v2, act/settle/verify, approvals inside a task, live view and takeover, the cloud browser and the Pariksha browser fixtures. Desktop, Android, the signed-in surface, envelopes and the model bake-off are still open.
+> **Status (2026-09-24): Kriya v0 for the browser surfaces has landed** (see Stage C progress): the task runtime, perception v2, act/settle/verify, approvals inside a task, live view and takeover, the cloud browser and the Pariksha browser fixtures. **Android and desktop surfaces have landed since** (Stage C progress, phones and the desktop). The signed-in surface, envelopes and the model bake-off are still open.
 
 - **One Surface protocol** (`observe / act / verify / frame / handoff`) with the canonical Effect contract.
 - **Task runtime**
@@ -635,7 +647,7 @@ Each phase is one reviewable PR (or a small stack). Exit gates are hard: a phase
 > - **Built:** supervision (backend, tunnel, watchdog, the `pmset` advice), encrypted nightly backups with a weekly restore drill, the uptime check and report, and private pilot metrics with feedback, consent and the weekly scorecard. See README, "Running the pilot day to day", and `docs/PILOT_CONSENT_AND_METRICS.md`.
 > - **Built since (Stage B):** the feedback control and the consent screen in the app, with server-side consent enforcement.
 > - **Still open:**
->   - launchd units for cua-driver and Artemis;
+>   - launchd units for cua-driver and Artemis *(built 2026-09-24: `com.narad.cua-driver`, `com.narad.artemis`, watched by the watchdog)*;
 >   - a self-service export and delete for each person;
 >   - the first 7-day window on the Mac.
 
