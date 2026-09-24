@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { memo, useState, useRef, useEffect } from 'react'
 import type {
   ActiveArtifactSession,
   ChatAttachment,
@@ -8,6 +8,7 @@ import type {
   AvatarStatus,
   TokenUsage,
   GuidedSessionMeta,
+  LiveAnswer,
 } from '../hooks/useAvatara'
 import { useTTS, VOICE_AVATARS } from '../hooks/useTTS'
 import type { TTSAvatar } from '../hooks/useTTS'
@@ -128,14 +129,20 @@ function MediaEmbed({ url }: { url: string }) {
 // that must survive in server-side history, but shouldn't render raw in chat.
 // Strip them here and show a subtle chip instead.
 const CONTINUING_RE = /\[Continuing:\s*([^\]]+)\]/gi
+// A streaming skill answer ends with its raw marker; the final reply carries
+// the "[Continuing: …]" form instead, so hide the raw one while it streams.
+const LIVE_PHASE_RE = /\n?[ \t]*CURRENT_PHASE:[^\n]*$/i
 
-function MarkdownMessage({ text }: { text: string }) {
+// Memoised: a streaming answer re-renders the panel many times a second, and
+// only the text that changed should be parsed as markdown again.
+const MarkdownMessage = memo(function MarkdownMessage({ text, live = false }: { text: string; live?: boolean }) {
   const phases: string[] = []
   const cleaned = text.replace(CONTINUING_RE, (_m, phase: string) => {
     phases.push(phase.trim())
     return ''
   }).trim()
-  const mediaUrls = Array.from(new Set(cleaned.match(MEDIA_RE) ?? []))
+  // A half-streamed media URL would load a broken embed; embeds wait for the final reply.
+  const mediaUrls = live ? [] : Array.from(new Set(cleaned.match(MEDIA_RE) ?? []))
   return (
     <>
       <ReactMarkdown
@@ -251,6 +258,50 @@ function MarkdownMessage({ text }: { text: string }) {
       )}
     </>
   )
+})
+
+function AvatarChips({ avatars }: { avatars: AvatarName[] }) {
+  return (
+    <div className="flex flex-wrap gap-1.5 mb-2">
+      {avatars.map(a => (
+        <span
+          key={a}
+          className="text-chip px-2 py-px rounded organic-border inline-flex items-baseline gap-1"
+          style={{
+            color: AVATAR_COLOURS[a],
+            borderColor: `rgba(${AVATAR_RGB[a]}, 0.30)`,
+            background: `rgba(${AVATAR_RGB[a]}, 0.08)`,
+          }}
+        >
+          {isAvatarName(a) && (
+            <span style={{ fontFamily: 'var(--font-deva)', fontSize: 10 }}>
+              {DEVA[a]?.charAt(0)}
+            </span>
+          )}
+          {a}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+/** The answer being written, styled exactly like the assistant bubble it becomes. */
+function LiveAnswerBubble({ live }: { live: LiveAnswer }) {
+  const primary = live.avatars[0]
+  return (
+    <div className="flex flex-col gap-0.5 w-full items-start" aria-busy="true">
+      <div
+        className={cn(
+          'max-w-[82%] px-3.5 py-2.5 text-body-sm folk-card folk-shadow rounded-[4px_16px_16px_16px]',
+          primary ? `avatar-glass-${primary.toLowerCase()}` : '',
+        )}
+        style={{ color: 'var(--kajal)' }}
+      >
+        {live.avatars.length > 0 && <AvatarChips avatars={live.avatars} />}
+        <MarkdownMessage text={live.text.replace(LIVE_PHASE_RE, '')} live />
+      </div>
+    </div>
+  )
 }
 
 function UserMessageText({ text }: { text: string }) {
@@ -356,6 +407,8 @@ interface Props {
   messages: Message[]
   avatars: Record<AvatarName, AvatarStatus>
   streaming: boolean
+  /** Streamed text of the answer being written (null until text arrives). */
+  liveAnswer?: LiveAnswer | null
   error: string | null
   onSend: (query: string, attachments?: ChatAttachment[]) => void
   stop: () => void
@@ -379,6 +432,7 @@ export function ChatPanel({
   messages,
   avatars,
   streaming,
+  liveAnswer = null,
   error,
   onSend,
   stop,
@@ -427,10 +481,12 @@ export function ChatPanel({
     if (near) setShowJump(false)
   }
 
+  const liveText = streaming ? liveAnswer?.text ?? '' : ''
+
   useEffect(() => {
     if (nearBottomRef.current) scrollToBottom()
     else setShowJump(true)
-  }, [messages])
+  }, [messages, liveText])
 
   // G7: guru mode defaults to voice — auto-speak each new atom's narration in
   // Krishna's voice. History restored on page load is seeded as already-spoken
@@ -731,26 +787,7 @@ export function ChatPanel({
               >
                 {/* Avatar tags */}
                 {msg.role === 'assistant' && msg.avatarsInvolved && msg.avatarsInvolved.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 mb-2">
-                    {msg.avatarsInvolved.map(a => (
-                      <span
-                        key={a}
-                        className="text-chip px-2 py-px rounded organic-border inline-flex items-baseline gap-1"
-                        style={{
-                          color: AVATAR_COLOURS[a],
-                          borderColor: `rgba(${AVATAR_RGB[a]}, 0.30)`,
-                          background: `rgba(${AVATAR_RGB[a]}, 0.08)`,
-                        }}
-                      >
-                        {isAvatarName(a) && (
-                          <span style={{ fontFamily: 'var(--font-deva)', fontSize: 10 }}>
-                            {DEVA[a]?.charAt(0)}
-                          </span>
-                        )}
-                        {a}
-                      </span>
-                    ))}
-                  </div>
+                  <AvatarChips avatars={msg.avatarsInvolved} />
                 )}
 
                 {msg.role === 'assistant'
@@ -860,6 +897,9 @@ export function ChatPanel({
           )
         })}
 
+        {/* The answer as it is written; the final reply replaces it in place. */}
+        {liveText && liveAnswer && <LiveAnswerBubble live={liveAnswer} />}
+
         {/* Streaming indicator — breathes in the active avatar's colour */}
         {streaming && (() => {
           const activeName = activeAvatar?.name
@@ -908,20 +948,22 @@ export function ChatPanel({
                 />
               </div>
 
-              {/* Breathing dots + stop button */}
+              {/* Breathing dots (until text streams in) + stop button */}
               <div className="flex items-center gap-2.5">
-                <div className="folk-card flex items-center gap-1.5 px-4 py-3.5 rounded w-fit">
-                  {[0, 200, 400].map(delay => (
-                    <span
-                      key={delay}
-                      className="inline-block w-[7px] h-[7px] rounded-full"
-                      style={{
-                        background: `rgba(${streamRgb}, 0.9)`,
-                        animation: `breath 1.2s ease-in-out ${delay}ms infinite`,
-                      }}
-                    />
-                  ))}
-                </div>
+                {!liveText && (
+                  <div className="folk-card flex items-center gap-1.5 px-4 py-3.5 rounded w-fit">
+                    {[0, 200, 400].map(delay => (
+                      <span
+                        key={delay}
+                        className="inline-block w-[7px] h-[7px] rounded-full"
+                        style={{
+                          background: `rgba(${streamRgb}, 0.9)`,
+                          animation: `breath 1.2s ease-in-out ${delay}ms infinite`,
+                        }}
+                      />
+                    ))}
+                  </div>
+                )}
                 <button
                   className={cn(ACTION_BTN, 'border-sindoor/25 text-sindoor/50 hover:text-sindoor/80 hover:border-sindoor/40')}
                   onClick={stop}
