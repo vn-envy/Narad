@@ -193,6 +193,57 @@ Where someone lives does not matter; their email and an invite do.
 
 One installation supports up to 12 profiles and holds one household's data on one Mac. Another household should run its own Narad on its own Mac rather than join yours.
 
+### Running the pilot day to day
+
+For an always-on host, let launchd supervise Narad instead of keeping `Start Family Pilot.command` open. Stop the launcher (Ctrl-C in its window), then on the Mac run:
+
+```bash
+scripts/install_launchd.sh install     # safe to run again: unchanged jobs keep running
+scripts/install_launchd.sh status      # jobs, /health, backups, the last drill, power settings
+scripts/install_launchd.sh uninstall   # back to the double-click launcher; data and backups stay
+```
+
+This installs per-user LaunchAgents; no sudo is needed. They read the same `.env` as the launcher, through `scripts/pilot_env.sh`.
+
+| Job | What it does |
+|---|---|
+| `com.narad.backend` | Runs Narad and restarts it if it exits, at most once a minute |
+| `com.narad.tunnel` | Runs the Cloudflare tunnel, when `cloudflared`, the token file and `NARAD_PUBLIC_URL` all exist |
+| `com.narad.watchdog` | Checks `/health` every 2 minutes and restarts the backend after 3 failures in a row; also rotates logs over 10 MB |
+| `com.narad.uptime` | Runs `scripts/uptime_ping.py` every 5 minutes |
+| `com.narad.backup` | Makes the encrypted backup every day at 03:30 |
+| `com.narad.drill` | Runs the restore drill on Sundays at 04:30 |
+| `com.narad.awake` | Runs `caffeinate -s`, so the Mac doesn't sleep while it's on the charger |
+
+A few things to know:
+- Logs are in `~/Library/Logs/Narad`.
+- LaunchAgents run only while you are logged in, so log in once after the Mac restarts.
+- `install` prints the `sudo pmset` commands that keep the Mac awake on the charger, with the lid open or closed. It doesn't run them; you run them yourself.
+
+**Backups.** Every night, an encrypted (AES-256-GCM) snapshot of `~/.narad` goes to `~/NaradBackups`. To use an external disk or an iCloud Drive folder instead, set `NARAD_BACKUP_DIR` in `.env`.
+- **What's left out:** caches, logs, downloaded models and browser caches. SQLite databases are copied with SQLite's online-backup API.
+- **The key:** it lives at `~/Library/Application Support/Narad/backup.key`, outside `~/.narad`. The first backup creates it and tells you how to save a copy in your password manager. Without the key, no backup can be restored.
+- **Retention:** 14 daily and 8 weekly backups are kept.
+
+```bash
+.venv/bin/python scripts/narad_backup.py list
+.venv/bin/python scripts/narad_backup.py drill                          # restore the newest into a temp folder and verify it
+.venv/bin/python scripts/narad_backup.py restore --to ~/narad-restored
+```
+
+To replace a live `~/.narad`:
+1. Run `scripts/install_launchd.sh uninstall`.
+2. Move `~/.narad` aside.
+3. Run `narad_backup.py restore --to ~/.narad`.
+4. Install the jobs again.
+
+**Uptime.** Each check lands in `~/.narad/ops/uptime.jsonl`, with "Narad down" kept apart from "tunnel down".
+- **Alerts:** put a healthchecks.io-style URL in `NARAD_UPTIME_PING_URL` to hear when checks fail or stop.
+- **Checking through Cloudflare Access:** add the `/health` Bypass policy (step 5 above). The check then reaches the Mac through the tunnel, instead of stopping at Access.
+- **The report:** `.venv/bin/python scripts/uptime_report.py` shows uptime over the last 7 days in waking hours. Waking hours are 07:00–23:00 by default; change them with `NARAD_WAKING_HOURS`. The pilot's gate is 99%.
+
+**Weekly scorecard.** `.venv/bin/python scripts/weekly_scorecard.py` prints a Markdown scorecard. It covers uptime, backups, the drill, consent, and each person's counts and outcomes, never prompts or replies. The owner can also open `/pilot/metrics?scope=all&format=markdown`. [Pilot consent and metrics](./docs/PILOT_CONSENT_AND_METRICS.md) has the consent sheet for each person, what every number means, and the weekly review.
+
 ### Google owner setup
 
 Create one Google OAuth web client and add the public callback URL:
@@ -244,6 +295,8 @@ Live user data belongs under `~/.narad/`, not inside the Git repository.
 | `config/` | Onboarding state, profile metadata, and runtime policy |
 | `workflows.db` | Workflow runs, stages, schedules, and events |
 | `health.db` / `finance.db` | Profile-scoped health and finance records |
+| `profiles/<id>/metrics/` | Pilot counts and outcomes per person (never text) |
+| `ops/` | Uptime checks, backup and restore-drill results, watchdog restarts |
 
 Smriti uses dependency-light local indexing with optional TurboVec acceleration. Exact artifacts are referenced and reread instead of copied into every model request.
 
