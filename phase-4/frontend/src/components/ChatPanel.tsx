@@ -17,6 +17,7 @@ import { ZigzagBank } from './Motifs'
 import { GuruMessage } from './GuruCards'
 import { ApprovalCard, type ApprovalChange } from './ApprovalCard'
 import { MessageFooter } from './MessageFooter'
+import { DocumentReviewHost } from './DocumentReview'
 import { cn } from '@/lib/utils'
 import {
   Archive,
@@ -911,6 +912,9 @@ export function ChatPanel({
             </div>
           )
         })}
+
+        {/* Values read from a document, waiting to be checked against their crops. */}
+        <DocumentReviewHost />
 
         {/* The answer as it is written; the final reply replaces it in place. */}
         {liveText && liveAnswer && <LiveAnswerBubble live={liveAnswer} />}

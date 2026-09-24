@@ -40,13 +40,14 @@ Sankalpas before running the inner agent. Models are assigned in
 |---|---|
 | Live lookup, current data, URL scrape, REST API, web form | Matsya |
 | Medical literature, drug info, clinical research, nutrition data | Matsya |
-| File/doc analysis: PDF, DOCX, PPTX, HTML, CSV, transcript | Matsya |
+| File/doc analysis: PDF, DOCX, PPTX, HTML, CSV, transcript, document photos | Matsya |
+| Save values from a lab report, statement, prescription, bill or circular (photo/PDF) | Matsya (`extract_fields`) |
 | Deep research, literature review, SOTA, academic sources | Matsya |
 | Critical analysis, tradeoff, red-team, "should I do X" | Matsya |
 | Local filesystem: clean up, organise, disk analysis | Matsya |
 | Structured plan, SOP, checklist, runbook, calendar event | Rama |
 | Personal finance: import CSV, spending, budgets, goals, net worth | Rama |
-| Log symptoms, medication reminders, query health history | Rama |
+| Log symptoms, medication reminders, query health history, lab result trends | Rama |
 | Email, announcement, LinkedIn post, client memo | Krishna |
 | Explain, teach, quiz, flashcards, study plan, curriculum | Krishna |
 | Slide deck, presentation, pitch deck | Krishna (direct — never Parashurama) |
@@ -118,13 +119,15 @@ document extraction, critical analysis (steelman + red-team), and the local file
 | `browser_screenshot` / `browser_fill` / `browser_upload_and_submit` | Compatible form helpers over one shared session: screenshot → fill → approval card → Narad submits |
 | `search_arxiv` / `search_papers` / `search_hf_papers` / `search_hf_models` | Academic + model discovery |
 | `query_deepwiki` | GitHub repo architecture questions |
-| `extract_document` | Lightweight PDF/DOCX/PPTX/HTML/CSV/text extraction |
+| `extract_document` | Lightweight PDF/DOCX/PPTX/HTML/CSV/text extraction; photos (jpg/png/webp/heic) and scanned PDF pages through local OCR, lines tagged `[p1-l3]` |
+| `extract_fields` | Values from lab reports, statements, prescriptions, circulars, bills and forms → a pending document review; nothing is saved until the person confirms each value against its crop |
 | `scan_directory` / `organize_by_type` / `move_to_trash` / `find_large_files` / `get_disk_info` | Filesystem hygiene — always dry-run before mutating |
 | `search_last30days` | Cross-source recency sweep (Reddit/HN/GitHub) |
 
 Soft rules: primary sources over aggregators; cite every non-obvious claim; screenshot
 before any form fill; every submit is approved per form on the person's approval card; quote source
 location for document findings; extract health documents objectively — never diagnose.
+After `extract_fields`, never say values are saved: give the review link it returns.
 
 ---
 
@@ -138,6 +141,7 @@ Structured-plan specialist and owner of the personal data lifecycle (finance + h
 | `get_spending` / `get_budget_status` / `get_financial_context` / `get_recurring_expenses` / `get_goals` / `get_net_worth` / `get_spend_patterns` | Personal finance reads |
 | `import_csv` / `sync_gmail_finance` / `set_budget` / `add_goal` / `update_goal_progress` / `add_balance_snapshot` / `categorize_transaction` | Personal finance writes |
 | `log_symptom` / `set_medication_reminder` / `get_health_log` | Health log |
+| `get_lab_results` | Lab values confirmed from the person's reports, per test with a trend and a link back to each value's crop |
 | `query_rxnorm` | Drug information (RxNorm REST, no auth) |
 
 Plans emit `PLAN_JSON:` blocks that workflows can persist and execute.
@@ -282,6 +286,7 @@ their phone (`anumati.py`). A model's `confirmed=True` or `dry_run=False` approv
   - rules, the family name list and the local OpenMed model replace personal details with per-profile placeholders;
   - a leak check fails closed;
   - replies are restored on the Mac.
+- Images, audio and text read aloud cannot be pseudonymised: they reach only `local` or `trusted` destinations (`allow_raw`). A plain `completion` call with an image part is gated the same way (document escalation uses it).
 - Each cloud call is logged to `profiles/<id>/privacy/egress.jsonl`, served at `GET /privacy/egress`.
   Matsya's search and web tools log a `web` row too (`record_tool_egress`: provider, and how many
   placeholders stayed in the arguments; never the words).
@@ -390,6 +395,22 @@ SYMPTOM TRIAGE: User → Narad → Krishna [red-flag check → structured assess
 
 HEALTH DOCUMENTS: file path → Matsya [extract_document] — objective extraction,
         out-of-range flagging, no clinical interpretation.
+
+SAVING VALUES FROM A DOCUMENT (lab report, statement, prescription, circular, bill):
+        photo / PDF → Matsya extract_fields
+          → local OCR on the Mac (ocr_skill: PaddleOCR PP-OCRv5 or Surya), lines with ids
+            and boxes; PDF text layers are used as-is
+          → worker model, text only, through privacy_gateway (redact tier sees placeholders)
+          → strict JSON per doc_type; repair; hallucination guard (numbers and dates must be
+            printed in a cited or repaired source row)
+          → pending review under profiles/<id>/documents/reviews/ + `document_review` SSE card
+        → person on /?review=<id>: each value beside its crop; tick, edit or drop; save
+          → lab values: health.db lab_results · debits: finance.db transactions (deduplicated
+            with CSV imports) · medicines: reminders only if ticked · dates: calendar event or
+            reminder only if ticked. Saved rows keep the review and item ids (crop provenance).
+        Hard pages: the person may send that page image, per document, to a local or
+        trusted vision model (privacy_gateway.allow_raw; logged in the egress ledger).
+        Rama reads the history with get_lab_results ("how has my HbA1c changed?").
 ```
 
 ---

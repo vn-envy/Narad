@@ -124,6 +124,26 @@ The chat composer accepts images, documents, data files, source code, archives, 
 
 Uploads are stored under `~/.narad/attachments/`. Models receive bounded extracts plus exact reread references instead of an ever-growing raw prompt. Default limits are 50 MB per file, 200 MB per selection, and 256 files.
 
+## Reading Documents
+
+Photograph a lab report, bank statement, prescription, bill or school circular (Hindi, English or both) and ask Narad to save it. Matsya reads it on the Mac and shows a review card; nothing reaches your health or finance records until you confirm each value.
+
+1. **Local OCR.** Photos (JPG, PNG, WebP, HEIC) and scanned PDF pages are read on the Mac, turned upright from the phone's orientation. A PDF page with a text layer is used as it is. The default engine is PaddleOCR PP-OCRv5 (Devanagari and English); Surya is optional (`NARAD_OCR_ENGINE=paddle|surya|auto`). The model loads on first use and unloads after 2 minutes idle (`NARAD_OCR_IDLE_UNLOAD_S`).
+2. **Values, not guesses.** Only the text goes to the worker model, through the privacy gateway, so DeepSeek sees placeholders instead of names. A value is kept only if its numbers and dates are printed on the page; anything else is left out.
+3. **Check against the photo.** The review screen (`/?review=<id>`, or the card in chat) shows each value beside the crop it came from. Unclear or handwritten values start unticked. Tick, edit or drop each one, then save.
+4. **What saving does.** Lab values go to `health.db` (`lab_results`), so you can later ask "how has my HbA1c changed?". Statement debits go to `finance.db`, without duplicating a CSV import. Medicine reminders, calendar events and reminders are created only if you tick them. Every saved value keeps a link to its crop.
+5. **Hard pages.** For handwriting or a difficult table, the review offers to send that page image to a trusted vision model (Gemini, Claude or OpenAI) or a local one. It is your choice each time, and the call is logged in your privacy record.
+
+Install the OCR engine on the host Mac:
+
+```bash
+source .venv/bin/activate
+pip install -e ".[ocr]"      # PaddleOCR, pillow-heif (HEIC), PyMuPDF
+python scripts/bench_local_stack.py --image ~/Downloads/lab_report.jpg   # time a page
+```
+
+PaddleOCR's code and model weights are Apache-2.0; the models download once on first use. Surya (`pip install surya-ocr`) has Apache-2.0 code, but its weights use a modified OpenRAIL-M licence (free for personal use and organisations under $5M revenue or funding), and on Apple Silicon it runs through a local llama.cpp server.
+
 ## Connections and Local Control
 
 Optional integrations expand Narad without becoming startup requirements.
@@ -328,6 +348,7 @@ Live user data belongs under `~/.narad/`, not inside the Git repository.
 | `workflows.db` | Workflow runs, stages, schedules, and events |
 | `health.db` / `finance.db` | Profile-scoped health and finance records |
 | `profiles/<id>/metrics/` | Pilot counts and outcomes per person (never text) |
+| `profiles/<id>/documents/` | Document reviews (page images and values awaiting or after confirmation) and the local OCR cache |
 | `ops/` | Uptime checks, backup and restore-drill results, watchdog restarts |
 
 Smriti uses dependency-light local indexing with optional TurboVec acceleration. Exact artifacts are referenced and reread instead of copied into every model request.

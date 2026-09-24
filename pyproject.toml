@@ -64,6 +64,18 @@ voice = ["kokoro>=0.9.0", "faster-whisper>=1.0.0", "numpy>=1.26.0"]
 # Local PII model for the privacy gateway (required before DeepSeek-tier
 # providers are used with real family text). Runs on-device; MPS on Apple Silicon.
 privacy = ["openmed[hf]>=2.5,<2.6", "torch>=2.2"]
+# Local OCR for photographed and scanned documents (phase-8/ocr_skill.py):
+# PaddleOCR PP-OCRv5 on CPU (Apache-2.0 code and weights; Devanagari + English),
+# pillow-heif for iPhone HEIC photos, PyMuPDF to render scanned PDF pages.
+# Surya 2 is the optional alternative (pip install surya-ocr; weights are
+# under a modified OpenRAIL-M licence), chosen with NARAD_OCR_ENGINE=surya.
+ocr = [
+    "paddleocr>=3.1,<3.8",
+    "paddlepaddle>=3.0",
+    "pillow-heif>=0.18",
+    "PyMuPDF>=1.24.0",
+    "Pillow>=10.0.0",
+]
 dev = ["pytest>=8.0.0", "ruff>=0.6.0", "pre-commit>=3.7.0"]
 all = ["narad-harness[media,documents,browser,computer,local-files]"]
 

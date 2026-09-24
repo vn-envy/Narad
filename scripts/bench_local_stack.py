@@ -187,19 +187,46 @@ def bench_stt(audio: str, runs: int) -> dict[str, Any]:
     return results
 
 
-def bench_ocr(image: str) -> dict[str, Any]:
+def bench_ocr(image: str, runs: int) -> dict[str, Any]:
+    """Narad's own OCR path (ocr_skill): the engine NARAD_OCR_ENGINE selects, page by page."""
     if not image:
-        return {"skipped": "pass --image <photo of a lab report or statement> to time OCR"}
-    try:
-        from paddleocr import PaddleOCR
+        return {"skipped": "pass --image <photo or scanned PDF of a lab report or statement> to time OCR"}
+    import ocr_skill
 
-        started = time.perf_counter()
-        engine = PaddleOCR(lang="hi")
-        load_ms = (time.perf_counter() - started) * 1000
-        warm = _timed(lambda: engine.predict(image), 3)
-        return {"paddleocr_hi": {"load_ms": round(load_ms), "page": warm}, "target_ms": TARGETS_MS["ocr_page"]}
-    except ImportError:
-        return {"skipped": "pip install paddleocr (or surya-ocr) to time local Devanagari OCR"}
+    engine = ocr_skill.engine_name()
+    if not engine:
+        return {"skipped": 'no local OCR engine: pip install -e ".[ocr]" (NARAD_OCR_ENGINE=paddle|surya)'}
+    before = _rss_mb()
+    started = time.perf_counter()
+    first = ocr_skill.read_document(image, use_cache=False)  # includes loading the model
+    cold_ms = (time.perf_counter() - started) * 1000
+    if first.get("status") not in {"ok", "partial"}:
+        return {"error": first.get("message", "OCR failed")}
+    page_ms: list[float] = []
+    for _ in range(max(1, min(runs, 5))):
+        result = ocr_skill.read_document(image, use_cache=False)
+        page_ms += [ms for ms, page in zip(result["timings_ms"]["pages"], result["pages"]) if page["source"] == "ocr"]
+    page_ms.sort()
+    pages = first["pages"]
+    report: dict[str, Any] = {
+        "engine": engine,
+        "status": ocr_skill.status(),
+        "pages": len(pages),
+        "ocr_pages": sum(page["source"] == "ocr" for page in pages),
+        "lines": sum(len(page["lines"]) for page in pages),
+        "mean_confidence": [page["mean_confidence"] for page in pages],
+        "cold_document_ms": round(cold_ms),
+        "rss_delta_mb": round(_rss_mb() - before),
+        "target_ms": TARGETS_MS["ocr_page"],
+    }
+    if page_ms:
+        report["page"] = {
+            "p50_ms": round(statistics.median(page_ms), 1),
+            "p95_ms": round(page_ms[min(len(page_ms) - 1, int(len(page_ms) * 0.95))], 1),
+            "runs": len(page_ms),
+        }
+    ocr_skill.unload()
+    return report
 
 
 def bench_ollama(model: str) -> dict[str, Any]:
@@ -269,7 +296,7 @@ def main() -> None:
         ("openmed", lambda: bench_openmed(args.runs)),
         ("laya", lambda: bench_laya(args.laya_url, args.runs)),
         ("stt", lambda: bench_stt(args.audio, args.runs)),
-        ("ocr", lambda: bench_ocr(args.image)),
+        ("ocr", lambda: bench_ocr(args.image, args.runs)),
         ("ollama", lambda: bench_ollama(args.ollama_model)),
     ):
         try:

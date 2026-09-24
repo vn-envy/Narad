@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import { toast } from 'sonner'
 import { apiPath, apiUrl, apiFetch, type ApprovalProposal } from '@/lib/api'
 import { CONSENT_REQUIRED_EVENT, type PrivacyReceipt } from '@/lib/trust'
+import { emitDocumentReview } from '@/lib/document-review'
 
 export type AvatarName = 'Matsya' | 'Rama' | 'Krishna' | 'Parashurama'
 
@@ -1312,6 +1313,12 @@ export function useAvatara(userId = 'default') {
               const proposal = evt.data as unknown as ApprovalProposal
               if (!proposal?.id) break
               setState(s => ({ ...s, messages: upsertApprovalMessage(s.messages, proposal) }))
+              break
+            }
+
+            case 'document_review': {
+              // extract_fields made a review; the chat shows a card for it.
+              emitDocumentReview(evt.data)
               break
             }
 

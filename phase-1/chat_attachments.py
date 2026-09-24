@@ -444,9 +444,11 @@ def extract_attachment_text(item: dict[str, Any]) -> str:
         return _read_archive_preview(path)
     if suffix in _DOCUMENT_EXTENSIONS:
         try:
-            from docling_skill import extract_document
+            # No OCR here: previews run before every turn. Matsya reads scanned
+            # pages on demand with extract_document or extract_fields.
+            from docling_skill import extract_document_text
 
-            result = extract_document(str(path))
+            result = extract_document_text(str(path))
             if result.get("status") == "ok":
                 return str(result.get("content", "")).strip()
             return f"[Document text preview unavailable: {result.get('message', 'unknown reason')}]"

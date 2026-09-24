@@ -46,6 +46,26 @@ def _get_conn() -> sqlite3.Connection:
             active    INTEGER DEFAULT 1
         )
     """)
+    # Values a person confirmed from a lab report (document_review); the
+    # review and item ids lead back to the page crop they were read from.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS lab_results (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            created          TEXT NOT NULL,
+            test_date        TEXT NOT NULL,
+            test_name        TEXT NOT NULL,
+            test_key         TEXT NOT NULL,
+            value            TEXT NOT NULL,
+            value_num        REAL,
+            unit             TEXT NOT NULL DEFAULT '',
+            ref_range        TEXT NOT NULL DEFAULT '',
+            flag             TEXT NOT NULL DEFAULT '',
+            lab_name         TEXT NOT NULL DEFAULT '',
+            source_review_id TEXT NOT NULL DEFAULT '',
+            source_item_id   TEXT NOT NULL DEFAULT ''
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS lab_results_key_date ON lab_results (test_key, test_date)")
     conn.commit()
     return conn
 
@@ -179,6 +199,151 @@ def get_health_log(days: int = 7, anomaly_detection: bool = False, symptom_filte
             result["anomaly_analysis"] = {"status": "unavailable"}
 
     return result
+
+
+# Report labels for the same test differ between labs; a canonical key lets
+# "how has my HbA1c changed?" find every report. Checked in order, so HbA1c
+# ("glycated haemoglobin") wins over plain haemoglobin.
+_LAB_ALIASES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("hba1c", ("hba1c", "hb a1c", "a1c", "glycated haemoglobin", "glycated hemoglobin",
+               "glycosylated haemoglobin", "glycosylated hemoglobin")),
+    ("fasting_glucose", ("fasting blood sugar", "fbs", "fasting plasma glucose", "glucose fasting",
+                         "blood sugar fasting", "fasting glucose")),
+    ("pp_glucose", ("post prandial", "postprandial", "ppbs", "pp blood sugar")),
+    ("tsh", ("tsh", "thyroid stimulating hormone")),
+    ("vitamin_d", ("vitamin d", "25 oh vitamin d", "25 hydroxy vitamin d", "vit d")),
+    ("vitamin_b12", ("vitamin b12", "vit b12", "cyanocobalamin")),
+    ("non_hdl", ("non hdl", "non hdl cholesterol")),
+    ("ldl", ("ldl", "ldl cholesterol")),
+    ("hdl", ("hdl", "hdl cholesterol")),
+    ("triglycerides", ("triglycerides", "triglyceride")),
+    ("total_cholesterol", ("total cholesterol", "cholesterol total", "serum cholesterol", "cholesterol")),
+    ("creatinine", ("creatinine", "serum creatinine")),
+    ("mchc", ("mchc", "mean corpuscular haemoglobin concentration", "mean corpuscular hemoglobin concentration")),
+    ("mch", ("mch", "mean corpuscular haemoglobin", "mean corpuscular hemoglobin")),
+    ("haemoglobin", ("haemoglobin", "hemoglobin", "hb", "hgb")),
+)
+
+
+def lab_test_key(test_name: str) -> str:
+    """Canonical key for a lab test label (e.g. "Glycated Haemoglobin" → "hba1c")."""
+    import re
+
+    normalised = " ".join(re.sub(r"[^0-9a-z]+", " ", (test_name or "").lower()).split())
+    for key, aliases in _LAB_ALIASES:
+        for alias in aliases:
+            # Two-letter aliases ("hb") only as the whole label; longer ones as words.
+            if normalised == alias or (len(alias) >= 3 and f" {alias} " in f" {normalised} "):
+                return key
+    return normalised.replace(" ", "_")[:60] or "unknown"
+
+
+def record_lab_result(
+    test_name: str,
+    value: str,
+    test_date: str,
+    *,
+    value_num: float | None = None,
+    unit: str = "",
+    ref_range: str = "",
+    flag: str = "",
+    lab_name: str = "",
+    source_review_id: str = "",
+    source_item_id: str = "",
+) -> int:
+    """Store one confirmed lab value. Only document_review's save calls this."""
+    conn = _get_conn()
+    cur = conn.execute(
+        "INSERT INTO lab_results (created, test_date, test_name, test_key, value, value_num, unit, "
+        "ref_range, flag, lab_name, source_review_id, source_item_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        (
+            datetime.now().isoformat(timespec="seconds"), test_date, test_name.strip(),
+            lab_test_key(test_name), str(value).strip(), value_num, unit.strip(), ref_range.strip(),
+            flag, lab_name.strip(), source_review_id, source_item_id,
+        ),
+    )
+    conn.commit()
+    row_id = int(cur.lastrowid)
+    conn.close()
+    return row_id
+
+
+def get_lab_results(test_name: str = "", days: int = 730) -> dict:
+    """Lab values confirmed from the person's own reports, oldest first, with a trend per test.
+
+    Use for "how has my HbA1c changed?" or "show my last cholesterol results".
+    Values are exactly as confirmed from the report; flags only say whether a
+    value was outside the range printed on that report. Never diagnose.
+
+    Args:
+        test_name: Test to look up (e.g. "HbA1c", "TSH", "fasting sugar"); empty for all tests.
+        days:      How far back to look (default 730, about two years).
+    Returns:
+        Dict with entries (date, test, value, unit, range, flag, source) and,
+        per test, the first and latest values and the change between them.
+    """
+    from datetime import timedelta
+
+    cutoff = (datetime.now() - timedelta(days=max(1, int(days)))).strftime("%Y-%m-%d")
+    query = "SELECT * FROM lab_results WHERE test_date >= ?"
+    params: list = [cutoff]
+    if test_name.strip():
+        query += " AND (test_key = ? OR test_name LIKE ?)"
+        params += [lab_test_key(test_name), f"%{test_name.strip()}%"]
+    query += " ORDER BY test_date ASC, id ASC"
+    conn = _get_conn()
+    rows = conn.execute(query, params).fetchall()
+    conn.close()
+
+    entries = [
+        {
+            "id": r["id"],
+            "date": r["test_date"],
+            "test": r["test_name"],
+            "test_key": r["test_key"],
+            "value": r["value"],
+            "value_num": r["value_num"],
+            "unit": r["unit"],
+            "reference_range": r["ref_range"],
+            "flag": r["flag"],
+            "lab": r["lab_name"],
+            "source_review_id": r["source_review_id"],
+            "source_crop": (
+                f"/documents/reviews/{r['source_review_id']}/items/{r['source_item_id']}/crop"
+                if r["source_review_id"] and r["source_item_id"] else ""
+            ),
+        }
+        for r in rows
+    ]
+    trends: dict[str, dict] = {}
+    for entry in entries:
+        trend = trends.setdefault(entry["test_key"], {"test": entry["test"], "count": 0, "values": []})
+        trend["count"] += 1
+        trend["values"].append({"date": entry["date"], "value": entry["value"], "unit": entry["unit"],
+                                "flag": entry["flag"]})
+        if entry["value_num"] is not None:
+            trend.setdefault("first", entry)
+            trend["latest"] = entry
+    for trend in trends.values():
+        first, latest = trend.pop("first", None), trend.pop("latest", None)
+        if first and latest and first is not latest and first["unit"] == latest["unit"]:
+            trend["change"] = round(latest["value_num"] - first["value_num"], 3)
+            trend["from"] = {"date": first["date"], "value": first["value"]}
+            trend["to"] = {"date": latest["date"], "value": latest["value"]}
+    message = (
+        f"{len(entries)} confirmed lab value(s) since {cutoff}."
+        if entries else
+        "No confirmed lab values yet. Share a lab report photo or PDF and confirm its values first."
+    )
+    return {
+        "status": "ok",
+        "since": cutoff,
+        "count": len(entries),
+        "entries": entries,
+        "trends": trends,
+        "message": message,
+        "note": "Values as printed on each report; flags compare with that report's own range. Not a diagnosis.",
+    }
 
 
 def query_rxnorm(drug_name: str) -> dict:

@@ -829,6 +829,15 @@ def _make_avatar_tool(agent: LlmAgent, user_id: str = "default") -> FunctionTool
                                                 "payload": _response_obj,
                                             },
                                         }))
+                                    if _name == "extract_fields" and _response_obj.get("review_id"):
+                                        # The chat shows a card that opens the crop review.
+                                        await _q.put(json.dumps({
+                                            "type": "document_review",
+                                            "data": {
+                                                key: _response_obj.get(key)
+                                                for key in ("review_id", "doc_type", "item_count", "needs_a_look")
+                                            },
+                                        }))
                             elif part.text and not event.is_final_response():
                                 _turn.text_preview = part.text[:200]
                                 if _q is not None:
@@ -1274,6 +1283,7 @@ from browser_act_skill import (
 from browser_skill import browse_url_sync as _browse_url  # noqa: E402
 from computer_use_skill import computer_use as _computer_use
 from docling_skill import extract_document as _extract_document  # noqa: E402
+from document_fields import extract_fields as _extract_fields
 from http_skill import http_request as _http_request  # noqa: E402
 from http_skill import search_last30days as _search_last30days
 from matsya_search import web_search as _web_search  # noqa: E402
@@ -1362,6 +1372,9 @@ try:
     from health_skill import (
         get_health_log as _get_health_log,
     )
+    from health_skill import (
+        get_lab_results as _get_lab_results,
+    )
     from health_skill import (  # noqa: E402
         log_symptom as _log_symptom,
     )
@@ -1377,6 +1390,7 @@ except Exception as _hs_err:
     def _log_symptom(*a, **kw): return {"error": "health_skill unavailable"}           # type: ignore
     def _set_medication_reminder(*a, **kw): return {"error": "health_skill unavailable"}  # type: ignore
     def _get_health_log(*a, **kw): return {"error": "health_skill unavailable"}        # type: ignore
+    def _get_lab_results(*a, **kw): return {"error": "health_skill unavailable"}       # type: ignore
     def _query_rxnorm(*a, **kw): return {"error": "health_skill unavailable"}          # type: ignore
 import re as _re
 
@@ -1627,9 +1641,21 @@ _MATSYA_PROMPT += """
 ━━━ DOCUMENT EXTRACTION ━━━
 
 extract_document(file_path)
-  Reads any local file: PDF, DOCX, PPTX, HTML, plain text, CSV.
+  Reads any local file: PDF, DOCX, PPTX, HTML, plain text, CSV, and photos of documents
+  (JPG, PNG, WebP, HEIC). Photos and scanned PDF pages are read with local OCR on this Mac;
+  their lines carry ids such as [p1-l3].
   Use whenever the user provides a local file path to analyse.
   Do NOT use read_file — it does not exist on Matsya. extract_document is the tool.
+
+extract_fields(path, doc_type="")
+  For lab reports, bank statements, prescriptions, school circulars, bills and forms whose
+  values the person wants kept, tracked, logged or acted on ("save my report", "add this
+  statement", "remind me of this"). doc_type: lab_report | bank_statement | prescription |
+  school_circular | bill | generic, or empty to detect it.
+  It creates a review: nothing is saved until the person confirms each value next to its image
+  crop. Never say values are saved. Tell the person how many values were read and which need a
+  closer look, and include the review link from the result exactly as given.
+  Health documents: report values and the printed ranges objectively. Never diagnose.
 
 DOCUMENT WORKFLOW:
 1. Chat uploads arrive in a [USER-PROVIDED INPUTS] block with bounded extracts and exact,
@@ -1776,10 +1802,12 @@ matsya = LlmAgent(
     model=LiteLlm(model=AVATAR_MODELS["matsya"]),
     description=(
         "Matsya: retrieves and synthesises information from any source — web, academic, APIs, "
-        "local documents (PDF/DOCX/PPTX/HTML/CSV via extract_document), and the local filesystem. "
+        "local documents (PDF/DOCX/PPTX/HTML/CSV and document photos via extract_document), and the "
+        "local filesystem. "
         "Use for: research, current events, live data, JS-rendered pages, REST API calls, "
         "web form automation, academic literature (arxiv/Semantic Scholar/HuggingFace), "
-        "document extraction and review, filesystem scan/cleanup, "
+        "document extraction and review, reading values from lab reports, statements, prescriptions, "
+        "bills and circulars for the person to confirm (extract_fields), filesystem scan/cleanup, "
         "critical analysis (steelman + red-team), research synthesis. "
         "Always screenshots before submitting forms; always dry_run before mutating filesystem."
     ),
@@ -1801,6 +1829,7 @@ matsya = LlmAgent(
         FunctionTool(_search_hf_models),
         FunctionTool(_query_deepwiki),
         FunctionTool(_extract_document),
+        FunctionTool(_extract_fields),
         FunctionTool(_scan_directory),
         FunctionTool(_move_to_trash),
         FunctionTool(_organize_by_type),
@@ -1973,7 +2002,13 @@ get_spend_patterns(months=3)
 log_symptom(symptom, severity, notes)          — log a physical symptom (severity 1–10)
 set_medication_reminder(med, dose, schedule)   — create a medication reminder
 get_health_log(days, anomaly_detection, filter) — retrieve symptom history
+get_lab_results(test_name, days)               — lab values confirmed from the person's reports, with a trend
 query_rxnorm(drug_name)                        — drug class and information (RxNorm)
+
+For "how has my HbA1c changed?" or "my last cholesterol": get_lab_results("HbA1c").
+Report each value with its date, unit and the range printed on that report; say when a value
+was outside that range. Never interpret or diagnose. Lab values arrive only after the person
+confirms them from a document (Matsya's extract_fields); if there are none, say so.
 
 HEALTH LOGGING WORKFLOW:
 1. Capture symptom details (name, severity 1–10, notes)
@@ -2011,7 +2046,8 @@ rama = LlmAgent(
         "scheduling events, budget plans, savings goals, trip budgeting. "
         "Finance: import bank statements (CSV), sync Gmail transactions, track spending, "
         "set budgets, manage goals, spend pattern analysis. "
-        "Health: log symptoms, medication reminders, symptom history, drug info. "
+        "Health: log symptoms, medication reminders, symptom history, confirmed lab results "
+        "and their trend, drug info. "
         "Financial decisions: 'should I do X?' — grounded in real spend data. "
         "Always previews before executing write operations."
     ),
@@ -2041,6 +2077,7 @@ rama = LlmAgent(
         FunctionTool(_log_symptom),
         FunctionTool(_set_medication_reminder),
         FunctionTool(_get_health_log),
+        FunctionTool(_get_lab_results),
         FunctionTool(_query_rxnorm),
     ],
 )
