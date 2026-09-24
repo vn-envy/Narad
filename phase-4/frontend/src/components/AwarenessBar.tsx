@@ -1,9 +1,15 @@
 /**
- * AwarenessBar — the right-edge presence rail.
- * Each avatāra appears as its Devanagari initial over its Mahati string
- * position (1–4). Active avatars breathe in their canonical colour.
+ * AwarenessBar — navigation, plus the avatāras' presence on desktop.
+ *
+ * Desktop: the right-edge rail. Each avatāra appears as its Devanagari initial
+ * over its Mahati string position (1–4); active avatars breathe in their
+ * canonical colour. Below them, every surface.
+ * Phone: a bottom bar with the four places a person goes (Chat, Activity,
+ * Paths, You), 58 px tall, above the gesture bar. Memory and System open from
+ * You there.
  */
 import { useState } from 'react'
+import { Bell, Brain, MessageCircle, Route, Settings2, UserRound, type LucideIcon } from 'lucide-react'
 import type { AvatarName, AvatarStatus } from '../hooks/useAvatara'
 
 import { AVATAR_NAMES, AVATAR_COLOURS, AVATAR_RGB, DEVA } from '@/lib/avatara-constants'
@@ -20,28 +26,65 @@ interface Props {
   unread?: number
 }
 
-function CountBadge({ count, tone, horizontal }: { count: number; tone: string; horizontal: boolean }) {
+const ICONS: Record<AppSurface, LucideIcon> = {
+  chat: MessageCircle,
+  activity: Bell,
+  workspaces: Route,
+  memory: Brain,
+  system: Settings2,
+  you: UserRound,
+}
+
+function navLabel(label: string, id: AppSurface, unread: number, working: boolean): string {
+  if (id === 'activity' && unread > 0) return `${label}, ${unread} unread`
+  if (id === 'chat' && working) return `${label}, Narad is working`
+  return label
+}
+
+function badgeText(count: number): string {
+  return count > 99 ? '99+' : String(count)
+}
+
+/** The phone's bottom navigation. */
+function BottomNav({ activeSurface, onNavigate, unread, working }: {
+  activeSurface: AppSurface
+  onNavigate: (surface: AppSurface) => void
+  unread: number
+  working: boolean
+}) {
+  // Memory and System live under You on a phone.
+  const current = activeSurface === 'memory' || activeSurface === 'system' ? 'you' : activeSurface
   return (
-    <span
-      aria-hidden="true"
-      style={{
-        position: 'absolute',
-        top: 5,
-        right: horizontal ? '22%' : 6,
-        minWidth: 15,
-        height: 15,
-        padding: '0 4px',
-        borderRadius: 999,
-        background: tone,
-        color: '#fcfaf2',
-        fontSize: 8,
-        fontWeight: 700,
-        display: 'grid',
-        placeItems: 'center',
-      }}
-    >
-      {count > 99 ? '99+' : count}
-    </span>
+    <nav className="bottom-nav" aria-label="Main">
+      {SURFACE_ITEMS.filter(item => item.phone).map(item => {
+        const Icon = ICONS[item.id]
+        const active = item.id === current
+        return (
+          <button
+            key={item.id}
+            type="button"
+            aria-current={active ? 'page' : undefined}
+            aria-label={navLabel(item.label, item.id, unread, working)}
+            onClick={() => onNavigate(item.id)}
+          >
+            <span className="bottom-nav-icon" aria-hidden="true">
+              <Icon size={21} strokeWidth={active ? 2.3 : 1.9} />
+            </span>
+            <span aria-hidden="true">{item.label}</span>
+            {item.id === 'activity' && unread > 0 && (
+              <span className="nav-badge" aria-hidden="true">{badgeText(unread)}</span>
+            )}
+            {item.id === 'chat' && working && (
+              <span
+                className="nav-badge"
+                aria-hidden="true"
+                style={{ minWidth: 10, width: 10, height: 10, padding: 0, top: 9, animation: 'breath 1.4s ease-in-out infinite' }}
+              />
+            )}
+          </button>
+        )
+      })}
+    </nav>
   )
 }
 
@@ -55,37 +98,22 @@ export function AwarenessBar({
 }: Props) {
   const [hoveredAvatar, setHoveredAvatar] = useState<AvatarName | null>(null)
 
+  if (horizontal) {
+    return <BottomNav activeSurface={activeSurface} onNavigate={onNavigate} unread={unread} working={activeSteps > 0} />
+  }
+
   return (
     <div
-      className={
-        horizontal
-          ? 'flex flex-row items-center w-full overflow-hidden'
-          : 'flex flex-col items-center h-full overflow-hidden'
-      }
-      style={
-        horizontal
-          ? {
-              height: 'calc(62px + env(safe-area-inset-bottom))',
-              paddingBottom: 'env(safe-area-inset-bottom)',
-              background: 'var(--kajal)',
-              borderTop: '1px solid rgba(252,250,242,0.06)',
-            }
-          : {
-              width: 72,
-              padding: '10px 8px',
-              background: 'var(--kajal)',
-              borderLeft: '1px solid rgba(252,250,242,0.06)',
-            }
-      }
+      className="flex flex-col items-center h-full overflow-hidden"
+      style={{
+        width: 72,
+        padding: '10px 8px',
+        background: 'var(--chrome)',
+        borderLeft: '1px solid rgba(252,250,242,0.06)',
+      }}
     >
       {/* Avatar strings */}
-      <div
-        className={
-          horizontal
-            ? 'hidden'
-            : 'flex flex-col items-center gap-2.5 flex-1'
-        }
-      >
+      <div className="flex flex-col items-center gap-2.5 flex-1">
         {AVATAR_NAMES.map((name, i) => {
           const st = avatars[name]
           const active = st?.state === 'active'
@@ -140,45 +168,40 @@ export function AwarenessBar({
               <span
                 className="font-mono"
                 style={{
-                  fontSize: 7,
+                  fontSize: 8,
                   marginTop: 2,
                   letterSpacing: '0.08em',
-                  color: active ? colour : 'rgba(252,250,242,0.22)',
+                  color: active ? colour : 'rgba(252,250,242,0.28)',
                 }}
               >
                 {i + 1}
               </span>
 
-              {/* Tooltip — left of the rail, or above the bottom bar */}
+              {/* Tooltip, left of the rail */}
               {hoveredAvatar === name && (
                 <div
-                  className={
-                    horizontal
-                      ? 'absolute bottom-full mb-2 z-50 px-2.5 py-1.5 rounded whitespace-nowrap pointer-events-none'
-                      : 'absolute right-full mr-2 z-50 px-2.5 py-1.5 rounded whitespace-nowrap pointer-events-none'
-                  }
+                  className="absolute right-full mr-2 z-50 px-2.5 py-1.5 rounded whitespace-nowrap pointer-events-none"
                   style={{
-                    background: 'var(--kajal)',
+                    background: 'var(--chrome)',
                     border: `1px solid rgba(${rgb}, 0.45)`,
                     color: 'rgba(252,250,242,0.9)',
-                    ...(horizontal
-                      ? { left: '50%', transform: 'translateX(-50%)' }
-                      : { top: '50%', transform: 'translateY(-50%)' }),
+                    top: '50%',
+                    transform: 'translateY(-50%)',
                     boxShadow: '0 4px 16px rgba(0,0,0,0.35)',
                   }}
                 >
                   <span className="flex items-baseline gap-1.5">
                     <span style={{ fontFamily: 'var(--font-deva)', color: colour, fontSize: 12 }}>{DEVA[name]}</span>
-                    <span className="font-semibold text-[10px]">{name}</span>
-                    <span className="font-mono text-[8px] opacity-45">string {i + 1}</span>
+                    <span className="font-semibold text-[11px]">{name}</span>
+                    <span className="font-mono text-[9px] opacity-45">string {i + 1}</span>
                   </span>
                   {st?.discipline && (
-                    <span className="block text-[9px] opacity-60 mt-0.5">
+                    <span className="block text-[10px] opacity-60 mt-0.5">
                       {st.discipline}
                     </span>
                   )}
                   {st?.task && (
-                    <span className="block text-[9px] opacity-60 max-w-[160px] truncate">
+                    <span className="block text-[10px] opacity-60 max-w-[160px] truncate">
                       {st.task}
                     </span>
                   )}
@@ -190,72 +213,61 @@ export function AwarenessBar({
       </div>
 
       {/* Step count */}
-      {!horizontal && activeSteps > 0 && (
+      {activeSteps > 0 && (
         <div
           className="text-center font-mono"
-          style={{ color: 'var(--haldi)', fontSize: 9, lineHeight: '1.2' }}
+          style={{ color: 'var(--haldi)', fontSize: 10, lineHeight: '1.2' }}
         >
-          <div style={{ fontSize: 11, fontWeight: 700 }}>{activeSteps}</div>
+          <div style={{ fontSize: 12, fontWeight: 700 }}>{activeSteps}</div>
           <div style={{ opacity: 0.7 }}>steps</div>
         </div>
       )}
 
       <nav
-        aria-label="Narad surfaces"
+        aria-label="Main"
         style={{
-          width: horizontal ? '100%' : 'auto',
           display: 'grid',
-          gridTemplateColumns: horizontal ? `repeat(${SURFACE_ITEMS.length}, minmax(0, 1fr))` : '1fr',
-          gap: horizontal ? 0 : 5,
-          borderTop: horizontal ? 'none' : '1px solid rgba(252,250,242,0.08)',
-          paddingTop: horizontal ? 0 : 9,
+          gridTemplateColumns: '1fr',
+          gap: 4,
+          borderTop: '1px solid rgba(252,250,242,0.08)',
+          paddingTop: 9,
         }}
       >
         {SURFACE_ITEMS.map(item => {
+          const Icon = ICONS[item.id]
           const active = item.id === activeSurface
           return (
             <button
               key={item.id}
               type="button"
               aria-current={active ? 'page' : undefined}
-              aria-label={item.id === 'activity' && unread > 0 ? `Open ${item.label}, ${unread} unread` : `Open ${item.label}`}
+              aria-label={navLabel(item.label, item.id, unread, activeSteps > 0)}
               title={item.label}
               onClick={() => onNavigate(item.id)}
               style={{
                 position: 'relative',
-                minWidth: horizontal ? 0 : 54,
-                minHeight: horizontal ? 54 : 42,
-                padding: horizontal ? '6px 2px' : '5px 4px',
+                minWidth: 56,
+                minHeight: 46,
+                padding: '5px 4px',
                 border: 0,
-                borderRadius: horizontal ? 0 : 9,
+                borderRadius: 9,
                 background: active ? 'rgba(252,250,242,0.12)' : 'transparent',
-                color: active ? '#fcfaf2' : 'rgba(252,250,242,0.44)',
+                color: active ? '#fcfaf2' : 'rgba(252,250,242,0.55)',
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
                 justifyContent: 'center',
-                gap: 2,
+                gap: 3,
                 cursor: 'pointer',
                 transition: 'background 150ms ease, color 150ms ease',
               }}
             >
-              <span style={{ fontSize: 14, lineHeight: 1 }}>{item.icon}</span>
-              <span
-                style={{
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: horizontal ? 8 : 7,
-                  letterSpacing: '0.07em',
-                  textTransform: 'uppercase',
-                  whiteSpace: 'nowrap',
-                }}
-              >
+              <Icon size={16} aria-hidden="true" />
+              <span aria-hidden="true" style={{ fontSize: 10, fontWeight: 600, whiteSpace: 'nowrap' }}>
                 {item.label}
               </span>
-              {horizontal && item.id === 'chat' && activeSteps > 0 && (
-                <CountBadge count={activeSteps} tone="var(--sindoor)" horizontal={horizontal} />
-              )}
               {item.id === 'activity' && unread > 0 && (
-                <CountBadge count={unread} tone="var(--kesari)" horizontal={horizontal} />
+                <span className="nav-badge" aria-hidden="true" style={{ top: 2, left: 'auto', right: 4 }}>{badgeText(unread)}</span>
               )}
             </button>
           )

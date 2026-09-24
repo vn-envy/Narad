@@ -29,27 +29,25 @@ import {
   type SharedWithMe,
 } from '@/lib/notifications'
 
-const INK = 'rgba(26,24,21,'
-
 type Notice = { ok: boolean; text: string } | null
 
 const card = {
-  padding: '16px 18px',
+  padding: '16px',
   borderRadius: 16,
-  border: `1px solid ${INK}0.08)`,
-  background: 'linear-gradient(145deg, color-mix(in srgb, var(--haldi) 8%, var(--paper)) 0%, rgba(252,250,242,0.94) 100%)',
-  margin: '10px 0 20px',
+  border: '1px solid var(--line)',
+  background: 'var(--surface-raised)',
+  margin: '10px 0 18px',
 } as const
 
 const primaryButton = (enabled: boolean) => ({
-  minHeight: 42,
-  padding: '9px 16px',
+  minHeight: 48,
+  padding: '0 18px',
   borderRadius: 10,
   border: 'none',
-  background: enabled ? 'var(--sindoor)' : `${INK}0.12)`,
-  color: enabled ? '#fcfaf2' : `${INK}0.45)`,
-  fontSize: 13,
-  fontWeight: 600,
+  background: enabled ? 'var(--sindoor)' : 'var(--ink-12)',
+  color: enabled ? '#fcfaf2' : 'var(--ink-55)',
+  fontSize: 14,
+  fontWeight: 650,
   cursor: enabled ? 'pointer' : 'default',
   display: 'inline-flex',
   alignItems: 'center',
@@ -57,29 +55,35 @@ const primaryButton = (enabled: boolean) => ({
 }) as const
 
 const outlineButton = (danger = false) => ({
-  minHeight: 40,
-  padding: '8px 14px',
+  minHeight: 48,
+  padding: '0 16px',
   borderRadius: 10,
-  border: danger ? '1px solid rgba(224,90,43,0.30)' : `1px solid ${INK}0.16)`,
+  border: danger ? '1px solid color-mix(in srgb, var(--kesari) 50%, transparent)' : '1px solid var(--ink-20)',
   background: 'transparent',
-  color: danger ? 'var(--sindoor)' : `${INK}0.7)`,
-  fontSize: 12.5,
+  color: danger ? 'var(--kesari)' : 'var(--ink-85)',
+  fontSize: 14,
+  fontWeight: 600,
   cursor: 'pointer',
   display: 'inline-flex',
   alignItems: 'center',
   gap: 6,
 }) as const
 
-function microLabel(text: string) {
+/** A card's heading on the You screen. */
+export function SectionTitle({ children }: { children: ReactNode }) {
   return (
-    <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.18em', color: `${INK}0.42)` }}>
-      {text}
-    </div>
+    <h3 style={{ fontSize: 13, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--ink-55)' }}>
+      {children}
+    </h3>
   )
 }
 
+function microLabel(text: string) {
+  return <SectionTitle>{text}</SectionTitle>
+}
+
 function Hint({ children }: { children: ReactNode }) {
-  return <div style={{ fontSize: 12, lineHeight: 1.5, color: `${INK}0.58)`, margin: '6px 0 12px' }}>{children}</div>
+  return <div style={{ fontSize: 14, lineHeight: 1.5, color: 'var(--ink-70)', margin: '6px 0 12px' }}>{children}</div>
 }
 
 function NoticeLine({ notice }: { notice: Notice }) {
@@ -87,7 +91,7 @@ function NoticeLine({ notice }: { notice: Notice }) {
   return (
     <div
       role={notice.ok ? 'status' : 'alert'}
-      style={{ fontSize: 12.5, lineHeight: 1.45, marginTop: 10, color: notice.ok ? 'var(--tulsi)' : 'var(--sindoor)' }}
+      style={{ fontSize: 14, lineHeight: 1.45, marginTop: 10, color: notice.ok ? 'var(--tulsi)' : 'var(--sindoor)' }}
     >
       {notice.text}
     </div>
@@ -108,17 +112,17 @@ function ToggleRow({
   onChange: (checked: boolean) => void
 }) {
   return (
-    <label style={{ display: 'flex', alignItems: 'flex-start', gap: 12, minHeight: 44, padding: '6px 0', cursor: disabled ? 'default' : 'pointer' }}>
+    <label style={{ display: 'flex', alignItems: 'flex-start', gap: 12, minHeight: 48, padding: '8px 0', cursor: disabled ? 'default' : 'pointer' }}>
       <input
         type="checkbox"
         checked={checked}
         disabled={disabled}
         onChange={event => onChange(event.target.checked)}
-        style={{ width: 20, height: 20, marginTop: 1, flex: '0 0 auto', accentColor: 'var(--sindoor)' }}
+        style={{ width: 22, height: 22, margin: '1px 0 0', flex: '0 0 auto', accentColor: 'var(--sindoor)' }}
       />
       <span>
-        <span style={{ display: 'block', fontSize: 13, fontWeight: 600, color: `${INK}0.82)` }}>{label}</span>
-        {hint && <span style={{ display: 'block', marginTop: 2, fontSize: 11.5, lineHeight: 1.45, color: `${INK}0.55)` }}>{hint}</span>}
+        <span style={{ display: 'block', fontSize: 15, fontWeight: 600, color: 'var(--kajal)' }}>{label}</span>
+        {hint && <span style={{ display: 'block', marginTop: 2, fontSize: 13.5, lineHeight: 1.45, color: 'var(--ink-70)' }}>{hint}</span>}
       </span>
     </label>
   )
@@ -217,7 +221,7 @@ export function PhoneNotificationsCard({ userId, compact = false }: { userId: st
       : state === 'unavailable' ? 'Not available here'
         : state === 'loading' ? 'Checking this phone' : 'Off for this phone'
   const detail = state === 'on'
-    ? 'Reminders and approvals reach this phone. What the lock screen shows is set in Profile.'
+    ? 'Reminders and approvals reach this phone. What the lock screen shows is set in You.'
     : state === 'blocked'
       ? 'Chrome is blocking Narad\'s notifications. Tap the lock icon by the address, then Permissions, Notifications, Allow. Then turn them on here.'
       : state === 'unavailable'
@@ -225,15 +229,15 @@ export function PhoneNotificationsCard({ userId, compact = false }: { userId: st
         : 'Get reminders and approvals on this phone, even when Narad is closed.'
 
   return (
-    <div style={compact ? { ...card, margin: 0, padding: '12px 14px' } : card}>
+    <div style={compact ? { ...card, margin: 0, padding: '14px' } : card}>
       {!compact && microLabel('Notifications on this phone')}
       <div style={{ display: 'flex', alignItems: 'center', gap: 11, marginTop: compact ? 0 : 10, flexWrap: 'wrap' }}>
-        <span style={{ width: 34, height: 34, flex: '0 0 auto', display: 'grid', placeItems: 'center', borderRadius: 10, background: state === 'on' ? 'rgba(6,95,70,0.1)' : `${INK}0.06)`, color: state === 'on' ? 'var(--tulsi)' : `${INK}0.55)` }}>
+        <span aria-hidden="true" style={{ width: 36, height: 36, flex: '0 0 auto', display: 'grid', placeItems: 'center', borderRadius: 10, background: state === 'on' ? 'rgba(var(--rgb-tulsi),0.12)' : 'var(--ink-05)', color: state === 'on' ? 'var(--tulsi)' : 'var(--ink-55)' }}>
           {state === 'on' ? <BellRing size={16} /> : state === 'loading' ? <LoaderCircle size={16} className="animate-spin" /> : <BellOff size={16} />}
         </span>
         <span style={{ flex: '1 1 180px', minWidth: 0 }}>
-          <span style={{ display: 'block', fontSize: 13, fontWeight: 700, color: `${INK}0.84)` }}>{title}</span>
-          <span style={{ display: 'block', marginTop: 2, fontSize: 11.5, lineHeight: 1.45, color: `${INK}0.56)` }}>{detail}</span>
+          <span style={{ display: 'block', fontSize: 15, fontWeight: 700, color: 'var(--kajal)' }}>{title}</span>
+          <span style={{ display: 'block', marginTop: 2, fontSize: 13.5, lineHeight: 1.45, color: 'var(--ink-70)' }}>{detail}</span>
         </span>
         <span style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {state === 'off' && (
@@ -257,15 +261,15 @@ export function PhoneNotificationsCard({ userId, compact = false }: { userId: st
       </div>
       <NoticeLine notice={notice} />
       {!compact && devices.length > 0 && (
-        <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${INK}0.08)` }}>
-          <div style={{ fontSize: 11, fontWeight: 650, color: `${INK}0.55)`, marginBottom: 6 }}>Your devices with notifications on</div>
+        <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
+          <div style={{ fontSize: 13, fontWeight: 650, color: 'var(--ink-55)', marginBottom: 6 }}>Your devices with notifications on</div>
           {devices.map(device => (
-            <div key={device.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', fontSize: 12, color: `${INK}0.72)` }}>
-              <Smartphone size={13} style={{ flex: '0 0 auto', color: `${INK}0.45)` }} />
+            <div key={device.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', fontSize: 14, color: 'var(--ink-85)' }}>
+              <Smartphone size={15} aria-hidden="true" style={{ flex: '0 0 auto', color: 'var(--ink-40)' }} />
               <span style={{ flex: 1, minWidth: 0 }}>
                 {device.label}{device.endpoint === endpoint ? ' (this one)' : ''}
               </span>
-              <span style={{ fontSize: 10.5, color: device.last_error ? 'var(--sindoor)' : `${INK}0.45)` }}>
+              <span style={{ fontSize: 12.5, color: device.last_error ? 'var(--sindoor)' : 'var(--ink-55)' }}>
                 {device.last_error ? 'Last push failed' : device.last_success_at ? 'Working' : 'Not tested yet'}
               </span>
             </div>
@@ -320,13 +324,13 @@ function NotificationPreferencesCard() {
   }
   const quiet = prefs.quiet_hours
   const timeInput = {
-    minHeight: 44,
+    minHeight: 48,
     padding: '8px 10px',
     borderRadius: 10,
-    border: `1px solid ${INK}0.14)`,
-    background: 'var(--paper)',
+    border: '1px solid var(--ink-20)',
+    background: 'var(--field)',
     fontSize: 16,
-    color: `${INK}0.85)`,
+    color: 'var(--kajal)',
   } as const
 
   return (
@@ -350,12 +354,12 @@ function NotificationPreferencesCard() {
       />
       {quiet.enabled && (
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end', margin: '4px 0 6px 32px' }}>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: 11.5, fontWeight: 600, color: `${INK}0.62)` }}>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 14, fontWeight: 600, color: 'var(--ink-70)' }}>
             From
             <input type="time" value={quiet.start} disabled={saving} style={timeInput}
               onChange={event => event.target.value && void save({ quiet_hours: { ...quiet, start: event.target.value } })} />
           </label>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: 11.5, fontWeight: 600, color: `${INK}0.62)` }}>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 14, fontWeight: 600, color: 'var(--ink-70)' }}>
             Until
             <input type="time" value={quiet.end} disabled={saving} style={timeInput}
               onChange={event => event.target.value && void save({ quiet_hours: { ...quiet, end: event.target.value } })} />
@@ -442,14 +446,14 @@ function CareCircleCard({ profile }: { profile: FamilyProfile }) {
         Only you can change this; you can stop sharing at any time.
       </Hint>
       {!circle && !notice && <Hint>Loading…</Hint>}
-      {circle && family.length === 0 && <div style={{ fontSize: 12, color: `${INK}0.5)` }}>No one else has a profile yet.</div>}
+      {circle && family.length === 0 && <div style={{ fontSize: 14, color: 'var(--ink-55)' }}>No one else has a profile yet.</div>}
       {circle && family.map(person => {
         const chosen = draft[person.user_id] ?? []
         return (
-          <div key={person.user_id} style={{ padding: '10px 0', borderTop: `1px solid ${INK}0.07)` }}>
-            <div style={{ fontSize: 13.5, fontWeight: 650, color: `${INK}0.82)` }}>
+          <div key={person.user_id} style={{ padding: '10px 0', borderTop: '1px solid var(--line)' }}>
+            <div style={{ fontSize: 15, fontWeight: 650, color: 'var(--kajal)' }}>
               {person.display_name}
-              <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 500, color: `${INK}0.5)` }}>
+              <span style={{ marginLeft: 8, fontSize: 13, fontWeight: 500, color: 'var(--ink-55)' }}>
                 {chosen.length ? `sees ${chosen.length} kind${chosen.length === 1 ? '' : 's'}` : 'sees nothing'}
               </span>
             </div>
@@ -519,11 +523,11 @@ function SharedWithMeCard() {
       {microLabel('Shared with you')}
       <Hint>Family members who chose to share some of their notifications with you. These arrive in your Activity.</Hint>
       {(shared ?? []).map(row => (
-        <div key={row.subject} style={{ padding: '10px 0', borderTop: `1px solid ${INK}0.07)` }}>
+        <div key={row.subject} style={{ padding: '10px 0', borderTop: '1px solid var(--line)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <span style={{ flex: '1 1 180px', minWidth: 0 }}>
-              <span style={{ display: 'block', fontSize: 13.5, fontWeight: 650, color: `${INK}0.82)` }}>{row.subject_name}</span>
-              <span style={{ display: 'block', marginTop: 2, fontSize: 11.5, color: `${INK}0.55)` }}>
+              <span style={{ display: 'block', fontSize: 15, fontWeight: 650, color: 'var(--kajal)' }}>{row.subject_name}</span>
+              <span style={{ display: 'block', marginTop: 2, fontSize: 13.5, color: 'var(--ink-70)' }}>
                 {row.kinds.map(kind => kinds[kind] ?? kind).join(' · ')}
               </span>
             </span>

@@ -272,10 +272,10 @@ To replace a live `~/.narad`:
 
 Narad sends its own Web Push notifications, with no push vendor account. The Mac signs each push with a VAPID key it generates on first use (`~/.narad/config/vapid.json`, readable only by you; back it up with the rest of `~/.narad`). Each payload is end-to-end encrypted and carries only a title, a short line and a link. The full text stays in the app's **Activity** screen, which is the source of truth.
 
-- **Turn it on per phone.** Each person opens **Activity** (or **System → Profile**) on their phone and taps **Turn on**. Chrome asks for permission only then. **Test** sends a notification to that phone, and **Turn off** stops it. Signing out of a phone, or **Sign out of all my devices**, also stops its notifications.
-- **Lock screen.** By default a notification says only "Narad has a reminder for you" or "Narad needs your OK", because anyone nearby can read a lock screen. Each person can choose to show details in Profile.
+- **Turn it on per phone.** Each person opens **Activity** (or **You**) on their phone and taps **Turn on**. Chrome asks for permission only then. **Test** sends a notification to that phone, and **Turn off** stops it. Signing out of a phone, or **Sign out of all my devices**, also stops its notifications.
+- **Lock screen.** By default a notification says only "Narad has a reminder for you" or "Narad needs your OK", because anyone nearby can read a lock screen. Each person can choose to show details in **You**.
 - **Quiet hours.** These run from 22:00 to 07:00 by default, in the phone's time zone. During them only urgent notifications buzz, plus your own medicine reminders set for that time (you can turn that off). Everything else waits in Activity.
-- **Care circles.** In Profile, a person can share chosen kinds with a family member: medicine reminders, missed doses and health alerts, finished tasks, and approvals (FYI only). The carer sees the title and one line, and cannot act on an approval. Only the person themself can share, and the owner cannot do it for them. The carer can leave the circle.
+- **Care circles.** In **You**, a person can share chosen kinds with a family member: medicine reminders, missed doses and health alerts, finished tasks, and approvals (FYI only). The carer sees the title and one line, and cannot act on an approval. Only the person themself can share, and the owner cannot do it for them. The carer can leave the circle.
 
 Optional settings in `.env`: `NARAD_VAPID_SUBJECT` (a `mailto:` contact for push services; it defaults to a placeholder), `NARAD_DOSE_FOLLOWUP_MINUTES` (default 60, `0` turns it off: a medicine reminder that is still unopened after this long sends one "not opened" health alert), and `NARAD_PUSH_HOSTS` (extra push-service hostnames). ntfy (`NTFY_URL`, `NTFY_TOPIC`) is used only for a profile with no phone signed up for Web Push.
 
@@ -287,14 +287,29 @@ The service worker also keeps the app shell (HTML, scripts, styles, icons, fonts
 2. Open **Activity**. Tap **Turn on**, then allow notifications. The card should say **On for this phone**.
 3. Tap **Test**. A notification should appear within a few seconds. With the app open, it shows as an in-app message instead.
 4. Lock the phone and create a medicine reminder for a minute from now ("remind me to take Thyroxine 50mcg at 7:05pm"). The lock screen should say only "Narad has a reminder for you". Tap it: Narad opens on Activity with the reminder, and the unread badge clears.
-5. In **System → Profile**, turn on **Show details on the lock screen** and repeat. This time the lock screen shows the medicine name.
+5. In **You**, turn on **Show details on the lock screen** and repeat. This time the lock screen shows the medicine name.
 6. Set quiet hours to cover the current time. Deliver a non-urgent item (for example a Workflow check-in). It should appear in Activity with no buzz.
 7. Care circle: on phone A, share medicine reminders with person B and trigger a reminder. B's Activity should show it as "Shared by A", with one line only. On B, tap **Leave** under **Shared with you**. The next reminder should no longer reach B.
 8. Approval, once hash-bound approvals are in: trigger an approval. The notification says "Narad needs your OK", and tapping it opens the approval card (`/?approval=<id>`). If B is A's carer for approvals, B sees an FYI they cannot act on.
 9. Offline: with the app installed, put the Mac to sleep, or stop Narad, and open the app. It should show "Narad's Mac is asleep or offline" with **Try again**, and you stay signed in. Turn on airplane mode: it says the phone is offline.
 10. Access: let the Access session expire, or clear the site's cookies, and open the app. Cloudflare's sign-in page should appear, not a stale app.
 11. Update: rebuild on the Mac. The next time the app opens (or after **Reload** on the "new version" message), it runs the new build. In `chrome://serviceworker-internals` on a desktop, the old `narad-shell-*` cache is gone.
-12. Turn off: tap **Turn off** in Profile. The phone drops out of **Your devices with notifications on** (seen from your other devices), new reminders no longer buzz it, and Activity still collects everything.
+12. Turn off: tap **Turn off** in **You**. The phone drops out of **Your devices with notifications on** (seen from your other devices), new reminders no longer buzz it, and Activity still collects everything.
+
+### Phone screens and the screenshot harness
+
+On a phone the app has four places at the bottom: **Chat**, **Activity** (with the unread count), **Paths** and **You**. **You** holds notifications, voice settings, "What left my Mac", your PIN and devices, and **Sign out of this phone**; Memory and System open from there too. Links keep working: `/?approval=`, `/?task=`, `/?review=`, `/?activity=` and `/?path=`. Activity's **Running** section lists errands still under way (working, waiting for your OK, needs your help) and opens their live screen. The app follows the phone's light or dark setting, keeps the composer above the keyboard, and loads its fonts from the Mac, never from Google.
+
+To see every screen without a phone or a running Mac, build and run the harness. It serves `dist/` with a mocked API from `phase-4/frontend/scripts/screenshots/fixtures/` (placeholder people, example.com), captures each screen at 360×780 and 412×915 in light and dark, and writes an `index.html` contact sheet plus `report.json`, which flags anything wider than the screen, tap targets under 44 px, text under 12 px, and requests that left the app's origin:
+
+```bash
+cd phase-4/frontend && npm run build
+../../.venv/bin/python scripts/screenshots/shoot.py            # all screens -> phase-4/frontend/screenshots/
+../../.venv/bin/python scripts/screenshots/shoot.py --list     # scene names
+../../.venv/bin/python scripts/screenshots/shoot.py --only chat-cards,activity --sizes 360x780 --themes dark
+```
+
+It needs Playwright in the repository's `.venv` and a Chromium (`NARAD_CHROMIUM_EXECUTABLE`, or Playwright's own). Screenshots are not committed. The keyboard, the notch and real Devanagari rendering still need a real phone: see the manual phone check above.
 
 ### Google owner setup
 

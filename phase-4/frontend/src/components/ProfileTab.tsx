@@ -1,7 +1,7 @@
 /**
- * ProfileTab — your PIN, your signed-in devices and your notifications
- * (NotificationSettings); the owner also looks after each family member's
- * PIN and devices.
+ * ProfileTab — your PIN and your signed-in devices; the owner also looks
+ * after each family member's PIN and devices. It is the sign-in part of the
+ * You screen (YouPanel), which also holds notifications, voice and privacy.
  *
  * A new PIN or "sign out everywhere" bumps the profile's session epoch on the
  * server, so every older token stops working at once, this device's included.
@@ -13,55 +13,51 @@ import {
   type FamilyProfile,
   type FamilyProfileSession,
 } from '@/lib/api'
-import { NotificationSettings } from './NotificationSettings'
+import { SectionTitle } from './NotificationSettings'
 
-const INK = 'rgba(26,24,21,'
 const PIN_RE = /^\d{4,8}$/
 
 type Notice = { ok: boolean; text: string } | null
 type MemberAction = { userId: string; action: 'reset' | 'signout' } | null
 
 const card = {
-  padding: '16px 18px',
+  padding: '16px',
   borderRadius: 16,
-  border: `1px solid ${INK}0.08)`,
-  background: 'linear-gradient(145deg, color-mix(in srgb, var(--haldi) 8%, var(--paper)) 0%, rgba(252,250,242,0.94) 100%)',
-  margin: '10px 0 20px',
+  border: '1px solid var(--line)',
+  background: 'var(--surface-raised)',
+  margin: '10px 0 18px',
 } as const
 
 const primaryButton = (enabled: boolean) => ({
-  minHeight: 42,
-  padding: '9px 18px',
+  minHeight: 48,
+  padding: '0 18px',
   borderRadius: 10,
   border: 'none',
-  background: enabled ? 'var(--sindoor)' : `${INK}0.12)`,
-  color: enabled ? '#fcfaf2' : `${INK}0.45)`,
-  fontSize: 13,
-  fontWeight: 600,
+  background: enabled ? 'var(--sindoor)' : 'var(--ink-12)',
+  color: enabled ? '#fcfaf2' : 'var(--ink-55)',
+  fontSize: 14,
+  fontWeight: 650,
   cursor: enabled ? 'pointer' : 'default',
 }) as const
 
 const outlineButton = (danger = false) => ({
-  minHeight: 40,
-  padding: '8px 14px',
+  minHeight: 48,
+  padding: '0 16px',
   borderRadius: 10,
-  border: danger ? '1px solid rgba(224,90,43,0.30)' : `1px solid ${INK}0.16)`,
+  border: danger ? '1px solid color-mix(in srgb, var(--kesari) 50%, transparent)' : '1px solid var(--ink-20)',
   background: 'transparent',
-  color: danger ? 'var(--sindoor)' : `${INK}0.7)`,
-  fontSize: 12.5,
+  color: danger ? 'var(--kesari)' : 'var(--ink-85)',
+  fontSize: 14,
+  fontWeight: 600,
   cursor: 'pointer',
 }) as const
 
 function microLabel(text: string) {
-  return (
-    <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.18em', color: `${INK}0.42)` }}>
-      {text}
-    </div>
-  )
+  return <SectionTitle>{text}</SectionTitle>
 }
 
 function Hint({ children }: { children: ReactNode }) {
-  return <div style={{ fontSize: 12, lineHeight: 1.5, color: `${INK}0.58)`, margin: '6px 0 12px' }}>{children}</div>
+  return <div style={{ fontSize: 14, lineHeight: 1.5, color: 'var(--ink-70)', margin: '6px 0 12px' }}>{children}</div>
 }
 
 function NoticeLine({ notice }: { notice: Notice }) {
@@ -69,7 +65,7 @@ function NoticeLine({ notice }: { notice: Notice }) {
   return (
     <div
       role={notice.ok ? 'status' : 'alert'}
-      style={{ fontSize: 12.5, lineHeight: 1.45, marginTop: 10, color: notice.ok ? 'var(--tulsi)' : 'var(--sindoor)' }}
+      style={{ fontSize: 14, lineHeight: 1.45, marginTop: 10, color: notice.ok ? 'var(--tulsi)' : 'var(--sindoor)' }}
     >
       {notice.text}
     </div>
@@ -90,7 +86,7 @@ function PinField({
   autoFocus?: boolean
 }) {
   return (
-    <label style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: 11.5, fontWeight: 600, color: `${INK}0.62)` }}>
+    <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 14, fontWeight: 600, color: 'var(--ink-70)' }}>
       {label}
       <input
         type="password"
@@ -102,16 +98,8 @@ function PinField({
         autoFocus={autoFocus}
         onChange={event => onChange(event.target.value.replace(/\D/g, ''))}
         placeholder="4-8 digits"
-        style={{
-          minHeight: 44,
-          padding: '9px 12px',
-          borderRadius: 10,
-          border: `1px solid ${INK}0.14)`,
-          background: 'var(--paper)',
-          fontSize: 16, // 16px keeps phone browsers from zooming into the field
-          letterSpacing: '0.2em',
-          color: `${INK}0.85)`,
-        }}
+        className="n-field"
+        style={{ letterSpacing: '0.2em' }}
       />
     </label>
   )
@@ -271,11 +259,8 @@ export function ProfileTab({ profile, onSignedOut }: { profile: FamilyProfile; o
   }, [memberConfirm, memberPin])
 
   return (
-    <div className="panel-scroll" style={{ height: '100%', overflow: 'auto', padding: '18px 16px 32px' }}>
-      <div style={{ maxWidth: 620 }}>
-        {microLabel('Your profile')}
-        <div style={{ marginTop: 6, fontSize: 15, fontWeight: 700, color: `${INK}0.84)` }}>{profile.display_name}</div>
-
+    <div>
+      <div>
         <form
           style={card}
           onSubmit={event => { event.preventDefault(); if (pinReady && busy !== 'pin') void changePin() }}
@@ -300,7 +285,7 @@ export function ProfileTab({ profile, onSignedOut }: { profile: FamilyProfile; o
           <Hint>Lost a phone, or signed in somewhere you should not have? Sign out everywhere, then sign in again here with your PIN.</Hint>
           {confirmSignOut ? (
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-              <span style={{ flex: '1 1 100%', fontSize: 12.5, color: `${INK}0.72)` }}>
+              <span style={{ flex: '1 1 100%', fontSize: 14, color: 'var(--ink-85)' }}>
                 Sign out of Narad on all your devices, this one included?
               </span>
               <button type="button" onClick={() => void signOutEverywhere()} disabled={busy === 'signout'} style={primaryButton(busy !== 'signout')}>
@@ -318,14 +303,12 @@ export function ProfileTab({ profile, onSignedOut }: { profile: FamilyProfile; o
           <NoticeLine notice={sessionNotice} />
         </div>
 
-        <NotificationSettings profile={profile} />
-
         {profile.is_owner && (
           <>
             {microLabel('Family members')}
             <Hint>As the owner you can give someone a new PIN if they forget theirs, or sign them out on every device.</Hint>
             {family.length === 0 && !familyNotice && (
-              <div style={{ fontSize: 12, color: `${INK}0.5)` }}>No one else has a profile yet.</div>
+              <div style={{ fontSize: 14, color: 'var(--ink-55)' }}>No one else has a profile yet.</div>
             )}
             {family.map(member => {
               const open = memberAction?.userId === member.user_id ? memberAction.action : null
@@ -334,7 +317,7 @@ export function ProfileTab({ profile, onSignedOut }: { profile: FamilyProfile; o
               return (
                 <div key={member.user_id} style={{ ...card, margin: '10px 0 0', padding: '14px 16px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                    <span style={{ flex: '1 1 140px', minWidth: 0, fontSize: 13.5, fontWeight: 650, color: `${INK}0.82)` }}>
+                    <span style={{ flex: '1 1 140px', minWidth: 0, fontSize: 15, fontWeight: 650, color: 'var(--kajal)' }}>
                       {member.display_name}
                     </span>
                     <button type="button" onClick={() => openMemberAction(open === 'reset' ? null : { userId: member.user_id, action: 'reset' })} style={outlineButton()}>
@@ -363,7 +346,7 @@ export function ProfileTab({ profile, onSignedOut }: { profile: FamilyProfile; o
                   )}
                   {open === 'signout' && (
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginTop: 12 }}>
-                      <span style={{ flex: '1 1 100%', fontSize: 12.5, color: `${INK}0.72)` }}>
+                      <span style={{ flex: '1 1 100%', fontSize: 14, color: 'var(--ink-85)' }}>
                         Sign {member.display_name} out on every device? They can sign in again with their PIN.
                       </span>
                       <button type="button" onClick={() => void runMemberAction(member, 'signout')} disabled={working} style={primaryButton(!working)}>
