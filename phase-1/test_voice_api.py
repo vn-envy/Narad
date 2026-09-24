@@ -24,6 +24,7 @@ import voice_engine as voice_module
 from fastapi.testclient import TestClient
 
 import family_profiles
+import pilot_metrics
 import onboarding
 import profile_context
 
@@ -58,6 +59,8 @@ class VoiceApiTest(unittest.TestCase):
         family_profiles.create_profile("Alice", "2468")
         family_profiles.create_profile("Bob", "1357")
         self.pins = {"alice": "2468", "bob": "1357"}
+        for profile_id in self.pins:  # voice needs the current consent sheet accepted
+            pilot_metrics.record_consent(profile_id, version=pilot_metrics.CONSENT_VERSION, accepted=True)
         self.tokens: dict[str, str] = {}
 
     def tearDown(self) -> None:
