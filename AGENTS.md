@@ -121,7 +121,7 @@ document extraction, critical analysis (steelman + red-team), and the local file
 | `query_deepwiki` | GitHub repo architecture questions |
 | `extract_document` | Lightweight PDF/DOCX/PPTX/HTML/CSV/text extraction; photos (jpg/png/webp/heic) and scanned PDF pages through local OCR, lines tagged `[p1-l3]` |
 | `extract_fields` | Values from lab reports, statements, prescriptions, circulars, bills and forms → a pending document review; nothing is saved until the person confirms each value against its crop |
-| `scan_directory` / `organize_by_type` / `move_to_trash` / `find_large_files` / `get_disk_info` | Filesystem hygiene — always dry-run before mutating |
+| `scan_directory` / `organize_by_type` / `move_to_trash` / `find_large_files` / `get_disk_info` | Filesystem hygiene — always dry-run before mutating. Moving files is owner-only; every path follows `host_access.path_access_error` (no secrets, no other profile's files, family members only their own) |
 | `search_last30days` | Cross-source recency sweep (Reddit/HN/GitHub) |
 
 Soft rules: primary sources over aggregators; cite every non-obvious claim; screenshot

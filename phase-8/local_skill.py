@@ -57,7 +57,19 @@ def _check_blocked(p: Path) -> str | None:
     for blocked in _BLOCKED_PATHS:
         if ps == blocked or ps.startswith(blocked + "/"):
             return f"Blocked: '{ps}' is a protected system path. Narad cannot operate on system directories."
-    return None
+    # Narad's secrets and other profiles' folders are off limits to everyone;
+    # family members are kept to their own Narad files (host_access).
+    from host_access import path_access_error
+
+    denied = path_access_error(p)
+    return f"Blocked: {denied}." if denied else None
+
+
+def _owner_only(tool: str) -> dict | None:
+    """Moving files on the host Mac is the owner's call, not a family member's."""
+    from host_access import owner_only
+
+    return owner_only(tool)
 
 
 def _fmt_size(size_bytes: int) -> str:
@@ -140,8 +152,11 @@ def move_to_trash(paths: list[str], dry_run: bool = True) -> dict:
     - dry_run=False: actually moves files. ONLY call after user explicitly confirms.
 
     Uses send2trash — files remain in Trash and can be recovered via Finder.
-    Will REFUSE any path under protected system directories.
+    Will REFUSE any path under protected system directories. Owner only.
     """
+    refused = _owner_only("move_to_trash")
+    if refused:
+        return refused
     try:
         import send2trash
     except ImportError:
@@ -222,7 +237,11 @@ def organize_by_type(source_dir: str, dry_run: bool = True) -> dict:
     SAFETY CONTRACT:
     - dry_run=True (default): returns proposed move list. Nothing changes.
     - dry_run=False: actually moves files. ONLY call after user explicitly confirms.
+    Owner only.
     """
+    refused = _owner_only("organize_by_type")
+    if refused:
+        return refused
     p = _resolve(source_dir)
     blocked = _check_blocked(p)
     if blocked:
@@ -335,6 +354,9 @@ def get_disk_info(path: str = "~") -> dict:
     Read-only — no confirmation needed.
     """
     p = _resolve(path)
+    blocked = _check_blocked(p)
+    if blocked:
+        return {"status": "error", "message": blocked}
 
     try:
         usage = shutil.disk_usage(p)

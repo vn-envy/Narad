@@ -48,6 +48,14 @@ def extract_document_text(file_path: str) -> dict:
 def _extract(file_path: str, *, ocr: bool) -> dict:
     p = Path(file_path).expanduser().resolve()
 
+    # The same rule as every other file tool: no secrets, no other profile's
+    # files, and family members only read their own Narad files and uploads.
+    from host_access import path_access_error
+
+    denied = path_access_error(p)
+    if denied:
+        return {"status": "error", "message": denied, "content": ""}
+
     if not p.exists():
         return {
             "status":  "error",

@@ -209,6 +209,39 @@ class ProfileRunTests(_FamilyServer):
                 self.assertEqual(host_access.path_access_error(own), "That file belongs to another family profile")
 
 
+    def test_document_and_disk_tools_follow_the_same_file_rule(self) -> None:
+        import docling_skill
+        import local_skill
+
+        profiles = self.root / "profiles"
+        host = self.root / "host"
+        files = {
+            "alice": profiles / "alice" / "notes.txt",
+            "bob": profiles / "bob" / "notes.txt",
+            "host": host / "notes.txt",
+        }
+        for path in files.values():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("Blood test on Monday", encoding="utf-8")
+        with patch.object(host_access, "PROFILES_DIR", profiles):
+            with profile_scope("alice"):
+                self.assertEqual(docling_skill.extract_document(str(files["alice"]))["status"], "ok")
+                for other in ("bob", "host"):
+                    refused = docling_skill.extract_document(str(files[other]))
+                    self.assertEqual(refused["status"], "error", other)
+                    self.assertEqual(refused["content"], "")
+                self.assertEqual(local_skill.scan_directory(str(host))["status"], "error")
+                self.assertEqual(local_skill.find_large_files(str(host))["status"], "error")
+                # Moving files on the host is the owner's call.
+                self.assertEqual(local_skill.move_to_trash([str(files["alice"])])["status"], "blocked")
+                self.assertEqual(local_skill.organize_by_type(str(host))["status"], "blocked")
+            with profile_scope("default"):
+                self.assertEqual(docling_skill.extract_document(str(files["host"]))["status"], "ok")
+                self.assertEqual(local_skill.scan_directory(str(host))["status"], "ok")
+                self.assertEqual(docling_skill.extract_document(str(files["alice"]))["status"], "error")
+                self.assertEqual(local_skill.scan_directory(str(profiles / "bob"))["status"], "error")
+
+
 class ProfileLogTests(_FamilyServer):
     """Sutras, andon, karma, sankalpa, costs, audit, search and provenance."""
 
