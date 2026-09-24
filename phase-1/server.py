@@ -439,6 +439,13 @@ try:
 except Exception as _voice_err:
     logging.getLogger("narad.server").warning("Voice router unavailable: %s", _voice_err)
 
+# ── Document reviews (crop confirmation before health/finance writes) ─────────
+try:
+    from document_review_api import document_review_router
+    app.include_router(document_review_router)
+except Exception as _documents_err:
+    logging.getLogger("narad.server").warning("Document review router unavailable: %s", _documents_err)
+
 # ── Security floor: bearer auth + pinned CORS ─────────────────────────────────
 #
 # Auth modes (NARAD_AUTH env):

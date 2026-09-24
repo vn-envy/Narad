@@ -827,6 +827,17 @@ def restore_partial_response(llm_response: Any, restorer: StreamRestorer) -> Any
 
 # ── Plain LiteLLM calls (background learners, judges) ─────────────────────────
 
+def _has_media(messages: Any) -> bool:
+    """Whether OpenAI-style messages carry an image, audio or file part."""
+    for message in messages if isinstance(messages, list) else []:
+        content = message.get("content") if isinstance(message, dict) else None
+        if isinstance(content, list) and any(
+            isinstance(part, dict) and part.get("type") not in (None, "text") for part in content
+        ):
+            return True
+    return False
+
+
 def completion(**kwargs: Any) -> Any:
     """litellm.completion with the same policy as agent calls."""
     import litellm
@@ -839,6 +850,13 @@ def completion(**kwargs: Any) -> Any:
         record_egress(model=model, source=source, tier=tier, blocked="policy")
         raise PolicyBlocked(f"{model} is blocked by owner policy.")
     messages = kwargs.get("messages") or []
+    if _has_media(messages):
+        # Images cannot be pseudonymised: local or trusted only, logged once by allow_raw.
+        if not allow_raw(model, source=source, chars=len(json.dumps(messages, default=str))):
+            raise PrivacyGatewayError(
+                f"Images cannot be pseudonymised, so they are never sent to {model}."
+            )
+        return litellm.completion(**kwargs)
     if tier == REDACT:
         if not redactor_ready():
             record_egress(model=model, source=source, tier=tier, blocked="redactor_unavailable")

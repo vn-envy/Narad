@@ -434,6 +434,17 @@ def _endpoint_for_model(model: str, *, source: str) -> ModelEndpoint | None:
     return None
 
 
+def hosted_vision_endpoints() -> list[ModelEndpoint]:
+    """Connected Google, Anthropic and OpenAI vision endpoints, in preference order."""
+    candidates = (
+        (os.environ.get("GEMINI_VISION_MODEL", "gemini/gemini-2.5-flash"), "connected Google endpoint"),
+        (os.environ.get("ANTHROPIC_VISION_MODEL", "anthropic/claude-sonnet-4-6"), "connected Anthropic endpoint"),
+        (os.environ.get("OPENAI_VISION_MODEL", "openai/gpt-4o"), "connected OpenAI endpoint"),
+    )
+    endpoints = (_endpoint_for_model(model, source=source) for model, source in candidates)
+    return [endpoint for endpoint in endpoints if endpoint]
+
+
 def get_vision_endpoint(avatar_name: str) -> ModelEndpoint | None:
     """Choose a healthy multimodal endpoint rather than a hardcoded provider."""
     _hydrate_stored_credentials()
@@ -480,15 +491,9 @@ def get_vision_endpoint(avatar_name: str) -> ModelEndpoint | None:
         if endpoint:
             return endpoint
 
-    candidates = (
-        (os.environ.get("GEMINI_VISION_MODEL", "gemini/gemini-2.5-flash"), "connected Google endpoint"),
-        (os.environ.get("ANTHROPIC_VISION_MODEL", "anthropic/claude-sonnet-4-6"), "connected Anthropic endpoint"),
-        (os.environ.get("OPENAI_VISION_MODEL", "openai/gpt-4o"), "connected OpenAI endpoint"),
-    )
-    for model, source in candidates:
-        endpoint = _endpoint_for_model(model, source=source)
-        if endpoint:
-            return endpoint
+    hosted = hosted_vision_endpoints()
+    if hosted:
+        return hosted[0]
 
     if os.environ.get("MIMO_API_KEY", "").strip():
         return ModelEndpoint(

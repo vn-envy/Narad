@@ -272,6 +272,13 @@ def tick(now: datetime | None = None) -> dict:
         workflow_fired = int(fire_due_workflow_schedules(now).get("fired", 0))
     except Exception as exc:
         log.warning("Kala: workflow schedule pass failed: %s", exc)
+    try:
+        # Bill and circular reminders a person ticked on a document review.
+        from document_review import fire_due_reminders
+
+        fired += fire_due_reminders(now, _family_profile_ids())
+    except Exception as exc:
+        log.warning("Kala: document reminder pass failed: %s", exc)
     state["last_tick"] = now.isoformat(timespec="seconds")
     _save_state(state)
     if fired or reviews_fired or workflow_fired:

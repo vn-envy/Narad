@@ -81,6 +81,29 @@ def _txn_id(date: str, amount: float, merchant: str, account: str) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
+def _store_transaction(
+    conn: sqlite3.Connection,
+    date: str,
+    amount: float,
+    merchant: str,
+    bank: str,
+    card_type: str,
+    source: str,
+    raw: str,
+) -> tuple[str, bool]:
+    """Insert one spend; returns (txn_id, inserted). A re-import is a no-op (content hash)."""
+    txn_id = _txn_id(date, amount, merchant, bank)
+    try:
+        conn.execute(
+            "INSERT INTO transactions VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (txn_id, date, amount, merchant, _auto_category(merchant),
+             bank, bank, card_type, source, raw),
+        )
+        return txn_id, True
+    except sqlite3.IntegrityError:
+        return txn_id, False
+
+
 # ── Auto-categorisation ───────────────────────────────────────────────────────
 
 _CATEGORY_KEYWORDS: dict[str, list[str]] = {
@@ -302,18 +325,12 @@ def import_csv(file_path: str, bank: str = "auto") -> dict:
                         continue
 
                     date, amount, merchant = parsed
-                    txn_id = _txn_id(date, amount, merchant, detected_bank)
-                    category = _auto_category(merchant)
-
-                    try:
-                        conn.execute(
-                            "INSERT INTO transactions VALUES (?,?,?,?,?,?,?,?,?,?)",
-                            (txn_id, date, amount, merchant, category,
-                             detected_bank, detected_bank, detected_type,
-                             "csv", str(row)),
-                        )
+                    _, inserted = _store_transaction(
+                        conn, date, amount, merchant, detected_bank, detected_type, "csv", str(row),
+                    )
+                    if inserted:
                         imported += 1
-                    except sqlite3.IntegrityError:
+                    else:
                         duplicates += 1
                 except Exception as exc:
                     errors.append(f"Row {i}: {exc}")
@@ -333,6 +350,53 @@ def import_csv(file_path: str, bank: str = "auto") -> dict:
         }
     except Exception as exc:
         return {"status": "error", "message": str(exc), "imported": 0, "duplicates": 0, "errors": []}
+
+
+def import_transactions(transactions: list[dict], *, account: str, source: str = "document") -> dict:
+    """Store transactions a person confirmed from a statement photo or PDF.
+
+    Not an avatar tool: document_review calls it after crop confirmation. Like
+    import_csv, only debits are stored (the ledger tracks spending) and the
+    same content hash deduplicates, so a statement already imported as CSV, or
+    confirmed twice, is not counted again.
+
+    Each transaction: {"date": "YYYY-MM-DD", "description", "amount", "type":
+    "debit"|"credit", "ref": caller's reference kept in the raw column}.
+    """
+    bank = (account or "").strip() or "Statement"
+    results: list[dict] = []
+    imported = duplicates = credits = 0
+    conn = _db()
+    try:
+        for txn in transactions:
+            date = _parse_date(str(txn.get("date", ""))) or ""
+            amount = abs(float(txn.get("amount") or 0))
+            merchant = re.sub(r"\s+", " ", str(txn.get("description", ""))).strip()[:200]
+            if str(txn.get("type", "debit")).lower() == "credit":
+                credits += 1
+                results.append({"ref": txn.get("ref"), "status": "skipped_credit"})
+                continue
+            if not date or not merchant or not amount:
+                results.append({"ref": txn.get("ref"), "status": "invalid"})
+                continue
+            txn_id, inserted = _store_transaction(
+                conn, date, amount, merchant, bank, "debit", source, str(txn.get("ref") or ""),
+            )
+            imported += int(inserted)
+            duplicates += int(not inserted)
+            results.append({"ref": txn.get("ref"), "status": "imported" if inserted else "duplicate",
+                            "txn_id": txn_id})
+        conn.commit()
+    finally:
+        conn.close()
+    return {
+        "status": "ok",
+        "imported": imported,
+        "duplicates": duplicates,
+        "skipped_credits": credits,
+        "results": results,
+        "message": f"Stored {imported} new transaction(s); {duplicates} already recorded.",
+    }
 
 
 def sync_gmail(days_back: int = 30) -> dict:

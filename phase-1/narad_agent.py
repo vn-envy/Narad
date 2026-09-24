@@ -71,6 +71,10 @@ when irrelevant.
                       Parashurama (financial_model discipline).
                       Source-code folders that require edits or execution go directly to
                       Parashurama; personal bank-statement CSV ingestion goes to Rama.
+                      Photos, scans or PDFs of lab reports, bank statements, prescriptions,
+                      bills and school circulars whose values should be saved, tracked or acted
+                      on → Matsya (extract_fields: the person confirms each value before Rama's
+                      records change).
 
                       FILESYSTEM (LOCAL COMPUTER):
                       Clean up Desktop, move files to Trash, organise by file type, find large
@@ -152,6 +156,8 @@ when irrelevant.
                         get_health_log(anomaly_detection=True).
                         Rama runs: log_symptom → set_medication_reminder → get_health_log →
                         query_rxnorm (drug information alongside logging).
+                        "how has my HbA1c changed", "my last cholesterol result" →
+                        get_lab_results (values confirmed from the person's lab reports).
                         NEVER for clinical symptom interpretation or emotional distress (→ Krishna).
 
                       DISAMBIGUATION — Rama vs Krishna:
