@@ -452,6 +452,41 @@ def test_embeddings_are_guarded_by_tier(monkeypatch: pytest.MonkeyPatch) -> None
     assert gw.guard_texts("mimo", ["Asha Sharma"]) == ["<PERSON_1>"]
 
 
+def test_image_prompts_are_guarded_by_tier(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    import imagen_skill
+
+    sent: list[dict] = []
+
+    class _Response:
+        def raise_for_status(self) -> None:
+            pass
+
+        def json(self) -> dict:
+            return {"data": [{"b64_json": "iVBORw0KGgo="}]}
+
+    def _post(url: str, **kwargs: object) -> _Response:
+        sent.append(kwargs["json"])  # type: ignore[arg-type]
+        return _Response()
+
+    monkeypatch.setitem(sys.modules, "httpx", pytypes.SimpleNamespace(post=_post))
+    monkeypatch.setattr(imagen_skill, "ARTIFACTS_DIR", tmp_path / "artifacts")
+    monkeypatch.setenv("MIMO_API_KEY", "test-key")
+    monkeypatch.setenv("MIMO_BASE_URL", "https://mimo.example.com/v1")
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+
+    result = imagen_skill.generate_image("Watercolour of Asha Sharma at the Holi party")
+    assert result["status"] == "ok", result
+    assert sent[-1]["prompt"] == "Watercolour of <PERSON_1> at the Holi party"
+    assert _ledger(tmp_path)[-1]["source"] == "imagen"
+
+    # No redactor, no call: Mimo never sees the raw prompt.
+    monkeypatch.setattr(gw, "redactor_ready", lambda: False)
+    monkeypatch.setattr(gw._openmed, "require", lambda: (_ for _ in ()).throw(gw.RedactorUnavailable("off")))
+    refused = imagen_skill.generate_image("Watercolour of Asha Sharma")
+    assert refused["status"] == "unavailable"
+    assert len(sent) == 1
+
+
 # ── Chokepoint ────────────────────────────────────────────────────────────────
 
 _ALLOWED_DIRECT_CALLERS = {

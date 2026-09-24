@@ -5,12 +5,17 @@ Krishna calls generate_image() during slide BUILD (hero images, section visuals)
 and video BUILD (static scene frames before compositing).
 
 Requires GEMINI_API_KEY env var.
+
+Prompts leave the Mac through privacy_gateway like every other cloud call:
+Gemini is `trusted` and is logged; Mimo is `redact`, so it only ever sees
+placeholders, and without a working redactor the call is refused.
 """
 from __future__ import annotations
 
 import os
 import uuid
 
+import privacy_gateway
 from narad_config import ARTIFACTS_DIR
 from tool_result import profile_run_path
 
@@ -33,6 +38,10 @@ def _generate_image_mimo(prompt: str) -> dict:
                 "MIMO_API_KEY+MIMO_BASE_URL are set."
             ),
         }
+    try:
+        prompt = privacy_gateway.guard_texts("mimo", [prompt], source="imagen")[0]
+    except privacy_gateway.PrivacyGatewayError as exc:
+        return {"status": "unavailable", "error": f"Image generation refused by the privacy gateway: {exc}"}
 
     try:
         import base64 as _b64
@@ -120,6 +129,11 @@ def generate_image(prompt: str) -> dict:
         from google.genai import types
     except ImportError:
         return {"status": "unavailable", "error": "google-genai not installed. Run: pip install google-genai"}
+
+    try:
+        prompt = privacy_gateway.guard_texts("gemini", [prompt], source="imagen")[0]
+    except privacy_gateway.PrivacyGatewayError as exc:
+        return {"status": "unavailable", "error": f"Image generation refused by the privacy gateway: {exc}"}
 
     try:
         client = genai.Client(api_key=api_key)

@@ -7,6 +7,7 @@ For multi-scene videos, call once per scene then use create_video() to stitch.
 
 Requires GEMINI_API_KEY env var.
 Model override: VEO_MODEL env var (default: veo-3.1-generate-preview).
+Prompts go through privacy_gateway (Gemini is `trusted`; the call is logged).
 """
 from __future__ import annotations
 
@@ -15,6 +16,7 @@ import time
 import uuid
 from pathlib import Path
 
+import privacy_gateway
 from narad_config import ARTIFACTS_DIR
 from tool_result import profile_run_path
 
@@ -66,6 +68,10 @@ def generate_video_clip(
         return {"status": "unavailable", "error": "google-genai not installed. Run: pip install google-genai"}
 
     duration = max(1, min(8, duration_seconds))
+    try:
+        prompt = privacy_gateway.guard_texts("gemini", [prompt], source="veo")[0]
+    except privacy_gateway.PrivacyGatewayError as exc:
+        return {"status": "unavailable", "error": f"Veo refused by the privacy gateway: {exc}"}
 
     try:
         client = genai.Client(api_key=api_key)
