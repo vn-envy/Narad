@@ -10,6 +10,7 @@ import { OnboardingFlow }       from './components/OnboardingFlow'
 import { HostUnreachableError, isUnreachableStatus } from './lib/host-status'
 import { disablePush, fetchInbox, setAppBadge, syncPushSubscription } from './lib/notifications'
 import { OPEN_URL_EVENT, PUSH_EVENT, type PushPayload } from './lib/pwa'
+import { ApprovalSheet }        from './components/ApprovalCard'
 import {
   apiFetch,
   apiUrl,
@@ -181,6 +182,7 @@ function NaradSession({ profile, onSwitchProfile }: { profile: FamilyProfile; on
     pendingToolUi, clearToolUi,
     andonAlert, clearSession, resumeSession,
     guidedSession, answerGuided, skipGuided, exitGuided,
+    updateApproval,
   } = useAvatara(userId)
 
   const [initialLink] = useState(takeAppLink)
@@ -451,6 +453,7 @@ function NaradSession({ profile, onSwitchProfile }: { profile: FamilyProfile; on
               onGuidedAnswer={answerGuided}
               onGuidedSkip={skipGuided}
               onGuidedExit={() => exitGuided()}
+              onApprovalChange={updateApproval}
             />
           ) : (
             <Suspense fallback={<div className="h-full" style={{ background: 'var(--paper)' }} />}>
@@ -558,6 +561,9 @@ function NaradSession({ profile, onSwitchProfile }: { profile: FamilyProfile; on
           />
         </Suspense>
       )}
+
+      {/* Opened from an approval notification: /?approval=<id> */}
+      <ApprovalSheet onChange={updateApproval} />
 
       <Toaster />
     </>

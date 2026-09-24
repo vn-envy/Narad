@@ -138,6 +138,103 @@ export async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>
 }
 
+// ── Anumati approvals ─────────────────────────────────────────────────────────
+
+export type ApprovalStatus =
+  | 'pending' | 'approved' | 'executing' | 'rejected' | 'expired' | 'edited' | 'executed' | 'failed'
+
+export interface ApprovalPreview {
+  kind?: 'email' | 'browser' | 'phone' | 'desktop' | 'workflow' | string
+  // email
+  from?: string
+  to?: string[]
+  cc?: string[]
+  subject?: string
+  body?: string
+  html_body?: string
+  // browser
+  page_url?: string
+  page_title?: string | null
+  screenshot_url?: string | null
+  signed_in?: boolean
+  reason?: string
+  warning?: string | null
+  // phone / desktop / workflow
+  device?: string
+  mode?: string
+  task?: string
+  run_title?: string
+  stage_title?: string
+  text?: string
+}
+
+/** An ActionProposal: one exact side effect waiting for (or decided by) its person. */
+export interface ApprovalProposal {
+  id: string
+  surface: string
+  action: string
+  target: string
+  args: unknown
+  args_hash: string
+  summary: string
+  risk_class: string
+  risk_label: string
+  preview: ApprovalPreview
+  status: ApprovalStatus
+  created_at: string
+  expires_at: string
+  expires_in_s: number
+  decided_by?: string | null
+  decided_at?: string | null
+  decided_device?: string | null
+  decision_reason?: string | null
+  finished_at?: string | null
+  session_id?: string | null
+  supersedes?: string | null
+  superseded_by?: string | null
+  result?: { status: string; summary?: string; error?: string } | null
+  editable: boolean
+}
+
+export interface ApprovalEdit {
+  to?: string
+  cc?: string
+  subject?: string
+  body?: string
+}
+
+async function approvalRequest(path: string, init?: RequestInit): Promise<ApprovalProposal> {
+  const response = await apiFetch(path, init)
+  const payload = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    const detail = typeof payload?.detail === 'string' ? payload.detail : ''
+    throw new Error(
+      detail || (response.status === 404 ? 'This approval is not on this profile.' : `HTTP ${response.status}`),
+    )
+  }
+  return payload as ApprovalProposal
+}
+
+export function fetchApproval(id: string, signal?: AbortSignal): Promise<ApprovalProposal> {
+  return approvalRequest(`/approvals/${encodeURIComponent(id)}`, { signal })
+}
+
+export function decideApproval(id: string, verdict: 'approve' | 'reject', reason = ''): Promise<ApprovalProposal> {
+  return approvalRequest(`/approvals/${encodeURIComponent(id)}/${verdict}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: verdict === 'reject' ? JSON.stringify({ reason }) : undefined,
+  })
+}
+
+export function editApproval(id: string, changes: ApprovalEdit): Promise<ApprovalProposal> {
+  return approvalRequest(`/approvals/${encodeURIComponent(id)}/edit`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(changes),
+  })
+}
+
 export interface RuntimeIssue {
   level: string
   code: string

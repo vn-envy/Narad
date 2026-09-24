@@ -695,6 +695,7 @@ def request_stage_confirmation(run_id: str, *, summary: str = "", details: dict[
     stage = _stage(pack, run.current_stage_id)
     if not stage or not stage.get("requires_confirmation"):
         raise ValueError("Current stage does not require confirmation")
+    previous = dict(run.state.get("confirmation") or {})
     confirmation = {
         "stage_id": stage["id"],
         "action": stage.get("confirmation_action"),
@@ -703,19 +704,65 @@ def request_stage_confirmation(run_id: str, *, summary: str = "", details: dict[
         "status": "pending",
         "requested_at": _iso(),
     }
+    # The approval is an Anumati proposal bound to this exact stage preview:
+    # a new preview is a new proposal, and the old card stops being valid.
+    confirmation["proposal_id"] = _propose_stage_approval(run, stage, confirmation)
+    if previous.get("proposal_id") and previous["proposal_id"] != confirmation["proposal_id"]:
+        import anumati
+
+        anumati.supersede(previous["proposal_id"], profile_id=run.user_id, reason="Replaced by a newer stage preview")
     run.state["confirmation"] = confirmation
     _update_run_fields(run, status="waiting_confirmation")
     _append_event(run, "confirmation_requested", stage_id=stage["id"], payload=confirmation)
     return run
 
 
-def approve_stage(run_id: str, *, approved_by: str = "user") -> WorkflowRun:
+def _propose_stage_approval(run: WorkflowRun, stage: dict[str, Any], confirmation: dict[str, Any]) -> str:
+    import hashlib
+
+    import anumati
+
+    summary = str(confirmation.get("summary") or stage["purpose"])
+    details_digest = hashlib.sha256(anumati.canonical_json(confirmation.get("details") or {}).encode()).hexdigest()
+    proposal, _created = anumati.propose(
+        surface="workflow",
+        action=str(stage.get("confirmation_action") or "stage"),
+        target=f"{run.run_id}:{stage['id']}",
+        args={
+            "run_id": run.run_id,
+            "stage_id": stage["id"],
+            "cycle": run.state.get("cycle", 1),
+            "summary": summary,
+            "details_sha256": details_digest,
+        },
+        summary=f"{run.title}, {stage['title']}: {summary[:300]}",
+        risk_class="workflow_stage",
+        preview={
+            "kind": "workflow",
+            "run_id": run.run_id,
+            "workflow_id": run.workflow_id,
+            "run_title": run.title,
+            "stage_title": stage["title"],
+            "purpose": stage["purpose"],
+            "text": summary[:2000],
+        },
+        profile_id=run.user_id,
+        session_id=run.session_id or "",
+    )
+    return proposal.proposal_id
+
+
+def approve_stage(run_id: str, *, approved_by: str = "user", proposal_id: str | None = None) -> WorkflowRun:
+    """Mark the pending stage approved. Reached through its Anumati proposal:
+    a confirmation bound to a proposal is approved only by that proposal."""
     run = get_workflow_run(run_id)
     if not run:
         raise KeyError(f"Unknown workflow run: {run_id}")
     confirmation = dict(run.state.get("confirmation") or {})
     if run.status != "waiting_confirmation" or confirmation.get("status") != "pending":
         raise ValueError("No pending confirmation for this workflow")
+    if confirmation.get("proposal_id") and confirmation["proposal_id"] != proposal_id:
+        raise PermissionError("Approve this step from its approval card")
     from dharma import gate_action
 
     action = str(confirmation.get("action") or "")
@@ -732,6 +779,45 @@ def approve_stage(run_id: str, *, approved_by: str = "user") -> WorkflowRun:
     _update_run_fields(run, status="active")
     _append_event(run, "workflow_approved", stage_id=run.current_stage_id, payload=confirmation)
     return run
+
+
+def approve_pending_stage(run_id: str, *, approved_by: str, device: str = "") -> WorkflowRun:
+    """The Paths screen's Approve: decide the stage's proposal and carry it out."""
+    import anumati
+
+    run = get_workflow_run(run_id)
+    if not run:
+        raise KeyError(f"Unknown workflow run: {run_id}")
+    confirmation = dict(run.state.get("confirmation") or {})
+    if run.status != "waiting_confirmation" or confirmation.get("status") != "pending":
+        raise ValueError("No pending confirmation for this workflow")
+    proposal_id = confirmation.get("proposal_id")
+    if not proposal_id:  # requested before stage approvals were proposals
+        stage = _stage(get_pack(run.workflow_id) or {}, run.current_stage_id)
+        if not stage:
+            raise ValueError("No pending confirmation for this workflow")
+        proposal_id = confirmation["proposal_id"] = _propose_stage_approval(run, stage, confirmation)
+        run.state["confirmation"] = confirmation
+        _save_run(run)
+    try:
+        anumati.approve(proposal_id, profile_id=run.user_id, decided_by=approved_by, device=device)
+    except anumati.ProposalClosed as exc:
+        raise PermissionError(str(exc)) from exc
+    proposal = anumati.execute_approved(proposal_id, profile_id=run.user_id)
+    if proposal.status != "executed":
+        raise PermissionError(str((proposal.result or {}).get("summary") or "The approval did not go through"))
+    return get_workflow_run(run_id) or run
+
+
+def _execute_stage_proposal(proposal: Any) -> dict[str, Any]:
+    """Anumati executor for path steps: approve exactly the stage it was proposed for."""
+    try:
+        run = approve_stage(
+            str(proposal.args["run_id"]), approved_by=proposal.decided_by or "user", proposal_id=proposal.proposal_id
+        )
+    except (KeyError, ValueError, PermissionError) as exc:
+        return {"status": "error", "summary": str(exc).strip("'")}
+    return {"status": "ok", "summary": f"{run.title} can continue with this step.", "run_status": run.status}
 
 
 def complete_current_stage(
@@ -1194,3 +1280,12 @@ def set_schedule_enabled(schedule_id: str, enabled: bool) -> WorkflowSchedule:
         )
         updated = con.execute("SELECT * FROM workflow_schedules WHERE schedule_id=?", (schedule_id,)).fetchone()
     return _row_to_schedule(updated)
+
+
+def _register_approvals() -> None:
+    import anumati
+
+    anumati.register_executor("workflow", _execute_stage_proposal)
+
+
+_register_approvals()

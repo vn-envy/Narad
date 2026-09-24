@@ -87,6 +87,8 @@ py-modules = [
     "learning_workspace",
     "conversation_memory",
     "dharma",
+    "anumati",
+    "risk_policy",
     "privacy_gateway",
     "pilot_metrics",
     "pilot_scorecard",

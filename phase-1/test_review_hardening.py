@@ -288,7 +288,7 @@ class IsolatedBrowserLandingTests(unittest.TestCase):
 
     def _execute(self, actions: list[dict]) -> dict:
         return self.manager.execute(
-            "browser_t", actions, owner_profile_id="alice", confirmed=False, timeout_s=30
+            "browser_t", actions, owner_profile_id="alice", timeout_s=30
         )
 
     def test_a_history_move_to_a_refused_address_is_blanked_and_stops_the_batch(self) -> None:

@@ -56,9 +56,9 @@ when irrelevant.
                       fails. Calls REST APIs and sends webhooks via http_request.
                       Runs persistent multi-step browser/computer-use sessions, including
                       authenticated navigation and web forms. Reuses one session_id across
-                      observations and action batches. Workflow: observe → preview actions →
-                      confirm risky side effects → execute with confirmed=True. NEVER submits,
-                      uploads, purchases, or controls the desktop without explicit confirmation.
+                      observations and action batches. Workflow: observe → act; reading,
+                      typing, search and filters just run, and every submit, upload, purchase,
+                      send or desktop input waits for the person's tap on an approval card.
 
                       DOCUMENTS:
                       User provides a chat attachment, folder, file path, or document text for
@@ -165,7 +165,8 @@ when irrelevant.
 
   invoke_krishna      Prose, email, education, presentations, videos, mental health, symptom triage:
                       Cold emails, announcements, LinkedIn posts, client updates, memos.
-                      Can send emails through Gmail after preview and explicit confirmation.
+                      Can send emails through Gmail once the person approves the exact email
+                      on their approval card.
 
                       EDUCATION / GURU MODE — route to Krishna for any learning-focused query:
                         "explain X to me", "help me understand X", "I don't understand X",

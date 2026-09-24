@@ -25,11 +25,12 @@ from concurrent.futures import TimeoutError as FutureTimeoutError
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import urlparse
 
 from narad_config import ARTIFACTS_DIR
 from profile_context import current_profile_id, validate_profile_id
+from risk_policy import COMMIT, Verdict, action_target_text, classify_browser_action, element_label
 from tool_result import artifact, envelope, ui_panel
 
 _COMPUTER_ARTIFACTS_DIR = ARTIFACTS_DIR / "computer-use"
@@ -74,17 +75,6 @@ _SUPPORTED_DESKTOP_ACTIONS = frozenset({
     "wait",
     "screenshot",
 })
-_HIGH_RISK_PATTERN = re.compile(
-    r"\b(submit|send|publish|post|buy|purchase|pay|checkout|confirm|delete|remove|"
-    r"cancel\s+(?:account|subscription)|transfer|book|reserve|apply|sign|authorize|"
-    r"place\s+(?:your\s+|an?\s+)?order)\b",
-    re.IGNORECASE,
-)
-_SENSITIVE_PATTERN = re.compile(
-    r"\b(password|passcode|one[- ]?time|otp|social security|ssn|credit card|cvv|"
-    r"bank account|routing number|passport|private key|seed phrase)\b",
-    re.IGNORECASE,
-)
 _PROMPT_INJECTION_PATTERNS = (
     re.compile(r"ignore (?:all |any )?(?:previous|prior|system) instructions", re.IGNORECASE),
     re.compile(r"(?:system|developer) message", re.IGNORECASE),
@@ -217,34 +207,111 @@ def _injection_signals(text: str) -> list[str]:
 
 
 def _action_target_text(action: dict[str, Any]) -> str:
-    target = action.get("target")
-    values: list[str] = []
-    if isinstance(target, dict):
-        values.extend(str(value) for value in target.values() if value is not None)
-    elif target:
-        values.append(str(target))
-    for key in ("selector", "ref", "role", "name", "label", "text", "placeholder", "intent"):
-        if action.get(key) is not None:
-            values.append(str(action[key]))
-    return " ".join(values)
+    return action_target_text(action)
 
 
 def _action_requires_confirmation(action: dict[str, Any], environment: str = "browser") -> bool:
-    kind = str(action.get("action", "")).lower()
-    if environment == "desktop":
-        return kind not in {"screenshot", "wait", "move"}
-    if kind in {"submit", "upload"}:
-        return True
-    if kind == "press" and str(action.get("key", "")).lower() in {"enter", "return"}:
-        return True
-    if kind == "click" and (action.get("x") is not None or action.get("y") is not None):
-        return True
-    target_text = _action_target_text(action)
-    if kind in {"click", "press"} and _HIGH_RISK_PATTERN.search(target_text):
-        return True
-    if kind in {"fill", "set_field", "type", "select", "check"} and _SENSITIVE_PATTERN.search(target_text):
-        return True
-    return bool(action.get("requires_confirmation", False))
+    """Static risk check (risk_policy v2): True for commit-class actions."""
+    return classify_browser_action(action, environment=environment).needs_approval
+
+
+# What an element on the page really is, for the risk check: its label, its
+# type (a <button> submits only inside a form), and whether it sits in a
+# search form or a cookie/consent banner.
+_ELEMENT_DETAILS_JS = """el => {
+    const form = el.form || el.closest('form');
+    const tag = el.tagName.toLowerCase();
+    const type = tag === 'button'
+        ? (el.getAttribute('type') || (form ? 'submit' : 'button'))
+        : (el.getAttribute('type') || el.type || '');
+    const box = el.closest('[role="dialog"],[role="alertdialog"],dialog,[aria-modal="true"],'
+        + '[id*="cookie" i],[class*="cookie" i],[id*="consent" i],[class*="consent" i]');
+    return {
+        tag,
+        type: String(type).toLowerCase(),
+        role: el.getAttribute('role') || '',
+        text: (el.innerText || (tag === 'input' ? el.value : '') || '').trim().slice(0, 160),
+        aria: el.getAttribute('aria-label') || '',
+        label: ((el.labels && el.labels[0] && el.labels[0].innerText) || '').trim().slice(0, 160),
+        placeholder: el.getAttribute('placeholder') || '',
+        title: el.getAttribute('title') || '',
+        name: el.getAttribute('name') || '',
+        in_search_form: Boolean(form && (form.getAttribute('role') === 'search'
+            || form.querySelector('input[type="search"]') || /search/i.test(form.getAttribute('action') || ''))),
+        context: box ? [box.id, String(box.className || ''), box.getAttribute('aria-label') || '',
+            (box.innerText || '').slice(0, 300)].join(' ') : '',
+    };
+}"""
+# Actions whose target element is looked up on the page before classifying.
+_RESOLVED_ACTIONS = frozenset({"click", "submit", "press", "fill", "set_field", "type", "select", "check", "uncheck"})
+
+
+def _target_name(action: dict[str, Any]) -> str:
+    target = action.get("target") if isinstance(action.get("target"), dict) else {}
+    # On a typing step a top-level "text" is what gets typed, not the target.
+    typed = action.get("action") in {"fill", "set_field", "type", "select"}
+    for key in ("name", "label", "text", "placeholder", "query", "intent", "ref", "selector"):
+        value = target.get(key) or (None if typed and key == "text" else action.get(key))
+        if value:
+            return str(value)
+    return str(action.get("target") or "") if isinstance(action.get("target"), str) else ""
+
+
+def _steps_summary(actions: list[dict[str, Any]], labels: list[str | None], where: str) -> str:
+    """Plain-language steps built from the actual actions, never the model's prose."""
+    steps: list[str] = []
+    for index, action in enumerate(actions):
+        kind = action["action"]
+        label = labels[index] if index < len(labels) else None
+        named = str(label or _target_name(action))[:60]
+        name = named or "the page"
+        if kind in {"fill", "set_field", "type", "select"}:
+            value = str(action.get("value", action.get("text", "")))
+            if classify_browser_action({"action": "fill", "target": {"label": name}}).category == "sensitive_input":
+                value = "••••"
+            steps.append(f'enter "{value[:60]}" in "{named}"' if named else f'type "{value[:60]}"')
+        elif kind in {"check", "uncheck"}:
+            steps.append(f'{kind} "{name}"')
+        elif kind == "upload":
+            paths = action.get("paths", action.get("path", []))
+            files = [Path(str(item)).name for item in ([paths] if isinstance(paths, str) else paths or [])]
+            steps.append(f'upload {", ".join(files) or "a file"} to "{name}"')
+        elif kind == "press":
+            steps.append(f'press {action.get("key", "")} in "{named}"' if named else f'press {action.get("key", "")}')
+        elif kind in {"click", "double_click"} and action.get("x") is not None:
+            steps.append(f"{kind.replace('_', ' ')} at ({action.get('x')}, {action.get('y')})")
+        elif kind in {"click", "submit"}:
+            steps.append(f'{kind} "{name}"')
+        elif kind == "navigate":
+            steps.append(f"open {str(action.get('url', ''))[:80]}")
+        elif kind == "hotkey":
+            steps.append(f"press {'+'.join(str(key) for key in action.get('keys') or [])}")
+        elif kind == "drag":
+            steps.append(f"drag from ({action.get('x1')}, {action.get('y1')}) to ({action.get('x2')}, {action.get('y2')})")
+        else:
+            steps.append(kind.replace("_", " "))
+    shown = steps[:5] + ([f"and {len(steps) - 5} more step(s)"] if len(steps) > 5 else [])
+    text = "; ".join(shown) or "no steps"
+    return f"On {where}: {text}" if where else text[:1].upper() + text[1:]
+
+
+def _host_of(url: str) -> str:
+    return (urlparse(url or "").hostname or url or "the page").removeprefix("www.")
+
+
+def _media_path(path: str | Path | None) -> str | None:
+    """A /media path the app can load for this profile's own capture."""
+    if not path:
+        return None
+    try:
+        relative = Path(path).resolve().relative_to(ARTIFACTS_DIR.resolve())
+    except (ValueError, OSError):
+        return None
+    return f"/media/{relative.as_posix()}"
+
+
+def _verdict_payload(verdict: Verdict) -> dict[str, str]:
+    return {"risk": verdict.risk, "category": verdict.category, "reason": verdict.reason}
 
 
 def _normalise_actions(actions: list[dict[str, Any]] | None, environment: str) -> list[dict[str, Any]]:
@@ -691,7 +758,11 @@ class BrowserSessionManager:
         encoded_actions = repr(actions_json)
         start_url = json.dumps(session.start_url)
         task = json.dumps(session.task[:500])
-        code = f'''"""Generated by Narad computer_use. Review before running."""
+        code = f'''"""Generated by Narad computer_use. Review before running.
+
+Commit-class steps (submit, pay, send, upload, ...) stop and wait for approval
+in the Narad app, exactly as they did in the original session.
+"""
 import json
 import os
 
@@ -715,7 +786,6 @@ result = computer_use(
     start_url={start_url},
     actions=actions,
     dry_run=False,
-    confirmed=os.environ.get("NARAD_REPLAY_CONFIRMED") == "1",
 )
 print(json.dumps(result, indent=2))
 '''
@@ -867,21 +937,53 @@ print(json.dumps(result, indent=2))
             raise ValueError(f"No element matched target {_action_target_text(action)!r}")
         return locator
 
-    async def _dynamic_action_requires_confirmation(self, page: Any, action: dict[str, Any]) -> bool:
-        if _action_requires_confirmation(action):
-            return True
-        if action["action"] != "click":
-            return False
+    async def _element_details(self, page: Any, action: dict[str, Any]) -> dict[str, Any] | None:
+        """What the action's target is on the page, or None if it cannot be resolved."""
+        kind = action["action"]
+        if kind not in _RESOLVED_ACTIONS or action.get("x") is not None or action.get("y") is not None:
+            return None
         try:
+            if not _action_target_text(action):
+                if kind != "press":
+                    return None
+                # A key press with no target lands on the focused element.
+                return await page.evaluate(
+                    f"() => {{ const el = document.activeElement; "
+                    f"return el && el !== document.body ? ({_ELEMENT_DETAILS_JS})(el) : null; }}"
+                )
             locator = await self._locator(page, action)
-            details = await locator.evaluate(
-                "el => ({type: el.type || '', text: el.innerText || el.value || '', "
-                "aria: el.getAttribute('aria-label') || ''})"
-            )
-            text = f"{details.get('type', '')} {details.get('text', '')} {details.get('aria', '')}"
-            return details.get("type") == "submit" or bool(_HIGH_RISK_PATTERN.search(text))
+            return await locator.evaluate(_ELEMENT_DETAILS_JS)
         except Exception:
-            return False
+            return None
+
+    async def _classify(self, page: Any, action: dict[str, Any], injection: bool) -> tuple[Verdict, dict | None]:
+        details = await self._element_details(page, action)
+        return classify_browser_action(action, details, injection=injection), details
+
+    async def _approved_page_mismatch(
+        self, session: _BrowserSession, actions: list[dict[str, Any]], approved: dict[str, Any]
+    ) -> str | None:
+        """Why an approved batch may not run here: the page or its target changed."""
+        if session.page.url != approved.get("page_url"):
+            return (
+                f"The page changed after this was approved (it is now on {_host_of(session.page.url)}); "
+                "nothing was done."
+            )
+        expected = approved.get("target_label")
+        if expected and actions:
+            details = await self._element_details(session.page, actions[0])
+            if element_label(details) != expected:
+                return f'"{expected}" is no longer on the page as approved; nothing was done.'
+        return None
+
+    async def _approval_screenshot(self, session: _BrowserSession) -> str | None:
+        session.screenshot_count += 1
+        path = session.run_dir / f"approval-{session.screenshot_count:04d}.png"
+        try:
+            await session.page.screenshot(path=str(path), full_page=False)
+        except Exception:
+            return None
+        return str(path)
 
     async def _execute_action(
         self,
@@ -1010,9 +1112,18 @@ print(json.dumps(result, indent=2))
         actions: list[dict[str, Any]],
         *,
         owner_profile_id: str,
-        confirmed: bool,
         timeout_s: int,
+        approval_check: Callable[[dict[str, Any]], Any] | None = None,
+        approved: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        """Run a batch; benign steps run, the first commit-class step needs approval.
+
+        ``approval_check(request)`` may return an Anumati gate for the rest of
+        the batch from that step on (approved: consumed; already_executed).
+        ``approved`` holds the arguments of an approval being carried out: the
+        page and target must still be the ones approved, and the whole batch
+        then runs without asking again.
+        """
         async def _execute() -> dict[str, Any]:
             session = self._sessions.get(session_id)
             if session is None:
@@ -1032,33 +1143,59 @@ print(json.dumps(result, indent=2))
             refusal = await self._leave_refused_pages(session)
             if refusal:
                 return _refused(refusal, [])
+            if approved is not None:
+                mismatch = await self._approved_page_mismatch(session, actions, approved)
+                if mismatch:
+                    return {
+                        "status": "blocked",
+                        "requires_confirmation": False,
+                        "reason": mismatch,
+                        "error": "page_changed",
+                        "action_results": [],
+                    }
             page_text = await session.page.evaluate("() => (document.body?.innerText || '').slice(0, 7000)")
             injection = _injection_signals(str(page_text))
-            if injection and not confirmed and any(
-                action["action"] not in {"screenshot", "wait", "scroll", "hover"}
-                for action in actions
-            ):
-                return {
-                    "status": "confirmation_required",
-                    "requires_confirmation": True,
-                    "reason": "Possible prompt injection was detected in page content.",
-                    "prompt_injection_signals": injection,
-                    "action_results": [],
-                }
 
             results: list[dict[str, Any]] = []
-            for action in actions:
-                needs_confirmation = await self._dynamic_action_requires_confirmation(session.page, action)
-                if needs_confirmation and not confirmed:
-                    return {
-                        "status": "confirmation_required",
-                        "requires_confirmation": True,
-                        "reason": f"Action {action['action']!r} may create an external side effect.",
-                        "pending_action": action,
-                        "prompt_injection_signals": injection,
-                        "action_results": results,
+            cleared = approved is not None  # the rest of the batch is approved
+            for index, action in enumerate(actions):
+                verdict, details = await self._classify(session.page, action, bool(injection))
+                if verdict.needs_approval and not cleared:
+                    request = {
+                        "surface": "browser",
+                        "action": verdict.category,
+                        "target": f"{session.session_id} @ {session.page.url}",
+                        "risk_class": verdict.category,
+                        "reason": verdict.reason,
+                        "args": {
+                            "session_id": session.session_id,
+                            "page_url": session.page.url,
+                            "actions": actions[index:],
+                            "target_label": element_label(details) or None,
+                        },
                     }
-                if needs_confirmation:
+                    gate = approval_check(request) if approval_check is not None else None
+                    if gate is not None and gate.approved:
+                        cleared = True
+                    elif gate is not None:
+                        return {
+                            "status": "already_done",
+                            "requires_confirmation": False,
+                            "proposal": gate.proposal,
+                            "action_results": results,
+                        }
+                    else:
+                        return {
+                            "status": "needs_approval",
+                            "requires_confirmation": True,
+                            "reason": verdict.reason,
+                            "approval_request": request,
+                            "screenshot_path": await self._approval_screenshot(session),
+                            "page_title": await session.page.title(),
+                            "prompt_injection_signals": injection,
+                            "action_results": results,
+                        }
+                if verdict.needs_approval:
                     gate_error = _dharma_gate(
                         "browser_submit",
                         f"{action['action']} on {session.page.url[:180]}",
@@ -1220,6 +1357,7 @@ def _browser_envelope(
     session_created: bool = False,
     owner_profile_id: str,
     engine: str = "playwright",
+    **extra: Any,
 ) -> dict[str, Any]:
     observation = observation or {}
     decision_hint = _browser_decision_hint(task, observation)
@@ -1279,6 +1417,7 @@ def _browser_envelope(
         observation=observation,
         action_results=action_results or [],
         planned_actions=planned_actions or [],
+        **extra,
     )
 
 
@@ -1584,7 +1723,6 @@ def _desktop_use(
     session_id: str,
     actions: list[dict[str, Any]],
     dry_run: bool,
-    confirmed: bool,
     owner_profile_id: str,
     target_id: str = "",
 ) -> dict[str, Any]:
@@ -1614,7 +1752,7 @@ def _desktop_use(
                 summary=summary,
                 sections=[
                     {"title": "Runtime", "body": f"{engine}: {'ready' if readiness['available'] else readiness['reason']}"},
-                    {"title": "Safety", "body": "Desktop input always requires explicit confirmation."},
+                    {"title": "Safety", "body": "Desktop input always waits for approval in the Narad app."},
                 ],
                 tone="computer-use",
             ),
@@ -1639,16 +1777,83 @@ def _desktop_use(
             provenance={"engine": engine, "session_id": session_id, "profile_id": owner_profile_id},
             readiness=readiness,
         )
-    if needs_confirmation and not confirmed:
-        return envelope(
-            status="confirmation_required",
-            summary="Desktop actions are ready but require explicit user confirmation.",
-            requires_confirmation=True,
-            provenance={"engine": engine, "session_id": session_id, "profile_id": owner_profile_id},
-            session_id=session_id,
-            planned_actions=actions,
-            readiness=readiness,
+    consumed = None
+    if needs_confirmation:
+        import anumati
+
+        gate = anumati.require(
+            **_desktop_approval_spec(task, actions, grant), profile_id=owner_profile_id
         )
+        if gate.status == "needs_approval":
+            return anumati.needs_approval_result(
+                gate.proposal,
+                provenance={"engine": engine, "session_id": session_id, "profile_id": owner_profile_id},
+                session_id=session_id,
+                planned_actions=actions,
+                readiness=readiness,
+            )
+        if gate.status == "already_executed":
+            return anumati.already_executed_result(gate.proposal, session_id=session_id)
+        consumed = gate.proposal
+    result = _run_desktop_batch(
+        task=task, session_id=session_id, actions=actions, owner_profile_id=owner_profile_id,
+        grant=grant, readiness=readiness, decision_hint=decision_hint,
+    )
+    if consumed is not None:
+        import anumati
+
+        anumati.record_result(consumed.proposal_id, result, profile_id=owner_profile_id)
+    return result
+
+
+def _desktop_approval_spec(task: str, actions: list[dict[str, Any]], grant: dict[str, Any]) -> dict[str, Any]:
+    """The hash-bound part of a desktop batch: the granted target and the exact steps."""
+    target_id = str(grant.get("target_id") or "")
+    return {
+        "surface": "desktop",
+        "action": "input",
+        "target": f"Narad host desktop ({target_id or 'host-primary'})",
+        "args": {"target_id": target_id, "actions": actions},
+        "summary": _steps_summary(actions, [], "the Narad host desktop"),
+        "risk_class": "desktop_input",
+        "preview": {"kind": "desktop", "task": task[:300], "step_count": len(actions)},
+    }
+
+
+def _execute_desktop_proposal(proposal: Any) -> dict[str, Any]:
+    """Run an approved desktop batch exactly as approved, if the grant still holds."""
+    from interaction_targets import operation_lock, resolve_interaction_target
+
+    owner = proposal.profile_id
+    with operation_lock("desktop"):
+        readiness = _desktop_driver_status()
+        grant = resolve_interaction_target("cua", proposal.args.get("target_id") or "", profile_id=owner)
+        if grant is None:
+            return {"status": "error", "summary": "The Narad host desktop is no longer granted to this profile."}
+        if not readiness["available"]:
+            return {"status": "unavailable", "summary": str(readiness["reason"] or "Desktop control is unavailable.")}
+        return _run_desktop_batch(
+            task=str(proposal.preview.get("task") or proposal.summary),
+            session_id=f"desktop_{proposal.proposal_id.removeprefix('apr_')}",
+            actions=list(proposal.args.get("actions") or []),
+            owner_profile_id=owner,
+            grant=grant,
+            readiness=readiness,
+            decision_hint=None,
+        )
+
+
+def _run_desktop_batch(
+    *,
+    task: str,
+    session_id: str,
+    actions: list[dict[str, Any]],
+    owner_profile_id: str,
+    grant: dict[str, Any],
+    readiness: dict[str, Any],
+    decision_hint: dict[str, Any] | None,
+) -> dict[str, Any]:
+    engine = str(readiness["selected_provider"])
     gate_error = _dharma_gate(
         "desktop_control",
         f"desktop batch ({len(actions)} actions)",
@@ -1676,7 +1881,7 @@ def _desktop_use(
             label="Desktop screenshot",
             path=screenshot_path,
             mime_type="image/png",
-            description="Desktop state after the confirmed action batch.",
+            description="Desktop state after the approved action batch.",
         ))
     verification_hint = _desktop_decision_hint(task, actions, results=results)
     unverified = sum(item["status"] == "unverified" for item in results)
@@ -1694,7 +1899,7 @@ def _desktop_use(
         ui=ui_panel(
             title="Desktop control",
             summary=(
-                f"Confirmed desktop action batch complete through {engine}."
+                f"Approved desktop action batch complete through {engine}."
                 if status == "ok"
                 else summary
             ),
@@ -1722,36 +1927,45 @@ _SIGNED_REF_CLICK_ACTIONS = frozenset({"click", "submit", "check", "uncheck", "d
 _SIGNED_REF_INPUT_ACTIONS = frozenset({"fill", "set_field", "type", "select", "press"})
 
 
-def _signed_action_requires_confirmation(
-    action: dict[str, Any], ref_elements: dict[str, dict[str, str]]
-) -> bool:
+def _signed_ref(action: dict[str, Any]) -> str:
+    target = action.get("target") if isinstance(action.get("target"), dict) else {}
+    return str(action.get("ref") or target.get("ref") or "").strip().removeprefix("@")
+
+
+def _signed_action_verdict(
+    action: dict[str, Any], ref_elements: dict[str, dict[str, str]], *, injection: bool = False
+) -> Verdict:
     """Classify a signed-in action by the element its ``@eN`` ref names.
 
     A bare ref carries no label, so "Send" or "Place order" would otherwise pass
     as "e5". Resolve it from the latest observation and apply the same risk
-    check used for isolated-browser targets; a ref that is missing or has no
+    policy used for isolated-browser targets; a ref that is missing or has no
     accessible label cannot be classified, so it needs approval.
     """
-    if _action_requires_confirmation(action):
-        return True
     kind = action["action"]
-    if kind not in _SIGNED_REF_CLICK_ACTIONS | _SIGNED_REF_INPUT_ACTIONS:
-        return False
-    target = action.get("target") if isinstance(action.get("target"), dict) else {}
-    ref = str(action.get("ref") or target.get("ref") or "").strip().removeprefix("@")
-    if not ref:
-        return False
+    ref = _signed_ref(action)
+    if not ref or kind not in _SIGNED_REF_CLICK_ACTIONS | _SIGNED_REF_INPUT_ACTIONS:
+        return classify_browser_action(action, injection=injection)
     element = ref_elements.get(ref)
     if element is None or not (element.get("name") or element.get("placeholder")):
-        return True
-    resolved_target = {
-        key: element[key] for key in ("role", "name", "placeholder") if element.get(key)
+        if injection:
+            return Verdict(COMMIT, "injection", "The page contains instruction-like text")
+        return Verdict(COMMIT, "unclassified", f"@{ref} has no label Narad can check")
+    details = {
+        "role": element.get("role"),
+        "text": element.get("name"),
+        "placeholder": element.get("placeholder"),
+        "context": element.get("context"),
     }
-    kinds = {kind, "click"} if kind in _SIGNED_REF_CLICK_ACTIONS else {kind}
-    return any(
-        _action_requires_confirmation({**action, "action": resolved_kind, "ref": None, "target": resolved_target})
-        for resolved_kind in kinds
-    )
+    bare = {**action, "ref": None, "target": {}}
+    kinds = [kind, "click"] if kind in _SIGNED_REF_CLICK_ACTIONS and kind != "click" else [kind]
+    verdicts = [classify_browser_action({**bare, "action": item}, details, injection=injection) for item in kinds]
+    target = action.get("target") if isinstance(action.get("target"), dict) else {}
+    if any(target.get(key) or action.get(key) for key in ("name", "label", "text", "placeholder", "intent")):
+        # The model's own words for the target count too: "Pay" on a ref
+        # labelled "Next" is still asked about.
+        verdicts.append(classify_browser_action({**action, "ref": None}, injection=injection))
+    return next((verdict for verdict in verdicts if verdict.needs_approval), verdicts[0])
 
 
 def _signed_navigation_refused(
@@ -1794,7 +2008,6 @@ def _signed_browser_use(
     target_id: str,
     actions: list[dict[str, Any]],
     dry_run: bool,
-    confirmed: bool,
     timeout_s: int,
     owner_profile_id: str,
 ) -> dict[str, Any]:
@@ -1895,12 +2108,15 @@ def _signed_browser_use(
         # This observation rebuilt BrowserSkill's ref store, so its labels are
         # the elements the planned refs will actually hit.
         ref_elements = observation_ref_elements(str(observation.get("text") or ""))
-        needs_confirmation = any(
-            _signed_action_requires_confirmation(action, ref_elements) for action in planned
-        )
-        mutating = any(
-            action["action"] not in {"wait", "scroll", "hover", "screenshot", "request_help"}
-            for action in planned
+        commit = next(
+            (
+                verdict
+                for verdict in (
+                    _signed_action_verdict(action, ref_elements, injection=bool(signals)) for action in planned
+                )
+                if verdict.needs_approval
+            ),
+            None,
         )
         if planned and dry_run:
             return _browser_envelope(
@@ -1910,102 +2126,52 @@ def _signed_browser_use(
                 planned_actions=planned,
                 status="preview",
                 summary=f"Prepared {len(planned)} signed-in browser action(s); nothing was executed.",
-                requires_confirmation=needs_confirmation or bool(signals and mutating),
+                requires_confirmation=commit is not None,
                 session_created=created,
                 owner_profile_id=owner_profile_id,
                 engine="browser_skill",
             )
-        if signals and mutating and not confirmed:
-            return _browser_envelope(
-                session_id=session.session_id,
-                task=task,
-                observation=observation,
-                planned_actions=planned,
-                status="confirmation_required",
-                summary="Possible prompt-injection language was detected in the signed-in page.",
-                requires_confirmation=True,
-                session_created=created,
-                owner_profile_id=owner_profile_id,
-                engine="browser_skill",
+        consumed = None
+        if commit is not None:
+            import anumati
+
+            gate = anumati.require(
+                **_signed_approval_spec(session.session_id, observation, planned, ref_elements, commit),
+                profile_id=owner_profile_id,
             )
-        if needs_confirmation and not confirmed:
-            return _browser_envelope(
-                session_id=session.session_id,
-                task=task,
-                observation=observation,
-                planned_actions=planned,
-                status="confirmation_required",
-                summary="The signed-in browser action may create an external side effect.",
-                requires_confirmation=True,
-                session_created=created,
-                owner_profile_id=owner_profile_id,
-                engine="browser_skill",
-            )
-        if needs_confirmation:
-            gate_error = _dharma_gate(
-                "browser_submit",
-                f"signed-in browser batch ({len(planned)} actions)",
-                {"session_id": session.session_id, "profile_id": owner_profile_id},
-            )
-            if gate_error:
+            if gate.status == "needs_approval":
                 return _browser_envelope(
                     session_id=session.session_id,
                     task=task,
                     observation=observation,
                     planned_actions=planned,
-                    status="blocked",
-                    summary=gate_error,
+                    status="needs_approval",
+                    summary=anumati.waiting_message(gate.proposal),
+                    requires_confirmation=True,
                     session_created=created,
                     owner_profile_id=owner_profile_id,
                     engine="browser_skill",
+                    approval=gate.proposal.to_payload(),
+                    proposal_id=gate.proposal.proposal_id,
                 )
-
-        results = execute_browser_skill_actions(
-            session.session_id,
-            planned,
-            owner_profile_id=owner_profile_id,
-            timeout_s=timeout_s,
-        ) if planned else []
-        if any(item.get("status") == "refused" for item in results):
-            return _signed_navigation_refused(
-                session_id=session.session_id,
-                task=task,
-                results=results,
-                planned=planned,
-                created=created,
-                owner_profile_id=owner_profile_id,
-            )
-        observation = observe_browser_skill_session(
-            session.session_id, owner_profile_id=owner_profile_id
-        )
-        observation["prompt_injection_signals"] = _injection_signals(
-            str(observation.get("text") or "")
-        )
-        complete = sum(item.get("status") == "ok" for item in results)
-        status = "ok" if all(item.get("status") == "ok" for item in results) else "partial"
-        unknown_effect = any(
-            item.get("effect_state") == "unknown"
-            or (item.get("status") != "ok" and item.get("effect_state") == "committed")
-            for item in results
-        )
-        summary = (
-            f"Signed-in browser session ready on {observation.get('title') or observation.get('url')}."
-            if not planned
-            else f"Executed {complete} of {len(planned)} signed-in browser action(s)."
-        )
-        if unknown_effect:
-            summary += " One action may already have taken effect; inspect before retrying."
-        return _browser_envelope(
+            if gate.status == "already_executed":
+                return anumati.already_executed_result(gate.proposal, session_id=session.session_id)
+            consumed = gate.proposal
+        result = _run_signed_batch(
             session_id=session.session_id,
             task=task,
-            observation=observation,
-            action_results=results,
-            status=status,
-            summary=summary,
-            session_created=created,
+            planned=planned,
+            created=created,
             owner_profile_id=owner_profile_id,
-            engine="browser_skill",
+            timeout_s=timeout_s,
+            observation=observation,
+            commit=commit is not None,
         )
+        if consumed is not None:
+            import anumati
+
+            anumati.record_result(consumed.proposal_id, result, profile_id=owner_profile_id)
+        return result
     except KeyError as exc:
         return envelope(status="error", summary=str(exc), error="browser_session_not_found")
     except PermissionError as exc:
@@ -2018,6 +2184,176 @@ def _signed_browser_use(
             effect_state=exc.effect_state,
             provenance={"engine": "browser_skill", "profile_id": owner_profile_id},
         )
+
+
+def _signed_approval_spec(
+    session_id: str,
+    observation: dict[str, Any],
+    planned: list[dict[str, Any]],
+    ref_elements: dict[str, dict[str, str]],
+    verdict: Verdict,
+) -> dict[str, Any]:
+    """The hash-bound part of a signed-in batch: page, steps, and what each ref names."""
+    url = str(observation.get("url") or "")
+    refs = {ref: ref_elements.get(ref) for ref in (_signed_ref(action) for action in planned) if ref}
+    labels = [
+        ((ref_elements.get(_signed_ref(action)) or {}).get("name")
+         or (ref_elements.get(_signed_ref(action)) or {}).get("placeholder"))
+        for action in planned
+    ]
+    signals = observation.get("prompt_injection_signals") or []
+    return {
+        "surface": "signed_in_browser",
+        "action": verdict.category,
+        "target": f"{session_id} @ {url}",
+        "args": {"session_id": session_id, "page_url": url, "actions": planned, "refs": refs},
+        "summary": _steps_summary(planned, labels, f"{_host_of(url)} (signed in)"),
+        "risk_class": verdict.category,
+        "preview": {
+            "kind": "browser",
+            "signed_in": True,
+            "page_url": url,
+            "screenshot_url": _media_path(observation.get("screenshot_path")),
+            "reason": verdict.reason,
+            "warning": (
+                "This page contains text that tries to instruct Narad. Check it before approving."
+                if signals else None
+            ),
+        },
+    }
+
+
+def _run_signed_batch(
+    *,
+    session_id: str,
+    task: str,
+    planned: list[dict[str, Any]],
+    created: bool,
+    owner_profile_id: str,
+    timeout_s: int,
+    observation: dict[str, Any] | None,
+    commit: bool,
+) -> dict[str, Any]:
+    from browser_skill_adapter import execute_browser_skill_actions, observe_browser_skill_session
+
+    if commit:
+        gate_error = _dharma_gate(
+            "browser_submit",
+            f"signed-in browser batch ({len(planned)} actions)",
+            {"session_id": session_id, "profile_id": owner_profile_id},
+        )
+        if gate_error:
+            return _browser_envelope(
+                session_id=session_id,
+                task=task,
+                observation=observation,
+                planned_actions=planned,
+                status="blocked",
+                summary=gate_error,
+                session_created=created,
+                owner_profile_id=owner_profile_id,
+                engine="browser_skill",
+            )
+
+    results = execute_browser_skill_actions(
+        session_id,
+        planned,
+        owner_profile_id=owner_profile_id,
+        timeout_s=timeout_s,
+    ) if planned else []
+    if any(item.get("status") == "refused" for item in results):
+        return _signed_navigation_refused(
+            session_id=session_id,
+            task=task,
+            results=results,
+            planned=planned,
+            created=created,
+            owner_profile_id=owner_profile_id,
+        )
+    observation = observe_browser_skill_session(session_id, owner_profile_id=owner_profile_id)
+    observation["prompt_injection_signals"] = _injection_signals(
+        str(observation.get("text") or "")
+    )
+    complete = sum(item.get("status") == "ok" for item in results)
+    status = "ok" if all(item.get("status") == "ok" for item in results) else "partial"
+    unknown_effect = any(
+        item.get("effect_state") == "unknown"
+        or (item.get("status") != "ok" and item.get("effect_state") == "committed")
+        for item in results
+    )
+    summary = (
+        f"Signed-in browser session ready on {observation.get('title') or observation.get('url')}."
+        if not planned
+        else f"Executed {complete} of {len(planned)} signed-in browser action(s)."
+    )
+    if unknown_effect:
+        summary += " One action may already have taken effect; inspect before retrying."
+    return _browser_envelope(
+        session_id=session_id,
+        task=task,
+        observation=observation,
+        action_results=results,
+        status=status,
+        summary=summary,
+        session_created=created,
+        owner_profile_id=owner_profile_id,
+        engine="browser_skill",
+        url=observation.get("url"),
+        screenshot_url=_media_path(observation.get("screenshot_path")),
+    )
+
+
+def _execute_signed_in_proposal(proposal: Any) -> dict[str, Any]:
+    """Run an approved signed-in batch, only on the page and refs that were approved."""
+    from browser_skill_adapter import (
+        BrowserSkillError,
+        observation_ref_elements,
+        observe_browser_skill_session,
+        open_browser_skill_session,
+    )
+    from interaction_targets import operation_lock
+
+    owner = proposal.profile_id
+    args = proposal.args
+    session_id = str(args.get("session_id") or "")
+    with operation_lock(f"signed_in:{owner}"):
+        try:
+            open_browser_skill_session(task=proposal.summary, session_id=session_id, owner_profile_id=owner)
+            observation = observe_browser_skill_session(session_id, owner_profile_id=owner)
+            url = str(observation.get("url") or "")
+            if url != args.get("page_url"):
+                return {
+                    "status": "blocked",
+                    "error": "page_changed",
+                    "summary": (
+                        f"The signed-in page changed after this was approved (it is now on {_host_of(url)}); "
+                        "nothing was done."
+                    ),
+                }
+            current = observation_ref_elements(str(observation.get("text") or ""))
+            if any(current.get(ref) != element for ref, element in (args.get("refs") or {}).items()):
+                return {
+                    "status": "blocked",
+                    "error": "target_changed",
+                    "summary": "The buttons or fields on the page changed after this was approved; nothing was done.",
+                }
+            observation["prompt_injection_signals"] = _injection_signals(str(observation.get("text") or ""))
+            return _run_signed_batch(
+                session_id=session_id,
+                task=proposal.summary,
+                planned=list(args.get("actions") or []),
+                created=False,
+                owner_profile_id=owner,
+                timeout_s=180,
+                observation=observation,
+                commit=True,
+            )
+        except KeyError:
+            return {"status": "error", "summary": "The signed-in browser session has ended; nothing was done."}
+        except PermissionError as exc:
+            return {"status": "blocked", "summary": str(exc)}
+        except BrowserSkillError as exc:
+            return {"status": "error", "summary": str(exc), "error": f"effect_state={exc.effect_state}"}
 
 
 def computer_use(
@@ -2052,8 +2388,15 @@ def computer_use(
         target_id: Opaque profile-granted target id for a signed-in browser.
         dry_run: True previews the action batch without executing it. An empty
             action list still opens/observes the browser because that is read-only.
-        confirmed: Set only after the user explicitly approves a warned external
-            side effect. Desktop input always requires confirmation.
+            False runs the batch: reading, navigating, typing into fields, search,
+            filters, paging and cookie banners run at once; the first commit-class
+            step (submit, send, pay, book, apply, upload, delete, account change,
+            a secret, all desktop input) stops the batch with status
+            "needs_approval" and an approval card on the person's phone. Narad
+            runs the rest of the batch itself once they tap Approve, on the same
+            page, exactly as shown. Tell them it is waiting for their OK.
+        confirmed: Accepted for compatibility and ignored: it approves nothing.
+            Only the person's tap on the approval card does.
         timeout_s: Overall operation timeout, clamped to 5-300 seconds.
 
     Returns:
@@ -2095,7 +2438,6 @@ def computer_use(
                 session_id=resolved_session_id.replace("browser_", "desktop_", 1),
                 actions=normalised,
                 dry_run=dry_run,
-                confirmed=confirmed,
                 owner_profile_id=owner_profile_id,
                 target_id=target_id,
             )
@@ -2109,7 +2451,6 @@ def computer_use(
                 target_id=target_id,
                 actions=normalised,
                 dry_run=dry_run,
-                confirmed=confirmed,
                 timeout_s=timeout_s,
                 owner_profile_id=owner_profile_id,
             )
@@ -2185,58 +2526,13 @@ def computer_use(
                 owner_profile_id=owner_profile_id,
             )
 
-        action_result: dict[str, Any] = {
-            "status": "ok",
-            "action_results": [],
-            "requires_confirmation": False,
-        }
-        if normalised:
-            action_result = _BROWSER_MANAGER.execute(
-                session.session_id,
-                normalised,
-                owner_profile_id=owner_profile_id,
-                confirmed=confirmed,
-                timeout_s=timeout_s,
-            )
-        observation = _BROWSER_MANAGER.observe(
-            session.session_id,
-            owner_profile_id=owner_profile_id,
-            timeout_s=timeout_s,
-        )
-        late_refusal = observation.get("navigation_refused")
-        if late_refusal and action_result["status"] not in {"confirmation_required", "blocked"}:
-            action_result = {
-                **action_result, "status": "blocked", "reason": late_refusal, "error": "navigation_refused",
-            }
-        if action_result["status"] in {"confirmation_required", "blocked"}:
-            return _browser_envelope(
-                session_id=session.session_id,
-                task=task,
-                observation=observation,
-                action_results=action_result.get("action_results"),
-                planned_actions=normalised,
-                status=action_result["status"],
-                summary=str(action_result.get("reason", "Action batch needs confirmation.")),
-                requires_confirmation=bool(action_result.get("requires_confirmation")),
-                error=action_result.get("error"),
-                session_created=created,
-                owner_profile_id=owner_profile_id,
-            )
-        completed = sum(item.get("status") == "ok" for item in action_result.get("action_results", []))
-        summary = (
-            f"Browser session ready on {observation.get('title') or observation.get('url')}."
-            if not normalised
-            else f"Executed {completed} of {len(normalised)} browser action(s); the session remains open."
-        )
-        return _browser_envelope(
+        return _run_isolated_batch(
             session_id=session.session_id,
             task=task,
-            observation=observation,
-            action_results=action_result.get("action_results"),
-            status=action_result.get("status", "ok"),
-            summary=summary,
-            session_created=created,
+            actions=normalised,
+            created=created,
             owner_profile_id=owner_profile_id,
+            timeout_s=timeout_s,
         )
     except KeyError as exc:
         return envelope(status="error", summary=str(exc), error="browser_session_not_found")
@@ -2270,6 +2566,204 @@ def computer_use(
         )
     finally:
         session_lock.release()
+
+
+def _run_isolated_batch(
+    *,
+    session_id: str,
+    task: str,
+    actions: list[dict[str, Any]],
+    created: bool,
+    owner_profile_id: str,
+    timeout_s: int,
+    approved: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Run a batch in an open isolated session and report it.
+
+    Benign steps run; the first commit-class step stops the batch with an
+    Anumati proposal for the rest of it. ``approved`` carries out an approved
+    proposal: the page and target must still match, then the rest runs.
+    """
+    import anumati
+
+    consumed: list[str] = []
+
+    def _approval_check(request: dict[str, Any]) -> Any:
+        gate = anumati.check(
+            surface=request["surface"],
+            action=request["action"],
+            target=request["target"],
+            args=request["args"],
+            profile_id=owner_profile_id,
+        )
+        if gate is not None and gate.approved:
+            consumed.append(gate.proposal.proposal_id)
+        return gate
+
+    try:
+        action_result: dict[str, Any] = {"status": "ok", "action_results": [], "requires_confirmation": False}
+        if actions:
+            action_result = _BROWSER_MANAGER.execute(
+                session_id,
+                actions,
+                owner_profile_id=owner_profile_id,
+                timeout_s=timeout_s,
+                approval_check=None if approved is not None else _approval_check,
+                approved=approved,
+            )
+        observation = _BROWSER_MANAGER.observe(session_id, owner_profile_id=owner_profile_id, timeout_s=timeout_s)
+        result = _isolated_batch_envelope(
+            action_result, observation,
+            session_id=session_id, task=task, actions=actions, created=created, owner_profile_id=owner_profile_id,
+        )
+    except Exception as exc:
+        for proposal_id in consumed:
+            anumati.record_result(
+                proposal_id, {"status": "error", "summary": f"Browser runtime failed: {exc}"}, profile_id=owner_profile_id
+            )
+        raise
+    for proposal_id in consumed:
+        anumati.record_result(proposal_id, result, profile_id=owner_profile_id)
+    return result
+
+
+def _isolated_batch_envelope(
+    action_result: dict[str, Any],
+    observation: dict[str, Any],
+    *,
+    session_id: str,
+    task: str,
+    actions: list[dict[str, Any]],
+    created: bool,
+    owner_profile_id: str,
+) -> dict[str, Any]:
+    import anumati
+
+    status = action_result["status"]
+    late_refusal = observation.get("navigation_refused")
+    if late_refusal and status not in {"needs_approval", "blocked"}:
+        action_result = {**action_result, "status": "blocked", "reason": late_refusal, "error": "navigation_refused"}
+        status = "blocked"
+    if status == "already_done":
+        return anumati.already_executed_result(action_result["proposal"], session_id=session_id)
+    if status == "needs_approval":
+        proposal = _propose_isolated_batch(action_result, owner_profile_id)
+        return _browser_envelope(
+            session_id=session_id,
+            task=task,
+            observation=observation,
+            action_results=action_result.get("action_results"),
+            planned_actions=actions,
+            status="needs_approval",
+            summary=anumati.waiting_message(proposal),
+            requires_confirmation=True,
+            session_created=created,
+            owner_profile_id=owner_profile_id,
+            approval=proposal.to_payload(),
+            proposal_id=proposal.proposal_id,
+        )
+    if status == "blocked":
+        return _browser_envelope(
+            session_id=session_id,
+            task=task,
+            observation=observation,
+            action_results=action_result.get("action_results"),
+            planned_actions=actions,
+            status="blocked",
+            summary=str(action_result.get("reason") or "The action batch was blocked."),
+            error=action_result.get("error"),
+            session_created=created,
+            owner_profile_id=owner_profile_id,
+        )
+    completed = sum(item.get("status") == "ok" for item in action_result.get("action_results", []))
+    summary = (
+        f"Browser session ready on {observation.get('title') or observation.get('url')}."
+        if not actions
+        else f"Executed {completed} of {len(actions)} browser action(s); the session remains open."
+    )
+    return _browser_envelope(
+        session_id=session_id,
+        task=task,
+        observation=observation,
+        action_results=action_result.get("action_results"),
+        status=action_result.get("status", "ok"),
+        summary=summary,
+        session_created=created,
+        owner_profile_id=owner_profile_id,
+        url=observation.get("url"),
+        screenshot_url=_media_path(observation.get("screenshot_path")),
+    )
+
+
+def _propose_isolated_batch(action_result: dict[str, Any], owner_profile_id: str) -> Any:
+    """Turn a stopped batch into a pending proposal with its page screenshot."""
+    import anumati
+
+    request = action_result["approval_request"]
+    args = request["args"]
+    url = str(args["page_url"])
+    signals = action_result.get("prompt_injection_signals") or []
+    proposal, _created = anumati.propose(
+        surface=request["surface"],
+        action=request["action"],
+        target=request["target"],
+        args=args,
+        summary=_steps_summary(args["actions"], [args.get("target_label")], _host_of(url)),
+        risk_class=request["risk_class"],
+        preview={
+            "kind": "browser",
+            "signed_in": False,
+            "page_url": url,
+            "page_title": action_result.get("page_title"),
+            "screenshot_url": _media_path(action_result.get("screenshot_path")),
+            "reason": request["reason"],
+            "warning": (
+                "This page contains text that tries to instruct Narad. Check it before approving."
+                if signals else None
+            ),
+        },
+        profile_id=owner_profile_id,
+    )
+    return proposal
+
+
+def _execute_browser_proposal(proposal: Any) -> dict[str, Any]:
+    """Run an approved isolated-browser batch in its session, as approved."""
+    from interaction_targets import operation_lock
+
+    args = proposal.args
+    session_id = str(args.get("session_id") or "")
+    with operation_lock(f"browser:{session_id}"):
+        try:
+            return _run_isolated_batch(
+                session_id=session_id,
+                task=proposal.summary,
+                actions=list(args.get("actions") or []),
+                created=False,
+                owner_profile_id=proposal.profile_id,
+                timeout_s=180,
+                approved=args,
+            )
+        except KeyError:
+            return {
+                "status": "error",
+                "summary": "The browser session has closed (idle sessions end after 20 minutes); nothing was done.",
+            }
+        except PermissionError as exc:
+            return {"status": "blocked", "summary": str(exc)}
+        except Exception as exc:
+            return {"status": "error", "summary": f"Browser runtime failed: {exc}"}
+
+
+def _register_approvals() -> None:
+    import anumati
+
+    anumati.register_executor("browser", _execute_browser_proposal)
+    anumati.register_executor("signed_in_browser", _execute_signed_in_proposal)
+    anumati.register_executor("desktop", _execute_desktop_proposal)
+
+
+_register_approvals()
 
 
 def browser_runtime_status() -> dict[str, Any]:

@@ -99,6 +99,13 @@ Still open in Stage A:
 - **Evidence:** `phase-1/test_web_push.py` (real RFC 8291 encryption, decrypted in the test) and `phase-4/frontend/tests/sw.test.mjs` (the cache policy). The manual phone checklist is in the README under "Notifications on phones".
 - **Still open from Fix H:** approvals delivered by push need the hash-bound approval card (a parallel change). Live view and takeover, server-side stop, and iOS voice playback are also still open.
 
+**Stage B progress (2026-09-24), Anumati approvals (Fix E, Phase 3):**
+- **Hash-bound proposals.** `anumati.py` stores an `ActionProposal` per profile (surface, action, target, canonical args, `args_hash`, summary, risk class, preview, expiry, decision, result). Executors call `anumati.require`; a model's `confirmed=True` no longer approves anything.
+- **Covered:** `send_email`, commit steps in `computer_use` (isolated, signed-in, desktop), form submits and uploads, consequential `phone_use` tasks, and workflow stage confirmations.
+- **From the phone.** `/approvals` routes approve, reject or edit (email); approving runs the stored action server-side, once, after checking the page and target are unchanged. Results go to Karma, the chat thread and `vahana.deliver`. The chat shows an approval card, and `/?approval=<id>` opens it from a notification.
+- **Risk policy v2** (`risk_policy.py`): one rule table; search, filters, paging, cookie banners, sign-in and typing need no approval.
+- **Still open:** standing envelopes (a stage approval and the commit inside it are still two approvals), Web Push delivery (the other Stage B builder), `http_request` POST/DELETE and calendar writes (not yet proposals).
+
 ## Stack decisions (2026-09-24): Indic voice, Indic documents, local decision models
 
 These decisions come from two source-checked research passes, one on Sarvam and Indic open models, one on Jev, CUA-S1 and Laya. They put experience and functionality first, then privacy, then cost. Sarvam and Laya numbers are vendor-reported unless marked otherwise. Every Mac figure is an estimate until `scripts/bench_local_stack.py` has been run on the M5 Air.

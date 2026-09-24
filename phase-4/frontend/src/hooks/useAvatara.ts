@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { toast } from 'sonner'
-import { apiPath, apiUrl, apiFetch } from '@/lib/api'
+import { apiPath, apiUrl, apiFetch, type ApprovalProposal } from '@/lib/api'
 
 export type AvatarName = 'Matsya' | 'Rama' | 'Krishna' | 'Parashurama'
 
@@ -60,7 +60,8 @@ function storedTurnAttachments(turn: StoredThreadTurn): ChatAttachment[] | undef
 
 export interface Message {
   id: string
-  role: 'user' | 'assistant'
+  /** 'approval': an Anumati card, never a reply to speak, copy or replay. */
+  role: 'user' | 'assistant' | 'approval'
   text: string
   avatarsInvolved?: AvatarName[]
   sessionId?: string
@@ -73,6 +74,8 @@ export interface Message {
   attachments?: ChatAttachment[]
   /** G7: present when this message is a guided-mode (guru) card, not prose. */
   guru?: GuruPayload
+  /** Anumati: present when this message is an approval card, not prose. */
+  approval?: ApprovalProposal
 }
 
 export interface SessionInfo {
@@ -371,6 +374,23 @@ function loadMessages(userId: string): Message[] {
   } catch {
     return []
   }
+}
+
+/** Put an approval card in the chat, or refresh the one already showing it.
+ *  `replaces` is the proposal an edit superseded; `append` false only updates. */
+function upsertApprovalMessage(
+  messages: Message[],
+  proposal: ApprovalProposal,
+  { replaces, append = true }: { replaces?: string; append?: boolean } = {},
+): Message[] {
+  const index = messages.findIndex(m => m.approval && (m.approval.id === proposal.id || m.approval.id === replaces))
+  if (index < 0) {
+    if (!append) return messages
+    return [...messages, { id: `approval-${proposal.id}`, role: 'approval', text: proposal.summary, approval: proposal }]
+  }
+  const next = [...messages]
+  next[index] = { ...next[index], text: proposal.summary, approval: proposal }
+  return next
 }
 
 function lastKnownSessionId(messages: Message[]): string | null {
@@ -1256,6 +1276,14 @@ export function useAvatara(userId = 'default') {
               break
             }
 
+            case 'approval_requested': {
+              // A tool is waiting for this person's OK: show the card in the chat.
+              const proposal = evt.data as unknown as ApprovalProposal
+              if (!proposal?.id) break
+              setState(s => ({ ...s, messages: upsertApprovalMessage(s.messages, proposal) }))
+              break
+            }
+
             case 'andon_alert': {
               const d = evt.data as unknown as AndonAlertPayload
               setState(s => ({ ...s, andonAlert: d }))
@@ -1421,6 +1449,11 @@ export function useAvatara(userId = 'default') {
     setState(s => ({ ...s, andonAlert: null }))
   }, [])
 
+  /** A card's decision (or an edit that replaced it) updates the chat's copy. */
+  const updateApproval = useCallback((proposal: ApprovalProposal, replaces?: string) => {
+    setState(s => ({ ...s, messages: upsertApprovalMessage(s.messages, proposal, { replaces, append: false }) }))
+  }, [])
+
   const resumeSession = useCallback(async (sessionId: string) => {
     try {
       const response = await apiFetch(apiUrl(`/thread/${sessionId}`, { user_id: userId }))
@@ -1500,6 +1533,6 @@ export function useAvatara(userId = 'default') {
 
   return {
     ...state, send, stop, clearArtifact, clearToolUi, clearAndon, clearSession, resumeSession,
-    answerGuided, skipGuided, exitGuided,
+    answerGuided, skipGuided, exitGuided, updateApproval,
   }
 }
