@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Narad uptime check every 5 minutes (scripts/uptime_ping.py): local /health, the public URL through Cloudflare, and the optional healthchecks-style ping. Template: see scripts/install_launchd.sh. -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.narad.uptime</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>@ROOT@/scripts/run_job.sh</string>
+        <string>@ROOT@/scripts/uptime_ping.py</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>@ROOT@</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>@HOME@/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+    <key>StartInterval</key>
+    <integer>300</integer>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>LowPriorityIO</key>
+    <true/>
+    <key>Nice</key>
+    <integer>10</integer>
+    <key>StandardOutPath</key>
+    <string>@LOG_DIR@/uptime.log</string>
+    <key>StandardErrorPath</key>
+    <string>@LOG_DIR@/uptime.log</string>
+</dict>
+</plist>
