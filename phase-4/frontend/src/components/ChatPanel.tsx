@@ -11,6 +11,7 @@ import type {
   LiveAnswer,
 } from '../hooks/useAvatara'
 import { useTTS, VOICE_AVATARS } from '../hooks/useTTS'
+import { unlockAudio } from '@/lib/speech-queue'
 import type { TTSAvatar } from '../hooks/useTTS'
 import { MahatiLogo } from './MahatiLogo'
 import { ZigzagBank } from './Motifs'
@@ -22,6 +23,8 @@ import { TaskCard } from './TaskCard'
 import { cn } from '@/lib/utils'
 import {
   Archive,
+  ArrowDown,
+  ArrowUp,
   Check,
   Code2,
   Copy,
@@ -39,6 +42,7 @@ import {
   Pencil,
   RotateCcw,
   Square,
+  TriangleAlert,
   Volume2,
   VolumeX,
   X,
@@ -49,7 +53,8 @@ import { AVATAR_COLOURS, AVATAR_RGB, DEVA, isAvatarName } from '@/lib/avatara-co
 import { apiFetch, apiPath, apiUrl, type WorkflowRun } from '@/lib/api'
 import type { FamilyProfile } from '@/lib/api'
 import { useIsMobile } from '@/hooks/useIsMobile'
-import { ProfileBadge } from './ProfileBadge'
+import { PROFILE_COLORS, ProfileBadge } from './ProfileBadge'
+import { textLang } from '@/lib/trust'
 import { toast } from 'sonner'
 
 const SUGGESTIONS: Array<{ label: string; prompt: string }> = [
@@ -112,7 +117,7 @@ function MediaEmbed({ url }: { url: string }) {
         src={url}
         controls
         className="rounded w-full mt-2"
-        style={{ maxHeight: '240px', background: 'rgba(45,42,38,0.08)' }}
+        style={{ maxHeight: '240px', background: 'rgba(var(--rgb-ink),0.08)' }}
       />
     )
   }
@@ -153,23 +158,23 @@ const MarkdownMessage = memo(function MarkdownMessage({ text, live = false }: { 
         remarkPlugins={[remarkGfm]}
         components={{
           p: ({ children }) => (
-            <p className="text-[13px] leading-relaxed mb-2 last:mb-0 break-words" style={{ fontFamily: 'var(--font-body)' }}>
+            <p className="leading-relaxed mb-2 last:mb-0 break-words">
               {children}
             </p>
           ),
           h1: ({ children }) => (
-            <h1 className="text-[17px] font-semibold mt-4 mb-2 first:mt-0 pb-1.5" style={{ borderBottom: '1px solid rgba(45,42,38,0.12)' }}>
+            <h1 className="text-[18px] font-semibold mt-4 mb-2 first:mt-0 pb-1.5" style={{ borderBottom: '1px solid var(--ink-12)' }}>
               {children}
             </h1>
           ),
           h2: ({ children }) => (
-            <h2 className="text-[15px] font-semibold mt-3 mb-1.5 first:mt-0">{children}</h2>
+            <h2 className="text-[16.5px] font-semibold mt-3 mb-1.5 first:mt-0">{children}</h2>
           ),
           h3: ({ children }) => (
-            <h3 className="text-[14px] font-semibold mt-2.5 mb-1 first:mt-0">{children}</h3>
+            <h3 className="text-[15.5px] font-semibold mt-2.5 mb-1 first:mt-0">{children}</h3>
           ),
           h4: ({ children }) => (
-            <h4 className="text-[13px] font-semibold mt-2 mb-0.5 first:mt-0 uppercase tracking-wide opacity-70">{children}</h4>
+            <h4 className="text-[14px] font-semibold mt-2 mb-0.5 first:mt-0 uppercase tracking-wide opacity-70">{children}</h4>
           ),
           ul: ({ children }) => (
             <ul className="pl-5 mb-2 space-y-0.5" style={{ listStyleType: 'disc' }}>{children}</ul>
@@ -178,10 +183,10 @@ const MarkdownMessage = memo(function MarkdownMessage({ text, live = false }: { 
             <ol className="pl-5 mb-2 space-y-0.5" style={{ listStyleType: 'decimal' }}>{children}</ol>
           ),
           li: ({ children }) => (
-            <li className="text-[13px] leading-relaxed" style={{ fontFamily: 'var(--font-body)' }}>{children}</li>
+            <li className="leading-relaxed">{children}</li>
           ),
           pre: ({ children }) => (
-            <div className="overflow-x-auto rounded mb-2" style={{ background: 'rgba(45,42,38,0.055)', border: '1px solid rgba(45,42,38,0.10)' }}>
+            <div className="overflow-x-auto rounded mb-2" style={{ background: 'var(--ink-05)', border: '1px solid var(--line)' }}>
               <pre className="p-3 overflow-x-auto">{children}</pre>
             </div>
           ),
@@ -190,41 +195,41 @@ const MarkdownMessage = memo(function MarkdownMessage({ text, live = false }: { 
             const isBlock = str.includes('\n') || !!className?.startsWith('language-')
             if (!isBlock) {
               return (
-                <code className="font-mono text-[11.5px] px-1 py-0.5 rounded" style={{ background: 'rgba(45,42,38,0.09)', color: 'var(--kajal)' }}>
+                <code className="font-mono text-[0.88em] px-1 py-0.5 rounded" style={{ background: 'var(--ink-08)', color: 'var(--kajal)' }}>
                   {children}
                 </code>
               )
             }
             return (
-              <code className={cn('font-mono text-[12px] block leading-relaxed', className)} style={{ color: 'var(--kajal)' }}>
+              <code className={cn('font-mono text-[13px] block leading-relaxed', className)} style={{ color: 'var(--kajal)' }}>
                 {children}
               </code>
             )
           },
           table: ({ children }) => (
-            <div className="overflow-x-auto mb-3 rounded" style={{ border: '1px solid rgba(45,42,38,0.12)' }}>
-              <table className="w-full text-[12.5px] border-collapse">{children}</table>
+            <div className="overflow-x-auto mb-3 rounded" style={{ border: '1px solid var(--ink-12)' }}>
+              <table className="w-full text-[14px] border-collapse">{children}</table>
             </div>
           ),
           thead: ({ children }) => (
-            <thead style={{ background: 'rgba(45,42,38,0.05)' }}>{children}</thead>
+            <thead style={{ background: 'var(--ink-05)' }}>{children}</thead>
           ),
           tbody: ({ children }) => <tbody>{children}</tbody>,
           tr: ({ children }) => (
-            <tr style={{ borderBottom: '1px solid rgba(45,42,38,0.08)' }}>{children}</tr>
+            <tr style={{ borderBottom: '1px solid var(--ink-08)' }}>{children}</tr>
           ),
           th: ({ children }) => (
-            <th className="font-mono text-[11px] font-semibold text-left px-3 py-2" style={{ color: 'rgba(45,42,38,0.65)', borderRight: '1px solid rgba(45,42,38,0.07)' }}>
+            <th className="text-[12.5px] font-semibold text-left px-3 py-2 whitespace-nowrap" style={{ color: 'var(--ink-70)', borderRight: '1px solid var(--ink-08)', overflowWrap: 'normal' }}>
               {children}
             </th>
           ),
           td: ({ children }) => (
-            <td className="text-[12.5px] px-3 py-1.5" style={{ fontFamily: 'var(--font-body)', borderRight: '1px solid rgba(45,42,38,0.05)' }}>
+            <td className="px-3 py-2 align-top" style={{ borderRight: '1px solid var(--ink-05)', overflowWrap: 'normal', wordBreak: 'normal', hyphens: 'auto' }}>
               {children}
             </td>
           ),
           blockquote: ({ children }) => (
-            <blockquote className="pl-3 py-0.5 mb-2 italic" style={{ borderLeft: '3px solid rgba(45,42,38,0.25)', color: 'rgba(45,42,38,0.68)' }}>
+            <blockquote className="pl-3 py-0.5 mb-2 italic" style={{ borderLeft: '3px solid var(--ink-20)', color: 'var(--ink-70)' }}>
               {children}
             </blockquote>
           ),
@@ -237,7 +242,7 @@ const MarkdownMessage = memo(function MarkdownMessage({ text, live = false }: { 
               {children}
             </a>
           ),
-          hr: () => <hr className="my-3" style={{ borderColor: 'rgba(45,42,38,0.15)' }} />,
+          hr: () => <hr className="my-3" style={{ borderColor: 'var(--ink-12)' }} />,
         }}
       >
         {cleaned}
@@ -248,11 +253,11 @@ const MarkdownMessage = memo(function MarkdownMessage({ text, live = false }: { 
           {phases.map((phase, i) => (
             <span
               key={`${phase}-${i}`}
-              className="font-mono text-[10px] px-2 py-0.5 rounded-full"
+              className="font-mono text-[11.5px] px-2 py-0.5 rounded-full"
               style={{
-                background: 'rgba(45,42,38,0.06)',
-                border: '1px solid rgba(45,42,38,0.12)',
-                color: 'rgba(45,42,38,0.55)',
+                background: 'var(--ink-05)',
+                border: '1px solid var(--ink-12)',
+                color: 'var(--ink-55)',
               }}
             >
               lesson continues · {phase}
@@ -270,15 +275,15 @@ function AvatarChips({ avatars }: { avatars: AvatarName[] }) {
       {avatars.map(a => (
         <span
           key={a}
-          className="text-chip px-2 py-px rounded organic-border inline-flex items-baseline gap-1"
+          className="px-2 py-px rounded organic-border inline-flex items-baseline gap-1 font-mono text-[11px] tracking-[0.04em]"
           style={{
-            color: AVATAR_COLOURS[a],
+            color: isAvatarName(a) ? `var(--avatar-${a.toLowerCase()})` : 'var(--ink-70)',
             borderColor: `rgba(${AVATAR_RGB[a]}, 0.30)`,
             background: `rgba(${AVATAR_RGB[a]}, 0.08)`,
           }}
         >
           {isAvatarName(a) && (
-            <span style={{ fontFamily: 'var(--font-deva)', fontSize: 10 }}>
+            <span aria-hidden="true" style={{ fontFamily: 'var(--font-deva)', fontSize: 12 }}>
               {DEVA[a]?.charAt(0)}
             </span>
           )}
@@ -296,10 +301,11 @@ function LiveAnswerBubble({ live }: { live: LiveAnswer }) {
     <div className="flex flex-col gap-0.5 w-full items-start" aria-busy="true">
       <div
         className={cn(
-          'max-w-[82%] px-3.5 py-2.5 text-body-sm folk-card folk-shadow rounded-[4px_16px_16px_16px]',
+          'chat-bubble chat-bubble-assistant text-chat folk-card folk-shadow rounded-[4px_16px_16px_16px]',
           primary ? `avatar-glass-${primary.toLowerCase()}` : '',
         )}
         style={{ color: 'var(--kajal)' }}
+        lang={textLang(live.text) === 'hi' ? 'hi' : undefined}
       >
         {live.avatars.length > 0 && <AvatarChips avatars={live.avatars} />}
         <MarkdownMessage text={live.text.replace(LIVE_PHASE_RE, '')} live />
@@ -310,7 +316,7 @@ function LiveAnswerBubble({ live }: { live: LiveAnswer }) {
 
 function UserMessageText({ text }: { text: string }) {
   return (
-    <p className="font-body text-[13px] leading-relaxed whitespace-pre-wrap break-words">
+    <p className="leading-relaxed whitespace-pre-wrap break-words">
       {text}
     </p>
   )
@@ -347,8 +353,8 @@ function TokenTicker({
     <div className="flex flex-col gap-0.5 mt-0.5 pl-0.5">
       {/* Row 1: global metrics */}
       {hasGlobal && (
-        <div className="flex items-center gap-1.5 font-mono text-[9px]"
-          style={{ color: 'rgba(45,42,38,0.38)' }}>
+        <div className="flex items-center gap-1.5 font-mono text-[10.5px]"
+          style={{ color: 'var(--ink-40)' }}>
           <span title={isEstimate ? 'Character-based estimate' : 'Real token count from model'}>
             {isEstimate ? '~' : ''}{total!.toLocaleString()} tok
           </span>
@@ -372,11 +378,11 @@ function TokenTicker({
           {avatarEntries.map(([name, ms]) => {
             const avatarName = name as AvatarName
             const rgb   = AVATAR_RGB[avatarName]   ?? '45,42,38'
-            const colour = AVATAR_COLOURS[avatarName] ?? 'rgba(45,42,38,0.6)'
+            const colour = AVATAR_COLOURS[avatarName] ?? 'rgba(var(--rgb-ink),0.6)'
             return (
               <span
                 key={name}
-                className="text-[8px] font-mono px-1.5 py-px rounded-sm leading-tight"
+                className="text-[10px] font-mono px-1.5 py-px rounded-sm leading-tight"
                 style={{
                   color:      colour,
                   background: `rgba(${rgb}, 0.07)`,
@@ -394,14 +400,14 @@ function TokenTicker({
   )
 }
 
+// Quiet by default; 44 px tall on phones so a thumb finds them.
 const ACTION_BTN = cn(
-  'flex items-center gap-1 px-1.5 py-1 rounded',
-  'font-mono text-[10px] leading-none',
-  'border hover:border-kajal/25',
-  'text-kajal/40 hover:text-kajal/70',
-  'transition-all duration-150 cursor-pointer bg-transparent outline-none',
-  'hover:bg-kajal/5 active:scale-95',
-  'border-kajal/10'
+  'flex items-center gap-1.5 px-2.5 min-h-[44px] sm:min-h-[30px] rounded-md',
+  'text-[13px] sm:text-[11.5px] leading-none',
+  'border border-transparent hover:border-kajal/20',
+  'text-kajal/60 hover:text-kajal/85',
+  'transition-colors duration-150 cursor-pointer bg-transparent',
+  'hover:bg-kajal/5',
 )
 
 interface Props {
@@ -418,6 +424,8 @@ interface Props {
   stop: () => void
   onClear?: () => void
   onOpenVoice?: () => void
+  /** Phone: the avatar in the header opens You (not a sign-out). */
+  onOpenProfile?: () => void
   activeArtifact?: ActiveArtifactSession | null
   onCloseArtifact?: () => void
   activeWorkflow?: WorkflowRun | null
@@ -430,6 +438,11 @@ interface Props {
   /** An approval card was decided or edited: keep the chat's copy current. */
   onApprovalChange?: ApprovalChange
 }
+
+/** Within this many pixels of the end, the chat follows new text. */
+const FOLLOW_SLACK_PX = 48
+
+const HEADER_BUTTON = 'n-icon-btn transition-colors hover:bg-white/10'
 
 export function ChatPanel({
   userId,
@@ -444,6 +457,7 @@ export function ChatPanel({
   stop,
   onClear,
   onOpenVoice,
+  onOpenProfile,
   activeArtifact,
   onCloseArtifact,
   activeWorkflow,
@@ -460,8 +474,11 @@ export function ChatPanel({
   const [pendingBatches, setPendingBatches] = useState<ChatAttachmentBatch[]>([])
   const [uploading, setUploading] = useState(false)
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false)
+  // Phone: actions show under the latest answer, and under any bubble tapped.
+  const [revealedId, setRevealedId] = useState<string | null>(null)
   const scrollerRef = useRef<HTMLDivElement>(null)
-  const nearBottomRef = useRef(true)
+  const followRef = useRef(true)
+  const lastScrollTopRef = useRef(0)
   const [showJump, setShowJump] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -469,31 +486,49 @@ export function ChatPanel({
   const attachmentMenuRef = useRef<HTMLDivElement>(null)
   const tts = useTTS()
 
-  // Stick-near-bottom autoscroll: only follow the stream when the reader is
-  // already at the bottom. Scrolling up to re-read pauses following and shows
-  // a "↓ new" pill instead of yanking the viewport on every chunk.
+  // Follow the answer while the reader is at the end. Scrolling up, even a
+  // little, stops following at once (no yanking back on the next chunk) and
+  // offers "Latest" instead; reaching the end again resumes following.
   const scrollToBottom = (smooth = false) => {
     const el = scrollerRef.current
     if (!el) return
-    el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' })
-    nearBottomRef.current = true
+    const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    el.scrollTo({ top: el.scrollHeight, behavior: smooth && !reduced ? 'smooth' : 'auto' })
+    followRef.current = true
     setShowJump(false)
   }
 
   const handleScroll = () => {
     const el = scrollerRef.current
     if (!el) return
-    const near = el.scrollHeight - el.scrollTop - el.clientHeight < 120
-    nearBottomRef.current = near
-    if (near) setShowJump(false)
+    const distance = el.scrollHeight - el.scrollTop - el.clientHeight
+    if (distance <= FOLLOW_SLACK_PX) {
+      followRef.current = true
+      setShowJump(false)
+    } else if (el.scrollTop < lastScrollTopRef.current - 2) {
+      // Only a person scrolls up; the app itself only ever scrolls down.
+      followRef.current = false
+    }
+    lastScrollTopRef.current = el.scrollTop
   }
 
   const liveText = streaming ? liveAnswer?.text ?? '' : ''
 
   useEffect(() => {
-    if (nearBottomRef.current) scrollToBottom()
+    if (followRef.current) scrollToBottom()
     else setShowJump(true)
-  }, [messages, liveText])
+  }, [messages, liveText, streaming])
+
+  // The keyboard opening (or a card growing) shrinks the list: stay at the end.
+  useEffect(() => {
+    const el = scrollerRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(() => {
+      if (followRef.current) el.scrollTop = el.scrollHeight
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
 
   // G7: guru mode defaults to voice — auto-speak each new atom's narration in
   // Krishna's voice. History restored on page load is seeded as already-spoken
@@ -520,8 +555,13 @@ export function ChatPanel({
         setAttachmentMenuOpen(false)
       }
     }
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') setAttachmentMenuOpen(false) }
     document.addEventListener('mousedown', closeMenu)
-    return () => document.removeEventListener('mousedown', closeMenu)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', closeMenu)
+      document.removeEventListener('keydown', onKey)
+    }
   }, [attachmentMenuOpen])
 
   const uploadSelection = async (fileList: FileList, source: 'files' | 'folder') => {
@@ -574,9 +614,13 @@ export function ChatPanel({
     const attachments = pendingBatches.flatMap(batch => batch.attachments)
     const q = input.trim() || (attachments.length > 0 ? 'Review the attached inputs and summarize what matters.' : '')
     if (!q || streaming || uploading) return
+    // A lesson speaks its next step by itself, after the reply arrives; the
+    // phone allows that only if audio was unlocked inside this tap.
+    if (guidedSession) unlockAudio()
     onSend(q, attachments)
     setInput('')
     setPendingBatches([])
+    setRevealedId(null)
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
     // Sending always re-engages follow mode — jump to your own message.
     requestAnimationFrame(() => scrollToBottom())
@@ -621,84 +665,99 @@ export function ChatPanel({
     })
   }
 
+  /** A tap on a bubble (not on a link or button inside it) shows its actions. */
+  const revealActions = (event: React.MouseEvent, id: string) => {
+    if (!isMobile || (event.target as HTMLElement).closest('a, button, input, textarea, summary')) return
+    setRevealedId(current => (current === id ? null : id))
+  }
+
   const activeAvatar = Object.values(avatars).find(a => a.state === 'active') ?? null
   const pendingAttachmentCount = pendingBatches.reduce((sum, batch) => sum + batch.file_count, 0)
   const liveUrls = Array.from(new Set((input.match(LIVE_URL_RE) ?? []).map(url => url.replace(/[.,;:!?]+$/, ''))))
+  const lastAssistantId = [...messages].reverse().find(m => m.role === 'assistant' && !m.guru)?.id ?? null
+  const canSend = !streaming && !uploading && (Boolean(input.trim()) || pendingAttachmentCount > 0)
 
   return (
     <div className="flex flex-col h-full overflow-hidden" style={{ background: 'var(--paper)' }}>
 
-      {/* Header — dark kajal with Playfair italic */}
-      <div
-        className="flex items-center gap-2 sm:gap-3 px-3 sm:px-5 py-3 flex-shrink-0 relative overflow-hidden"
-        style={{ background: 'var(--kajal)', minHeight: 56 }}
+      {/* Header — dark chrome with the Playfair wordmark */}
+      <header
+        className="flex items-center gap-2 sm:gap-3 pl-3 pr-1.5 sm:px-5 flex-shrink-0 relative overflow-hidden"
+        style={{ background: 'var(--chrome)', minHeight: 'calc(56px + env(safe-area-inset-top))', paddingTop: 'env(safe-area-inset-top)' }}
       >
-        <MahatiLogo size={32} />
-        <div className="flex flex-col gap-0">
+        <MahatiLogo size={isMobile ? 28 : 32} />
+        <div className="flex flex-col gap-0 min-w-0">
           <span
-            className="label-hero text-[22px] leading-none"
-            style={{ color: 'var(--paper)', letterSpacing: '-0.01em' }}
+            className="label-hero leading-none"
+            style={{ color: 'var(--on-chrome)', letterSpacing: '-0.01em', fontSize: isMobile ? 20 : 22 }}
           >
             NARAD.OS
           </span>
-          <span className="font-deva text-[11px] leading-tight" style={{ color: 'rgba(252,250,242,0.55)', fontFamily: 'var(--font-deva)' }}>
+          <span aria-hidden="true" className="text-[12px] leading-tight mt-0.5" style={{ color: 'rgba(252,250,242,0.6)', fontFamily: 'var(--font-deva)' }}>
             नारद  अवतारा
           </span>
         </div>
-        <div className="ml-auto z-10 flex items-center gap-1.5">
-        <ProfileBadge profile={profile} onSwitch={onSwitchProfile} compact={isMobile} />
-        {onOpenVoice && (
-          <button
-            onClick={onOpenVoice}
-            title="Voice mode — talk to Narad"
-            className="flex items-center gap-1 px-2 py-1 rounded text-[11px] transition-opacity opacity-50 hover:opacity-100"
-            style={{ color: 'rgba(252,250,242,0.7)', background: 'rgba(252,250,242,0.08)', border: '1px solid rgba(252,250,242,0.15)' }}
-          >
-            <Mic size={12} />
-            {!isMobile && 'voice'}
-          </button>
-        )}
-        {onClear && messages.length > 0 && (
-          <button
-            onClick={onClear}
-            title="Clear conversation"
-            className="flex items-center gap-1 px-2 py-1 rounded text-[11px] transition-opacity opacity-50 hover:opacity-100"
-            style={{ color: 'rgba(252,250,242,0.7)', background: 'rgba(252,250,242,0.08)', border: '1px solid rgba(252,250,242,0.15)' }}
-          >
-            <RotateCcw size={12} />
-            {!isMobile && 'clear'}
-          </button>
-        )}
+        <div className="ml-auto z-10 flex items-center gap-0.5 sm:gap-1.5" style={{ color: 'rgba(252,250,242,0.82)' }}>
+          {onOpenVoice && (
+            <button type="button" onClick={onOpenVoice} className={HEADER_BUTTON} aria-label="Talk to Narad (voice mode)" title="Voice mode">
+              <Mic size={19} />
+            </button>
+          )}
+          {onClear && messages.length > 0 && (
+            <button type="button" onClick={onClear} className={HEADER_BUTTON} aria-label="Start a new chat" title="New chat">
+              <RotateCcw size={18} />
+            </button>
+          )}
+          {isMobile && onOpenProfile ? (
+            <button
+              type="button"
+              onClick={onOpenProfile}
+              className={HEADER_BUTTON}
+              aria-label={`You: ${profile.display_name}`}
+            >
+              <span
+                aria-hidden="true"
+                className="grid place-items-center rounded-full font-mono text-[12px] font-extrabold"
+                style={{ width: 30, height: 30, color: '#fffaf0', background: PROFILE_COLORS[profile.color] || PROFILE_COLORS.sindoor, boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.2)' }}
+              >
+                {profile.initial}
+              </span>
+            </button>
+          ) : (
+            <ProfileBadge profile={profile} onSwitch={onSwitchProfile} compact={isMobile} />
+          )}
         </div>
         {/* Zigzag motif at bottom edge of header */}
-        <div className="absolute bottom-0 left-0 w-full overflow-hidden" style={{ height: 16, opacity: 0.12 }}>
-          <ZigzagBank color="var(--paper)" className="w-full" />
+        <div className="absolute bottom-0 left-0 w-full overflow-hidden pointer-events-none" style={{ height: 12, opacity: 0.1 }} aria-hidden="true">
+          <ZigzagBank color="var(--on-chrome)" className="w-full" />
         </div>
-      </div>
+      </header>
 
       {/* The teaching workflow stays in the primary chat instead of a separate surface. */}
       {guidedSession && (
         <div
-          className="flex items-center gap-2 px-4 py-1.5 flex-shrink-0"
+          className="flex items-center gap-2 pl-4 pr-1 flex-shrink-0"
           style={{
-            background: 'rgba(29,78,216,0.07)',
-            borderBottom: '1px solid rgba(29,78,216,0.18)',
+            minHeight: 48,
+            background: 'rgba(var(--rgb-matsya),0.08)',
+            borderBottom: '1px solid rgba(var(--rgb-matsya),0.2)',
           }}
         >
-          <GraduationCap size={12} style={{ color: '#1d4ed8' }} />
-          <span className="font-mono text-[10.5px] uppercase tracking-wider" style={{ color: '#1d4ed8' }}>
-            Teach workflow
+          <GraduationCap size={15} aria-hidden="true" style={{ color: 'var(--avatar-matsya)' }} />
+          <span className="font-mono text-[11.5px] uppercase tracking-wider" style={{ color: 'var(--avatar-matsya)' }}>
+            Teach
           </span>
-          <span className="text-[11.5px] truncate flex-1" style={{ color: 'var(--kajal)', fontFamily: 'var(--font-body)', opacity: 0.75 }}>
+          <span className="text-[14px] truncate flex-1" style={{ color: 'var(--kajal)', opacity: 0.8 }}>
             {guidedSession.topic}
           </span>
           <button
+            type="button"
             onClick={() => onGuidedExit?.()}
-            className="text-[10.5px] font-mono px-2 py-0.5 rounded opacity-60 hover:opacity-100 transition-opacity"
-            style={{ color: '#1d4ed8', border: '1px solid rgba(29,78,216,0.3)' }}
+            className="n-btn n-btn-sm"
+            style={{ minHeight: 40, color: 'var(--avatar-matsya)', borderColor: 'rgba(var(--rgb-matsya),0.3)', background: 'transparent' }}
             title="Exit the teaching workflow (or type /exit)"
           >
-            exit
+            Exit
           </button>
         </div>
       )}
@@ -708,30 +767,34 @@ export function ChatPanel({
       <div
         ref={scrollerRef}
         onScroll={handleScroll}
-        className="h-full overflow-y-auto px-4 py-5 flex flex-col gap-2.5"
-        style={{ background: 'var(--paper)' }}
+        className="h-full overflow-y-auto px-3 sm:px-4 pt-4 pb-6 flex flex-col gap-3"
+        style={{ background: 'var(--paper)', overscrollBehavior: 'contain' }}
+        role="log"
+        aria-live="polite"
+        aria-relevant="additions"
+        aria-label="Conversation"
       >
         {messages.length === 0 && (
-          <div className="flex flex-col items-center justify-center gap-3 mt-[22%]">
-            <div style={{ opacity: 0.85 }}>
+          <div className="flex flex-col items-center justify-center gap-3 my-auto py-8 px-2 text-center">
+            <div style={{ opacity: 0.85 }} aria-hidden="true">
               <MahatiLogo size={56} />
             </div>
-            <p className="text-[34px] leading-none" style={{ fontFamily: 'var(--font-deva)', color: 'var(--sindoor)', opacity: 0.8 }}>नमस्ते</p>
-            <p className="label-hero text-[15px]" style={{ color: 'var(--ink-55)' }}>
+            <p className="text-[36px] leading-tight" lang="hi" style={{ fontFamily: 'var(--font-deva)', color: 'var(--sindoor)', opacity: 0.85 }}>नमस्ते</p>
+            <p className="label-hero text-[17px]" style={{ color: 'var(--ink-70)' }}>
               Ask anything — Narad plucks the right string.
             </p>
-            <div className="flex flex-wrap justify-center gap-2 mt-2 max-w-[420px]">
+            <div className="flex flex-wrap justify-center gap-2 mt-3 max-w-[440px]">
               {SUGGESTIONS.map(s => (
                 <button
                   key={s.label}
+                  type="button"
                   onClick={() => handleEdit(s.prompt)}
-                  className="text-chip px-3 py-1.5 rounded-full cursor-pointer transition-all duration-150 hover:scale-[1.03] active:scale-95"
+                  className="px-4 rounded-full cursor-pointer transition-colors duration-150 text-[14px]"
                   style={{
-                    fontSize: 11,
-                    color: 'var(--ink-70)',
-                    background: 'var(--surface)',
+                    minHeight: 44,
+                    color: 'var(--ink-85)',
+                    background: 'var(--surface-raised)',
                     border: '1px solid var(--ink-12)',
-                    boxShadow: '0 2px 8px -2px var(--ink-08)',
                   }}
                 >
                   {s.label}
@@ -745,7 +808,7 @@ export function ChatPanel({
           // Anumati: a side effect waiting for this person's OK.
           if (msg.role === 'approval' && msg.approval) {
             return (
-              <div key={msg.id} className="w-full max-w-[92%] self-start">
+              <div key={msg.id} className="chat-card">
                 <ApprovalCard proposal={msg.approval} onChange={onApprovalChange} />
               </div>
             )
@@ -754,7 +817,7 @@ export function ChatPanel({
           // Kriya: an errand running on the Mac, with its live view and Stop.
           if (msg.role === 'task' && msg.task) {
             return (
-              <div key={msg.id} className="w-full max-w-[92%] self-start">
+              <div key={msg.id} className="chat-card">
                 <TaskCard task={msg.task} />
               </div>
             )
@@ -763,12 +826,15 @@ export function ChatPanel({
           // G7: guided-mode cards render as their own wide block, not a bubble.
           if (msg.role === 'assistant' && msg.guru) {
             return (
-              <div key={msg.id} className="w-full max-w-[92%] self-start">
+              <div key={msg.id} className="chat-card">
                 <GuruMessage
                   payload={msg.guru}
                   busy={streaming}
                   speaking={tts.playingId === `${msg.id}:en` && tts.state !== 'idle'}
-                  onAnswer={(answer, choiceIndex) => onGuidedAnswer?.(msg.id, answer, choiceIndex)}
+                  onAnswer={(answer, choiceIndex) => {
+                    unlockAudio()  // the next step is spoken without another tap
+                    onGuidedAnswer?.(msg.id, answer, choiceIndex)
+                  }}
                   onSkip={() => onGuidedSkip?.()}
                   onReplayVoice={() => {
                     const narration = msg.guru?.kind === 'step' ? msg.guru.step.narration : msg.text
@@ -783,6 +849,8 @@ export function ChatPanel({
           const avatarClass = primaryAvatar
             ? `avatar-glass-${primaryAvatar.toLowerCase()}`
             : ''
+          const hindi = textLang(msg.text) === 'hi'
+          const showActions = !isMobile || revealedId === msg.id || (msg.id === lastAssistantId && !streaming)
 
           return (
             <div
@@ -795,10 +863,10 @@ export function ChatPanel({
               {/* Bubble */}
               <div
                 className={cn(
-                  'max-w-[82%] px-3.5 py-2.5 text-body-sm',
+                  'chat-bubble text-chat',
                   msg.role === 'user'
-                    ? 'rounded-[16px_16px_4px_16px]'
-                    : cn('folk-card folk-shadow rounded-[4px_16px_16px_16px]', avatarClass)
+                    ? 'chat-bubble-user'
+                    : cn('chat-bubble-assistant folk-card folk-shadow rounded-[4px_16px_16px_16px]', avatarClass)
                 )}
                 style={
                   msg.role === 'user'
@@ -809,6 +877,8 @@ export function ChatPanel({
                       }
                     : { color: 'var(--kajal)' }
                 }
+                lang={hindi ? 'hi' : undefined}
+                onClick={event => revealActions(event, msg.id)}
               >
                 {/* Avatar tags */}
                 {msg.role === 'assistant' && msg.avatarsInvolved && msg.avatarsInvolved.length > 0 && (
@@ -825,41 +895,36 @@ export function ChatPanel({
               {/* Action buttons + token ticker */}
               <div
                 className={cn(
-                  'flex flex-col gap-0.5',
-                  msg.role === 'user' ? 'items-end pr-0.5' : 'items-start pl-0.5'
+                  'flex flex-col gap-0.5 max-w-full',
+                  msg.role === 'user' ? 'items-end' : 'items-start'
                 )}
               >
-                <div className="msg-actions flex gap-1 opacity-0 group-hover/bubble:opacity-100 transition-opacity duration-150">
+                {showActions && (
+                <div className="msg-actions flex flex-wrap gap-0.5 sm:gap-1 sm:opacity-0 sm:group-hover/bubble:opacity-100 sm:focus-within:opacity-100 transition-opacity duration-150">
                   {msg.role === 'user' && (
                     <button
+                      type="button"
                       className={ACTION_BTN}
                       onClick={() => handleEdit(msg.text)}
+                      aria-label="Edit and send again"
                       title="Edit and resend"
                     >
-                      <Pencil size={10} />
-                      edit
+                      <Pencil size={14} aria-hidden="true" />
+                      Edit
                     </button>
                   )}
                   {msg.role === 'assistant' && (
                     <button
+                      type="button"
                       className={ACTION_BTN}
                       onClick={() => handleCopy(msg.id, msg.text)}
+                      aria-label={copiedId === msg.id ? 'Copied' : 'Copy the answer'}
                       title="Copy to clipboard"
                     >
                       {copiedId === msg.id
-                        ? <><Check size={10} />copied</>
-                        : <><Copy size={10} />copy</>
+                        ? <><Check size={14} aria-hidden="true" />Copied</>
+                        : <><Copy size={14} aria-hidden="true" />Copy</>
                       }
-                    </button>
-                  )}
-                  {msg.role === 'assistant' && !streaming && (
-                    <button
-                      className={ACTION_BTN}
-                      onClick={() => handleRestart(msg.id)}
-                      title="Restart from this prompt"
-                    >
-                      <RotateCcw size={10} />
-                      restart
                     </button>
                   )}
                   {msg.role === 'assistant' && !streaming && (() => {
@@ -878,36 +943,53 @@ export function ChatPanel({
                     return (
                       <>
                         <button
-                          className={cn(ACTION_BTN, isEnPlaying && 'opacity-100')}
+                          type="button"
+                          className={ACTION_BTN}
                           onClick={() => tts.speak(msg.text, voiceAvatar, msg.id, 'en')}
+                          aria-label={isEnPlaying ? 'Stop speaking' : 'Read aloud'}
                           title={isEnPlaying ? 'Stop' : `Speak as ${voiceAvatar}`}
-                          style={isEnPlaying ? { color: 'var(--marigold)', borderColor: 'rgba(194,65,12,0.35)' } : {}}
+                          style={isEnPlaying ? { color: 'var(--sindoor)', borderColor: 'rgba(var(--rgb-sindoor),0.35)' } : {}}
                         >
                           {isEnLoading
-                            ? <><Loader size={10} style={{ animation: 'spin 1s linear infinite' }} />loading</>
+                            ? <><Loader size={14} className="animate-spin" aria-hidden="true" />Loading</>
                             : isEnPlaying
-                            ? <><VolumeX size={10} />stop</>
-                            : <><Volume2 size={10} />speak</>
+                            ? <><VolumeX size={14} aria-hidden="true" />Stop</>
+                            : <><Volume2 size={14} aria-hidden="true" />Listen</>
                           }
                         </button>
                         <button
-                          className={cn(ACTION_BTN, isHiPlaying && 'opacity-100')}
+                          type="button"
+                          className={ACTION_BTN}
                           onClick={() => tts.speak(msg.text, voiceAvatar, msg.id, 'hi')}
-                          title={isHiPlaying ? 'Stop Hindi' : `Speak in Hindi`}
-                          style={isHiPlaying ? { color: 'var(--marigold)', borderColor: 'rgba(194,65,12,0.35)' } : {}}
+                          aria-label={isHiPlaying ? 'Stop Hindi' : 'Listen in Hindi'}
+                          title={isHiPlaying ? 'Stop Hindi' : 'Speak in Hindi'}
+                          style={isHiPlaying ? { color: 'var(--sindoor)', borderColor: 'rgba(var(--rgb-sindoor),0.35)' } : {}}
                         >
                           {isHiLoading
-                            ? <><Loader size={10} style={{ animation: 'spin 1s linear infinite' }} />loading</>
+                            ? <><Loader size={14} className="animate-spin" aria-hidden="true" />Loading</>
                             : isHiPlaying
-                            ? <><VolumeX size={10} />stop</>
-                            : <span style={{ fontFamily: 'var(--font-deva)', fontSize: 11 }}>हिं</span>
+                            ? <><VolumeX size={14} aria-hidden="true" />Stop</>
+                            : <><Volume2 size={14} aria-hidden="true" /><span lang="hi">हिन्दी</span></>
                           }
                         </button>
                       </>
                     )
                   })()}
+                  {msg.role === 'assistant' && !streaming && (
+                    <button
+                      type="button"
+                      className={ACTION_BTN}
+                      onClick={() => handleRestart(msg.id)}
+                      aria-label="Ask this again"
+                      title="Restart from this prompt"
+                    >
+                      <RotateCcw size={14} aria-hidden="true" />
+                      Retry
+                    </button>
+                  )}
                 </div>
-                {msg.role === 'assistant' && (
+                )}
+                {msg.role === 'assistant' && !isMobile && (
                   <TokenTicker
                     usage={msg.usage}
                     tokenEstimate={msg.tokenEstimate}
@@ -933,40 +1015,34 @@ export function ChatPanel({
         {streaming && (() => {
           const activeName = activeAvatar?.name
           const streamColour = activeName && isAvatarName(activeName)
-            ? AVATAR_COLOURS[activeName]
+            ? `var(--avatar-${activeName.toLowerCase()})`
             : 'var(--sindoor)'
           const streamRgb = activeName && isAvatarName(activeName)
             ? AVATAR_RGB[activeName]
             : 'var(--rgb-sindoor)'
           return (
-            <div className="flex flex-col gap-2 max-w-[82%]">
+            <div className="flex flex-col gap-2 w-full sm:max-w-[82%]" role="status">
 
               {/* Active avatar label + task */}
-              {activeAvatar && (
-                <div className="flex items-center gap-2 px-1">
-                  {activeName && isAvatarName(activeName) && (
-                    <span style={{ fontFamily: 'var(--font-deva)', fontSize: 12, color: streamColour }}>
-                      {DEVA[activeName]?.charAt(0)}
-                    </span>
-                  )}
-                  <span
-                    className="font-mono text-[11px] font-medium"
-                    style={{ color: streamColour }}
-                  >
-                    {activeAvatar.name}
+              <div className="flex items-center gap-2 px-1 min-w-0">
+                {activeName && isAvatarName(activeName) && (
+                  <span aria-hidden="true" style={{ fontFamily: 'var(--font-deva)', fontSize: 14, color: streamColour }}>
+                    {DEVA[activeName]?.charAt(0)}
                   </span>
-                  {activeAvatar.task && (
-                    <span className="font-mono text-[11px] opacity-35 truncate flex-1" style={{ color: 'var(--ink)' }}>
-                      {activeAvatar.task}
-                    </span>
-                  )}
-                </div>
-              )}
+                )}
+                <span className="text-[13px] font-semibold flex-shrink-0" style={{ color: streamColour }}>
+                  {activeAvatar ? activeAvatar.name : 'Narad'}
+                </span>
+                <span className="text-[13px] truncate flex-1" style={{ color: 'var(--ink-55)' }}>
+                  {activeAvatar?.task || (liveText ? 'is writing…' : 'is thinking…')}
+                </span>
+              </div>
 
               {/* Progress bar */}
               <div
                 className="h-[2px] rounded-full overflow-hidden mx-1"
                 style={{ background: 'var(--ink-08)' }}
+                aria-hidden="true"
               >
                 <div
                   className="h-full w-[35%] rounded-full"
@@ -977,31 +1053,21 @@ export function ChatPanel({
                 />
               </div>
 
-              {/* Breathing dots (until text streams in) + stop button */}
-              <div className="flex items-center gap-2.5">
-                {!liveText && (
-                  <div className="folk-card flex items-center gap-1.5 px-4 py-3.5 rounded w-fit">
-                    {[0, 200, 400].map(delay => (
-                      <span
-                        key={delay}
-                        className="inline-block w-[7px] h-[7px] rounded-full"
-                        style={{
-                          background: `rgba(${streamRgb}, 0.9)`,
-                          animation: `breath 1.2s ease-in-out ${delay}ms infinite`,
-                        }}
-                      />
-                    ))}
-                  </div>
-                )}
-                <button
-                  className={cn(ACTION_BTN, 'border-sindoor/25 text-sindoor/50 hover:text-sindoor/80 hover:border-sindoor/40')}
-                  onClick={stop}
-                  title="Stop generation"
-                >
-                  <Square size={10} />
-                  stop
-                </button>
-              </div>
+              {/* Breathing dots until text streams in */}
+              {!liveText && (
+                <div className="folk-card flex items-center gap-1.5 px-4 py-3.5 rounded w-fit" aria-hidden="true">
+                  {[0, 200, 400].map(delay => (
+                    <span
+                      key={delay}
+                      className="inline-block w-[7px] h-[7px] rounded-full"
+                      style={{
+                        background: `rgba(${streamRgb}, 0.9)`,
+                        animation: `breath 1.2s ease-in-out ${delay}ms infinite`,
+                      }}
+                    />
+                  ))}
+                </div>
+              )}
 
             </div>
           )
@@ -1009,99 +1075,102 @@ export function ChatPanel({
 
         {error && (
           <div
-            className="px-3.5 py-2.5 rounded organic-border mx-1"
+            role="alert"
+            className="flex items-start gap-2 px-3.5 py-3 rounded-lg organic-border mx-1"
             style={{
-              background: 'rgba(194,65,12,0.05)',
-              borderColor: 'rgba(194,65,12,0.30)',
+              background: 'rgba(var(--rgb-sindoor),0.06)',
+              borderColor: 'rgba(var(--rgb-sindoor),0.30)',
+              color: 'var(--sindoor)',
             }}
           >
-            <span className="font-mono text-[12px]" style={{ color: 'var(--sindoor)' }}>⚠ {error}</span>
+            <TriangleAlert size={16} className="flex-shrink-0 mt-0.5" aria-hidden="true" />
+            <span className="text-[14px] leading-snug break-words">{error}</span>
           </div>
         )}
 
       </div>
 
-      {/* "↓ new" pill — appears when new content arrives while scrolled up */}
+      {/* "Latest" — appears when new content arrives while scrolled up */}
       {showJump && (
         <button
+          type="button"
           onClick={() => scrollToBottom(true)}
-          className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 flex items-center gap-1.5 px-3 py-1.5 rounded-full font-mono text-[11px] cursor-pointer transition-transform hover:scale-105 active:scale-95"
+          className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 flex items-center gap-1.5 px-4 rounded-full text-[14px] font-semibold cursor-pointer"
           style={{
-            background: 'var(--kajal)',
-            color: 'var(--paper)',
+            minHeight: 44,
+            background: 'var(--chrome)',
+            color: 'var(--on-chrome)',
             border: '1px solid rgba(252,250,242,0.18)',
             boxShadow: '0 4px 14px rgba(0,0,0,0.25)',
           }}
         >
-          ↓ new
+          <ArrowDown size={16} aria-hidden="true" />
+          Latest
         </button>
       )}
       </div>
 
       {/* Input area */}
       <div
-        className="flex flex-col gap-2 px-4 py-3 flex-shrink-0"
+        className="flex flex-col gap-2 px-3 sm:px-4 pt-2.5 pb-2.5 flex-shrink-0"
         style={{
           background: 'var(--speckle)',
-          borderTop: '1px solid color-mix(in srgb, var(--kajal) 10%, transparent)',
+          borderTop: '1px solid var(--line)',
         }}
       >
         {activeWorkflow && (
           <div
-            className="flex items-center justify-between gap-3 rounded px-3 py-2"
+            className="flex items-center justify-between gap-2 rounded-lg pl-3 pr-1"
             style={{
-              background: `linear-gradient(90deg, ${activeWorkflow.definition.accent}10, rgba(255,255,255,0.58))`,
-              border: `1px solid ${activeWorkflow.definition.accent}28`,
+              minHeight: 52,
+              background: `linear-gradient(90deg, ${activeWorkflow.definition.accent}14, var(--surface-raised))`,
+              border: `1px solid ${activeWorkflow.definition.accent}30`,
             }}
           >
-            <button type="button" onClick={onOpenWorkflow} className="min-w-0 text-left" style={{ background: 'transparent', border: 0, padding: 0, cursor: 'pointer' }}>
-              <div className="font-mono text-[9px] uppercase tracking-[0.13em]" style={{ color: activeWorkflow.definition.accent }}>
-                Active path · {activeWorkflow.definition.title}
+            <button type="button" onClick={onOpenWorkflow} className="min-w-0 flex-1 text-left py-1.5" style={{ background: 'transparent', border: 0, cursor: 'pointer', minHeight: 44 }}>
+              <div className="font-mono text-[11px] uppercase tracking-[0.1em] truncate" style={{ color: activeWorkflow.definition.accent }}>
+                Path · {activeWorkflow.definition.title} · {activeWorkflow.progress_percent}%
               </div>
-              <div className="text-[12px] font-semibold truncate" style={{ color: 'var(--kajal)' }}>
+              <div className="text-[14px] font-semibold truncate" style={{ color: 'var(--kajal)' }}>
                 {activeWorkflow.current_stage?.title || (activeWorkflow.status === 'completed' ? 'Path complete' : activeWorkflow.title)}
               </div>
             </button>
-            <div className="flex items-center gap-2 flex-shrink-0">
-              <button type="button" onClick={onOpenWorkflow} className="font-mono text-[9px] uppercase tracking-[0.08em]" style={{ border: 0, background: 'transparent', color: activeWorkflow.definition.accent, cursor: 'pointer' }}>
-                {activeWorkflow.progress_percent}% · view
+            {onLeaveWorkflow && (
+              <button type="button" onClick={onLeaveWorkflow} className="n-icon-btn" style={{ color: 'var(--ink-55)' }} aria-label="Leave this path's context">
+                <X size={17} />
               </button>
-              {onLeaveWorkflow && (
-                <button onClick={onLeaveWorkflow} className="w-7 h-7 rounded flex items-center justify-center" style={{ border: '1px solid color-mix(in srgb, var(--kajal) 10%, transparent)', color: 'rgba(45,42,38,0.52)', cursor: 'pointer' }} title="Leave path context">
-                  <X size={12} />
-                </button>
-              )}
-            </div>
+            )}
           </div>
         )}
 
         {activeArtifact && (
           <div
-            className="flex items-center justify-between gap-3 rounded px-3 py-2"
+            className="flex items-center justify-between gap-2 rounded-lg pl-3 pr-1 py-1.5"
             style={{
-              background: 'rgba(255,255,255,0.58)',
-              border: '1px solid color-mix(in srgb, var(--kajal) 10%, transparent)',
+              background: 'var(--surface-raised)',
+              border: '1px solid var(--line)',
             }}
           >
             <div className="min-w-0">
-              <div className="font-mono text-[10px] uppercase tracking-[0.12em]" style={{ color: 'rgba(45,42,38,0.48)' }}>
-                Active Artifact
+              <div className="font-mono text-[11px] uppercase tracking-[0.1em]" style={{ color: 'var(--ink-55)' }}>
+                Active artifact
               </div>
-              <div className="text-[12px] font-semibold truncate" style={{ color: 'var(--kajal)' }}>
+              <div className="text-[14px] font-semibold truncate" style={{ color: 'var(--kajal)' }}>
                 {activeArtifact.artifactType === 'flashcards' ? 'Flashcards' : 'Concept Map'} · {activeArtifact.topic}
               </div>
-              <div className="text-[11px] truncate" style={{ color: 'rgba(45,42,38,0.58)' }}>
+              <div className="text-[12.5px] truncate" style={{ color: 'var(--ink-55)' }}>
                 Explicit edit prompts only: “add one more card…” or “add a node for…”
               </div>
             </div>
             {onCloseArtifact && (
               <button
+                type="button"
                 onClick={onCloseArtifact}
-                className="w-8 h-8 rounded flex items-center justify-center flex-shrink-0"
-                style={{ border: '1px solid color-mix(in srgb, var(--kajal) 12%, transparent)', color: 'rgba(45,42,38,0.62)' }}
-                title="Close artifact panel"
+                className="n-icon-btn"
+                style={{ color: 'var(--ink-55)' }}
+                aria-label="Close the artifact panel"
               >
-                <X size={14} />
+                <X size={17} />
               </button>
             )}
           </div>
@@ -1115,10 +1184,10 @@ export function ChatPanel({
               return (
                 <div
                   key={batch.batch_id}
-                  className="group/attachment relative flex items-center gap-2.5 rounded px-2.5 py-2 max-w-[260px]"
+                  className="group/attachment relative flex items-center gap-2.5 rounded-lg pl-2.5 pr-1 py-1.5 max-w-full sm:max-w-[280px]"
                   style={{
-                    background: 'rgba(255,255,255,0.62)',
-                    border: '1px solid color-mix(in srgb, var(--kajal) 12%, transparent)',
+                    background: 'var(--surface-raised)',
+                    border: '1px solid var(--line)',
                   }}
                   title={batch.source === 'folder' ? `${batch.file_count} files from ${batch.label}` : batch.label}
                 >
@@ -1130,30 +1199,31 @@ export function ChatPanel({
                     />
                   ) : (
                     <span
+                      aria-hidden="true"
                       className="w-9 h-9 rounded flex items-center justify-center flex-shrink-0"
-                      style={{ background: 'rgba(45,42,38,0.06)', color: 'rgba(45,42,38,0.62)' }}
+                      style={{ background: 'var(--ink-05)', color: 'var(--ink-55)' }}
                     >
                       {batch.source === 'folder'
                         ? <FolderOpen size={16} />
                         : first ? <AttachmentIcon kind={first.kind} size={16} /> : <Files size={16} />}
                     </span>
                   )}
-                  <div className="min-w-0 pr-4">
-                    <div className="text-[11px] font-medium truncate" style={{ color: 'var(--kajal)' }}>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[13.5px] font-medium truncate" style={{ color: 'var(--kajal)' }}>
                       {batch.label}
                     </div>
-                    <div className="font-mono text-[9px]" style={{ color: 'rgba(45,42,38,0.48)' }}>
+                    <div className="text-[12px]" style={{ color: 'var(--ink-55)' }}>
                       {batch.file_count === 1 ? formatBytes(batch.size_bytes) : `${batch.file_count} files · ${formatBytes(batch.size_bytes)}`}
                     </div>
                   </div>
                   <button
                     type="button"
-                    className="absolute top-1 right-1 w-5 h-5 rounded flex items-center justify-center opacity-55 hover:opacity-100"
-                    style={{ color: 'var(--kajal)' }}
+                    className="n-icon-btn"
+                    style={{ color: 'var(--ink-55)' }}
                     onClick={() => removeBatch(batch.batch_id)}
-                    title="Remove attachment"
+                    aria-label={`Remove ${batch.label}`}
                   >
-                    <X size={10} />
+                    <X size={16} />
                   </button>
                 </div>
               )
@@ -1164,24 +1234,24 @@ export function ChatPanel({
               return (
                 <div
                   key={url}
-                  className="inline-flex items-center gap-2 rounded px-2.5 py-2 max-w-[220px]"
+                  className="inline-flex items-center gap-2 rounded-lg px-2.5 py-2 max-w-full sm:max-w-[240px]"
                   style={{
-                    background: 'rgba(15,118,110,0.06)',
-                    border: '1px solid rgba(15,118,110,0.18)',
-                    color: '#0f766e',
+                    background: 'rgba(var(--rgb-mor),0.07)',
+                    border: '1px solid rgba(var(--rgb-mor),0.2)',
+                    color: 'var(--mor)',
                   }}
                   title={`${url} · Matsya will retrieve the live page`}
                 >
-                  <Link2 size={13} className="flex-shrink-0" />
-                  <span className="font-mono text-[10px] truncate">{label}</span>
-                  <span className="font-mono text-[8px] uppercase tracking-wide opacity-60">live</span>
+                  <Link2 size={14} className="flex-shrink-0" aria-hidden="true" />
+                  <span className="text-[13px] truncate">{label}</span>
+                  <span className="font-mono text-[10.5px] uppercase tracking-wide opacity-70">live</span>
                 </div>
               )
             })}
           </div>
         )}
 
-        <div className="flex items-end gap-2.5">
+        <div className="flex items-end gap-2">
         {/* Browser inputs stay separate because folder picking uses webkitdirectory. */}
         <input
           ref={fileRef}
@@ -1201,28 +1271,33 @@ export function ChatPanel({
         <div ref={attachmentMenuRef} className="relative flex-shrink-0">
           {attachmentMenuOpen && (
             <div
-              className="absolute bottom-12 left-0 w-44 rounded p-1.5 z-30"
+              role="menu"
+              className="absolute bottom-[52px] left-0 w-52 rounded-lg p-1.5 z-30"
               style={{
                 background: 'var(--paper)',
-                border: '1px solid color-mix(in srgb, var(--kajal) 14%, transparent)',
-                boxShadow: '0 12px 32px rgba(45,42,38,0.14)',
+                border: '1px solid var(--ink-12)',
+                boxShadow: '0 12px 32px rgba(0,0,0,0.16)',
               }}
             >
               <button
                 type="button"
+                role="menuitem"
                 onClick={() => fileRef.current?.click()}
-                className="w-full flex items-center gap-2.5 rounded px-2.5 py-2 text-left hover:bg-kajal/5"
+                className="w-full flex items-center gap-3 rounded-md px-3 text-left hover:bg-kajal/5"
+                style={{ minHeight: 44 }}
               >
-                <Files size={14} style={{ color: 'var(--sindoor)' }} />
-                <span className="text-[11px]" style={{ color: 'var(--kajal)' }}>Files or documents</span>
+                <Files size={17} aria-hidden="true" style={{ color: 'var(--sindoor)' }} />
+                <span className="text-[14px]" style={{ color: 'var(--kajal)' }}>Photos, files or documents</span>
               </button>
               <button
                 type="button"
+                role="menuitem"
                 onClick={() => folderRef.current?.click()}
-                className="w-full flex items-center gap-2.5 rounded px-2.5 py-2 text-left hover:bg-kajal/5"
+                className="w-full flex items-center gap-3 rounded-md px-3 text-left hover:bg-kajal/5"
+                style={{ minHeight: 44 }}
               >
-                <FolderOpen size={14} style={{ color: '#0f766e' }} />
-                <span className="text-[11px]" style={{ color: 'var(--kajal)' }}>Folder</span>
+                <FolderOpen size={17} aria-hidden="true" style={{ color: 'var(--mor)' }} />
+                <span className="text-[14px]" style={{ color: 'var(--kajal)' }}>A folder</span>
               </button>
             </div>
           )}
@@ -1230,21 +1305,19 @@ export function ChatPanel({
             type="button"
             onClick={() => setAttachmentMenuOpen(open => !open)}
             disabled={streaming || uploading}
-            className={cn(
-              'w-10 h-10 rounded flex-shrink-0 flex items-center justify-center',
-              'transition-[transform,opacity,border-color] duration-150 border outline-none cursor-pointer',
-              (streaming || uploading) ? 'opacity-30 cursor-not-allowed' : 'hover:scale-105 active:scale-95'
-            )}
+            aria-label="Attach photos, files or a folder"
+            aria-haspopup="menu"
+            aria-expanded={attachmentMenuOpen}
+            className="w-11 h-11 rounded-lg flex-shrink-0 flex items-center justify-center border transition-colors cursor-pointer disabled:cursor-not-allowed"
             style={{
-              background: 'var(--paper)',
-              borderColor: pendingAttachmentCount > 0 ? 'rgba(194,65,12,0.34)' : 'color-mix(in srgb, var(--kajal) 12%, transparent)',
-              color: 'var(--kajal)',
-              opacity: (streaming || uploading) ? 0.3 : 0.62,
-              borderRadius: '4px',
+              background: 'var(--field)',
+              borderColor: pendingAttachmentCount > 0 ? 'rgba(var(--rgb-sindoor),0.4)' : 'var(--ink-12)',
+              color: 'var(--ink-70)',
+              opacity: (streaming || uploading) ? 0.4 : 1,
             }}
             title="Attach files or a folder"
           >
-            {uploading ? <Loader size={15} className="animate-spin" /> : <Paperclip size={15} />}
+            {uploading ? <Loader size={18} className="animate-spin" /> : <Paperclip size={18} />}
           </button>
         </div>
         <textarea
@@ -1252,48 +1325,48 @@ export function ChatPanel({
           value={input}
           onChange={autoResize}
           onKeyDown={handleKey}
-          placeholder="Ask Narad or paste a live URL…"
+          placeholder={streaming ? 'Narad is answering…' : 'Ask Narad anything'}
+          aria-label="Message to Narad"
           disabled={streaming}
           rows={1}
+          enterKeyHint="send"
           className={cn(
-            'flex-1 resize-none px-3.5 py-2.5',
-            'font-body text-[13px] leading-relaxed placeholder:opacity-35',
-            'outline-none',
-            'transition-all duration-150',
-            'min-h-[42px] max-h-[140px]',
-            streaming && 'opacity-50'
+            'chat-composer flex-1 min-w-0 resize-none px-3.5 py-2.5 rounded-lg',
+            'leading-snug placeholder:opacity-50',
+            'outline-none transition-[border-color,box-shadow] duration-150',
+            'min-h-[44px] max-h-[140px]',
+            streaming && 'opacity-60'
           )}
           style={{
-            background: 'var(--paper)',
+            background: 'var(--field)',
             color: 'var(--kajal)',
-            border: '1px solid color-mix(in srgb, var(--kajal) 12%, transparent)',
-            borderRadius: '4px',
+            border: '1px solid var(--ink-12)',
             boxShadow: 'none',
           }}
-          onFocus={e => {
-            e.target.style.borderColor = 'rgba(194,65,12,0.50)'
-            e.target.style.boxShadow = '0 0 0 2px rgba(194,65,12,0.12)'
-          }}
-          onBlur={e => {
-            e.target.style.borderColor = 'color-mix(in srgb, var(--kajal) 12%, transparent)'
-            e.target.style.boxShadow = 'none'
-          }}
         />
-        <button
-          onClick={handleSend}
-          disabled={streaming || uploading || (!input.trim() && pendingAttachmentCount === 0)}
-          className={cn(
-            'w-10 h-10 rounded flex-shrink-0 flex items-center justify-center',
-            'font-bold text-[18px] transition-all duration-150',
-            'border-0 outline-none cursor-pointer',
-            (streaming || uploading || (!input.trim() && pendingAttachmentCount === 0))
-              ? 'opacity-30 cursor-not-allowed'
-              : 'hover:scale-105 active:scale-95'
-          )}
-          style={{ background: 'var(--marigold)', color: 'var(--paper)', borderRadius: '4px' }}
-        >
-          ↑
-        </button>
+        {streaming ? (
+          <button
+            type="button"
+            onClick={stop}
+            aria-label="Stop the answer"
+            title="Stop"
+            className="w-11 h-11 rounded-lg flex-shrink-0 flex items-center justify-center cursor-pointer border"
+            style={{ background: 'var(--field)', color: 'var(--kesari)', borderColor: 'color-mix(in srgb, var(--kesari) 45%, transparent)' }}
+          >
+            <Square size={16} fill="currentColor" aria-hidden="true" />
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={handleSend}
+            disabled={!canSend}
+            aria-label="Send"
+            className="w-11 h-11 rounded-lg flex-shrink-0 flex items-center justify-center border-0 cursor-pointer disabled:cursor-not-allowed transition-opacity"
+            style={{ background: 'var(--sindoor)', color: '#fff', opacity: canSend ? 1 : 0.4 }}
+          >
+            <ArrowUp size={20} strokeWidth={2.4} aria-hidden="true" />
+          </button>
+        )}
         </div>
       </div>
     </div>

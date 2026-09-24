@@ -1,7 +1,7 @@
 import { LogOut } from 'lucide-react'
 import type { FamilyProfile } from '@/lib/api'
 
-const PROFILE_COLORS: Record<string, string> = {
+export const PROFILE_COLORS: Record<string, string> = {
   sindoor: '#c2410c',
   matsya: '#2450a4',
   rama: '#a16207',
