@@ -52,6 +52,9 @@ log = logging.getLogger("narad.anumati")
 
 SURFACES = frozenset({
     "email", "browser", "signed_in_browser", "desktop", "phone", "executor", "workflow", "http",
+    # A step inside a Kriya task: no executor is registered, so an approved
+    # proposal waits until the task's own loop consumes it and runs the step.
+    "task",
 })
 STATUSES = (
     "pending", "approved", "executing", "rejected", "expired", "edited", "executed", "failed",
@@ -259,7 +262,7 @@ def _public_args(surface: str, args: Any) -> Any:
             for key, value in (args.get("headers") or {}).items()
         }
         return {**args, "headers": headers}
-    if surface not in {"browser", "signed_in_browser", "desktop"} or not isinstance(args, dict):
+    if surface not in {"browser", "signed_in_browser", "desktop", "task"} or not isinstance(args, dict):
         return args
     actions = [
         {key: "••••" if key in _TYPED_KEYS and value not in (None, "") else value for key, value in action.items()}

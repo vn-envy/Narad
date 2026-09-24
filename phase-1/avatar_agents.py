@@ -378,6 +378,14 @@ def _approval_payload(response: Any) -> dict | None:
     return approval if isinstance(approval, dict) and approval.get("id") else None
 
 
+def _task_payload(response: Any) -> dict | None:
+    """The Kriya task a tool just started, for the chat's task card."""
+    if not isinstance(response, dict) or response.get("status") != "task_started":
+        return None
+    task = response.get("task")
+    return task if isinstance(task, dict) and str(task.get("id") or "").startswith("tsk_") else None
+
+
 _HAND_OFF_DOC = (
     "\n\nhand_off (default true): this avatar's answer goes to the user as the final "
     "reply, with no rewrite. Pass false when you call another avatar in this turn "
@@ -814,6 +822,13 @@ def _make_avatar_tool(agent: LlmAgent, user_id: str = "default") -> FunctionTool
                                         await _q.put(json.dumps({
                                             "type": "approval_requested",
                                             "data": _approval,
+                                        }))
+                                    elif (_task := _task_payload(_response_obj)) is not None:
+                                        # A Kriya task started: the app renders a
+                                        # task card with its live view and Stop.
+                                        await _q.put(json.dumps({
+                                            "type": "task_started",
+                                            "data": _task,
                                         }))
                                     elif _is_tool_envelope(_response_obj) and (
                                         _response_obj.get("ui") or _response_obj.get("artifacts")
@@ -1270,6 +1285,7 @@ from computer_use_skill import computer_use as _computer_use
 from docling_skill import extract_document as _extract_document  # noqa: E402
 from http_skill import http_request as _http_request  # noqa: E402
 from http_skill import search_last30days as _search_last30days
+from kriya.tool import start_task as _start_task  # noqa: E402
 from matsya_search import web_search as _web_search  # noqa: E402
 from web_enrichment_skill import enrich_web_research as _enrich_web_research
 from web_enrichment_skill import exa_contents as _exa_contents
@@ -1460,8 +1476,8 @@ except Exception as _p9_init_err:
 
 _MATSYA_PROMPT = f"""You are Matsya, Avatara's research and retrieval specialist.
 
-You have three retrieval tools, a persistent computer-use tool, and three
-backward-compatible form helpers.
+You have three retrieval tools, a background task runtime for web errands
+(start_task), a persistent computer-use tool, and three backward-compatible form helpers.
 
 ━━━ RETRIEVAL TOOLS ━━━
 
@@ -1498,9 +1514,24 @@ http_request — direct HTTP calls to REST APIs and webhooks. Use when:
 
 ━━━ INTERACTIVE BROWSER TOOLS ━━━
 
+start_task(goal, start_url="", surface="browser", done_when="")
+  - Use this for every multi-step web errand: search and compare on a site, fill a form,
+    book, apply, find something on a long page, check a status behind several clicks.
+  - It returns at once with a task id. The task runs by itself in the background with its
+    own operator, and the person watches it live and can stop it on the task card.
+  - Put every detail the site needs into goal (names, dates, cities, limits such as "under
+    6000 rupees"); never invent personal details. done_when may be plain words or exact
+    checks such as "text: Booking confirmed".
+  - Pay, book, send and submit steps wait for the person's OK on their phone by themselves;
+    a sign-in or captcha asks them to finish it on the live view.
+  - After calling it, tell the person in one sentence that it is running and that they can
+    watch or stop it on the card. Do not start the same errand twice and do not drive the
+    same site with computer_use while the task runs.
+
 computer_use(task, start_url="", session_id="", actions=[], environment="browser",
              browser_context="isolated", target_id="", dry_run=True, timeout_s=180)
-  - Primary tool for multi-step browser work. It keeps one Chromium session alive.
+  - For a single quick look or action, and for signed-in sessions; multi-step web errands
+    are start_task. It keeps one Chromium session alive.
   - browser_context="isolated" is the default for public and untrusted sites.
   - browser_context="signed_in" uses BrowserSkill only for a browser target explicitly
     granted to the active profile. Use it for authenticated sites and preserve the session_id.
@@ -1532,9 +1563,9 @@ phone_use(task, device_id="", mode="fast", app_scope="", verification_level="fin
     dry_run=False; Narad dispatches it when the person taps Approve on the card.
   - Never claim iPhone support; Artemis is Android-only in this integration.
 
-Use computer_use for navigation, authenticated multi-page flows, menus, filters, downloads,
-and any task where page state must survive across steps. The helpers below remain convenient
-for simple forms and use the same persistent runtime.
+Use computer_use only for a single quick look or action (open a page and read it, one click),
+authenticated signed-in sessions, and the desktop; every multi-step web errand is start_task.
+The helpers below remain convenient for simple forms and use the same persistent runtime.
 
 browser_screenshot(url) — ALWAYS call this first before touching any form.
   - Takes a screenshot and returns a list of detected form fields (label, type, name, id).
@@ -1782,6 +1813,7 @@ matsya = LlmAgent(
         FunctionTool(_web_search),
         FunctionTool(_browse_url),
         FunctionTool(_http_request),
+        FunctionTool(_start_task),
         FunctionTool(_computer_use),
         FunctionTool(_phone_use),
         FunctionTool(_browser_screenshot),
