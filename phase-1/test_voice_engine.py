@@ -1,20 +1,44 @@
 from __future__ import annotations
 
 import io
+import os
 import sys
+import tempfile
+import time
+import types
 import unittest
 import wave
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 _r = next(p for p in Path(__file__).resolve().parents if (p / "narad_paths.py").exists())
 sys.path[:0] = [str(_r)]  # narad root hop
 import narad_paths  # noqa: F401  — registers all phase dirs; must precede phase imports
 
 # isort: split
-from voice_engine import KOKORO_VOICES, SARVAM_VOICES, VoiceEngine, _pcm_to_wav
+import voice_engine as voice_module
+import voice_preferences
+from voice_engine import KOKORO_VOICES, SARVAM_VOICES, TTSCache, VoiceEngine, _pcm_to_wav
+
+import profile_context
+from profile_context import profile_scope
+
+_TRUSTED = {"SARVAM_API_KEY": "sk_test", "NARAD_PROVIDER_TIERS": "sarvam=trusted"}
+
+
+def _kokoro_out(text: str = "", *_: object) -> dict:
+    return {"audio": b"RIFF" + text.encode() * 4, "engine": "kokoro", "sample_rate": 24_000, "voice": "am_liam"}
 
 
 class VoiceEngineTest(unittest.TestCase):
+    def setUp(self) -> None:
+        # Voice preferences are per profile: keep every test's profiles in a temp dir.
+        profiles = tempfile.TemporaryDirectory()
+        self.addCleanup(profiles.cleanup)
+        patcher = patch.object(profile_context, "PROFILES_DIR", Path(profiles.name))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_status_shape(self) -> None:
         status = VoiceEngine().status()
         self.assertIn("device", status)
@@ -223,6 +247,190 @@ class VoiceEngineTest(unittest.TestCase):
 
         with patch.dict(os.environ, {"NARAD_SARVAM_VOICE_KRISHNA": "Priya"}):
             self.assertEqual(VoiceEngine()._sarvam_voice("krishna"), "priya")
+
+    # ── Segment cache ─────────────────────────────────────────────────────────
+
+    def test_repeated_segment_is_served_from_cache_per_profile(self) -> None:
+        engine = VoiceEngine()
+        kokoro = Mock(side_effect=_kokoro_out)
+        with patch.object(engine, "tts_tiers", return_value=["kokoro"]), \
+             patch.object(engine, "_tts_kokoro", kokoro):
+            first = engine.synthesize("Namaste.", "narad", "hi")
+            again = engine.synthesize("  Namaste. ", "narad", "hi")
+            english_voice = engine.synthesize("Namaste.", "narad", "en")
+            with profile_scope("alice"):
+                other_profile = engine.synthesize("Namaste.", "narad", "hi")
+        self.assertFalse(first["cached"])
+        self.assertTrue(again["cached"])
+        self.assertEqual(again["audio"], first["audio"])
+        self.assertFalse(english_voice["cached"])  # another voice and language
+        self.assertFalse(other_profile["cached"])  # a hit would tell Alice what the owner heard
+        self.assertEqual(kokoro.call_count, 3)
+        self.assertEqual(engine.status()["tts"]["cache"]["hits"], 1)
+
+    def test_cache_evicts_least_recently_used_by_bytes(self) -> None:
+        cache = TTSCache(max_bytes=1000)
+        for n in range(4):
+            cache.put(("p", "kokoro", "v", "en", str(n)), {"audio": b"x" * 240})
+        self.assertIsNotNone(cache.get(("p", "kokoro", "v", "en", "0")))  # now most recent
+        cache.put(("p", "kokoro", "v", "en", "4"), {"audio": b"x" * 240})
+        self.assertIsNone(cache.get(("p", "kokoro", "v", "en", "1")))
+        self.assertIsNotNone(cache.get(("p", "kokoro", "v", "en", "0")))
+        self.assertLessEqual(cache.stats()["bytes"], 1000)
+        cache.put(("p", "kokoro", "v", "en", "big"), {"audio": b"x" * 400})  # > a quarter: skipped
+        self.assertIsNone(cache.get(("p", "kokoro", "v", "en", "big")))
+
+    # ── Sarvam client, timeout and fallback ───────────────────────────────────
+
+    def test_sarvam_segments_share_one_pooled_client_with_short_timeout(self) -> None:
+        import base64
+
+        try:
+            import numpy  # noqa: F401
+        except ImportError:
+            self.skipTest("numpy not installed")
+        self._privacy_home()
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(24_000)
+            w.writeframes(b"\x00\x00" * 240)
+        audio = base64.b64encode(buf.getvalue()).decode()
+        clients: list[dict] = []
+        timeouts: list = []
+
+        class _Resp:
+            def raise_for_status(self) -> None:
+                pass
+
+            def json(self) -> dict:
+                return {"audios": [audio]}
+
+        class _Client:
+            def __init__(self, *a, **k) -> None:
+                clients.append(k)
+
+            def post(self, url, headers=None, json=None, timeout=None, **_):
+                timeouts.append(timeout)
+                return _Resp()
+
+        engine = VoiceEngine()
+        with patch.dict(os.environ, _TRUSTED), patch("httpx.Client", _Client):
+            engine.synthesize("First sentence.", "narad")
+            engine.synthesize("Second sentence.", "narad")
+        self.assertEqual(len(clients), 1)  # one TLS connection pool for every segment
+        self.assertGreater(clients[0]["limits"].keepalive_expiry, 30)
+        self.assertEqual(len(timeouts), 2)
+        self.assertLessEqual(timeouts[0].read, 10)
+        self.assertLessEqual(timeouts[0].connect, 5)
+
+    def test_failing_sarvam_cools_down_to_the_local_voice(self) -> None:
+        import httpx
+
+        home = self._privacy_home()
+        engine = VoiceEngine()
+        sarvam = Mock(side_effect=httpx.ConnectTimeout("slow network"))
+        with patch.dict(os.environ, _TRUSTED), \
+             patch.object(engine, "tts_tiers", return_value=["sarvam", "kokoro"]), \
+             patch.object(engine, "_tts_sarvam", sarvam), \
+             patch.object(engine, "_tts_kokoro", Mock(side_effect=_kokoro_out)):
+            first = engine.synthesize("One.", "narad")
+            second = engine.synthesize("Two.", "narad")
+        self.assertEqual((first["engine"], second["engine"]), ("kokoro", "kokoro"))
+        self.assertEqual(sarvam.call_count, 1)  # the second segment didn't wait for Sarvam
+        self.assertEqual((home / "egress.jsonl").read_text().count('"source": "tts"'), 1)
+
+    # ── Per-profile "keep my voice on this Mac" ───────────────────────────────
+
+    def test_keep_voice_on_mac_skips_sarvam_for_that_profile_only(self) -> None:
+        voice_preferences.save({"keep_voice_on_mac": True}, "alice")
+        with patch.dict(os.environ, _TRUSTED):
+            with profile_scope("alice"):
+                self.assertNotIn("sarvam", VoiceEngine().tts_tiers())
+                self.assertNotIn("sarvam", VoiceEngine().stt_tiers())
+                self.assertTrue(VoiceEngine().status()["keep_voice_on_mac"])
+            with profile_scope("bob"):
+                self.assertEqual(VoiceEngine().tts_tiers()[0], "sarvam")
+                self.assertEqual(VoiceEngine().stt_tiers()[0], "sarvam")
+
+    def test_stt_tier_order_follows_profile_and_overrides(self) -> None:
+        voice_preferences.save({"keep_voice_on_mac": True}, "alice")
+        local = patch.multiple(
+            voice_module,
+            _mlx_whisper_available=Mock(return_value=True),
+            _has=Mock(side_effect=lambda pkg: pkg == "faster_whisper"),
+        )
+        with local, patch.dict(os.environ, _TRUSTED):
+            os.environ.pop("NARAD_STT_ENGINE", None)
+            self.assertEqual(VoiceEngine().stt_tiers(), ["sarvam", "mlx_whisper", "whisper"])
+            with profile_scope("alice"):
+                self.assertEqual(VoiceEngine().stt_tiers(), ["mlx_whisper", "whisper"])
+                with patch.dict(os.environ, {"NARAD_STT_ENGINE": "sarvam"}):
+                    self.assertEqual(VoiceEngine().stt_tiers(), [])  # her choice wins over the override
+            for forced, expected in (("mlx", ["mlx_whisper"]), ("whisper", ["whisper"]), ("sarvam", ["sarvam"])):
+                with patch.dict(os.environ, {"NARAD_STT_ENGINE": forced}):
+                    self.assertEqual(VoiceEngine().stt_tiers(), expected, forced)
+            with patch.dict(os.environ, {"SARVAM_API_KEY": ""}):
+                self.assertEqual(VoiceEngine().stt_tiers(), ["mlx_whisper", "whisper"])
+            self.assertEqual(VoiceEngine().status()["stt"]["model"], "saaras:v3")
+
+    def test_mlx_whisper_is_offered_only_on_apple_silicon(self) -> None:
+        with patch.object(voice_module, "_has", return_value=True):
+            with patch.object(voice_module, "sys", types.SimpleNamespace(platform="linux", modules=sys.modules)):
+                self.assertFalse(voice_module._mlx_whisper_available())
+            with patch.object(voice_module, "sys", types.SimpleNamespace(platform="darwin", modules=sys.modules)), \
+                 patch.object(voice_module, "platform", types.SimpleNamespace(machine=lambda: "arm64")):
+                self.assertTrue(voice_module._mlx_whisper_available())
+        with patch.object(voice_module, "_has", return_value=False):
+            self.assertFalse(voice_module._mlx_whisper_available())
+
+    def test_mlx_whisper_loads_on_use_passes_language_and_unloads_when_idle(self) -> None:
+        clip = tempfile.NamedTemporaryFile(suffix=".webm", delete=False)
+        clip.write(b"fake-opus")
+        clip.close()
+        self.addCleanup(os.unlink, clip.name)
+        calls: list[tuple] = []
+
+        class ModelHolder:
+            model = None
+            model_path = None
+
+        def transcribe(path, path_or_hf_repo=None, language=None, **_):
+            ModelHolder.model, ModelHolder.model_path = object(), path_or_hf_repo  # loads on first use
+            calls.append((path, path_or_hf_repo, language))
+            return {"text": " मेरा phone number बदल दो ", "language": "hi", "segments": [{"end": 2.46}]}
+
+        package = types.ModuleType("mlx_whisper")
+        package.transcribe = transcribe
+        submodule = types.ModuleType("mlx_whisper.transcribe")
+        submodule.ModelHolder = ModelHolder
+        engine = VoiceEngine()
+        # Stands in for the idle timer (no thread): records the delay it was armed with.
+        schedule = Mock(side_effect=lambda delay: setattr(engine, "_unload_timer", Mock()))
+        with patch.dict(sys.modules, {"mlx_whisper": package, "mlx_whisper.transcribe": submodule}), \
+             patch.dict(os.environ, {"NARAD_MLX_WHISPER": "mlx-community/test-turbo"}), \
+             patch.object(engine, "stt_tiers", return_value=["mlx_whisper", "whisper"]), \
+             patch.object(engine, "_schedule_unload", schedule):
+            self.assertIsNone(ModelHolder.model)  # nothing loaded before speech arrives
+            result = engine.transcribe(clip.name, "hi")
+            engine.transcribe(clip.name, "od")  # no Whisper Odia: let it detect
+            self.assertEqual(result, {
+                "text": "मेरा phone number बदल दो", "language": "hi", "duration": 2.46, "engine": "mlx_whisper",
+            })
+            self.assertEqual(calls, [
+                (clip.name, "mlx-community/test-turbo", "hi"),
+                (clip.name, "mlx-community/test-turbo", None),
+            ])
+            schedule.assert_called_once_with(voice_module._STT_IDLE_UNLOAD_S)
+            engine._whisper = object()
+            engine._touch_stt("whisper")
+            self.assertEqual(engine.unload_idle_stt(now=time.monotonic() + 10), [])
+            self.assertIsNotNone(ModelHolder.model)
+            later = time.monotonic() + voice_module._STT_IDLE_UNLOAD_S + 1
+            self.assertEqual(sorted(engine.unload_idle_stt(now=later)), ["mlx_whisper", "whisper"])
+        self.assertIsNone(ModelHolder.model)
+        self.assertIsNone(engine._whisper)
 
 if __name__ == "__main__":
     unittest.main()
