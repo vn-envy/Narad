@@ -44,7 +44,7 @@ _RULES: list[tuple[str, str, str]] = [
      r"(?:want|wanna|going|gonna|planning|plan|thinking\s+(?:about|of)|tempted|decided|ready|tried|trying)"
      r"\s+(?:to\s+)?(?:killing|kill|hanging|hang|ending|end|poisoning|poison)\s+myself"),
     (SUICIDE, ENGLISH, r"how\s+(?:to|do\s+i|can\s+i|should\s+i)\s+(?:kill|hang|poison|end)\s+myself"),
-    (SUICIDE, ENGLISH, r"end\s+my\s+(?:own\s+)?life"),
+    (SUICIDE, ENGLISH, r"end\s+my\s+(?:own\s+)?life(?!\s+(?:insurance|cover|policy|story|savings)\b)"),
     (SUICIDE, ENGLISH, r"take\s+my\s+own\s+life"),
     (SUICIDE, ENGLISH, r"(?:want|wanna|going|gonna|ready)\s+to\s+(?:end\s+it\s+all|take\s+my\s+life)"),
     (SUICIDE, ENGLISH,
@@ -140,7 +140,9 @@ _RULES: list[tuple[str, str, str]] = [
     (SELF_HARM, HINDI, r"(?:नस|नसें|कलाई)\s+काट\s*(?:लूं|लूंगा|लूंगी|ली|दूंगा|दूंगी|रहा|रही)"),
 ]
 
-_COMPILED = [(kind, language, re.compile(_S + pattern + _E)) for kind, language, pattern in _RULES]
+_COMPILED = [
+    (kind, language, re.compile(f"{_S}(?:{pattern}){_E}")) for kind, language, pattern in _RULES
+]
 
 # Common Roman-Hindi words: two or more in an English-pattern match means the
 # person writes Hinglish, so the reply does too.
