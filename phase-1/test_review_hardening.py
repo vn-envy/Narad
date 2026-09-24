@@ -24,7 +24,6 @@ sys.path[:0] = [str(_r)]
 import narad_paths  # noqa: F401
 
 # isort: split
-import artemis_adapter
 import browser_skill
 import computer_use_skill
 import host_access
@@ -375,17 +374,12 @@ class PerTargetSerializationTests(unittest.TestCase):
         desktop = [dict(task=f"t{index}", environment="desktop", dry_run=False, confirmed=True) for index in range(3)]
         self.assertEqual(self._overlap(computer_use_skill.computer_use, desktop), 1)
 
-    def test_parallel_phone_tasks_on_one_device_run_one_at_a_time(self) -> None:
-        grant = {"external_id": "emulator-5554", "label": "Phone"}
-        with patch.object(artemis_adapter, "resolve_interaction_target", return_value=grant):
-            calls = [dict(task=f"open app {index}", dry_run=False) for index in range(3)]
-            self.assertEqual(self._overlap(artemis_adapter.phone_use, calls), 1)
+    def test_phone_locks_are_per_device(self) -> None:
+        # Phone tasks run one per phone through Kriya's device key and this lock (test_kriya_phone.py).
         self.assertIsNot(interaction_targets.operation_lock("android:a"), interaction_targets.operation_lock("android:b"))
 
 
 def _slow_patch_target(target):
-    if target is artemis_adapter.phone_use:
-        return artemis_adapter, "_phone_use"
     return computer_use_skill, "_desktop_use"
 
 

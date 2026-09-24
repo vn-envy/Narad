@@ -18,8 +18,15 @@ or captcha puts the task in ``waiting_help``: the person finishes it on the
 live view and taps Continue. Instruction-like text on a page is flagged to
 the operator as untrusted, and every non-read step there needs approval.
 
+Phone tasks (kriya.phone) run on Artemis instead of this loop: Kriya admits
+them locally, holds the approval, dispatches, follows the steps and maps the
+verified result. Desktop tasks (kriya.desktop, owner only) use this loop on a
+window of the Mac through the persistent cua-driver session, and every input
+step there waits for an approval.
+
 Locks: one browser task per profile at a time (the isolated and the cloud
-browser share the key), desktop and phone exclusive; more tasks queue.
+browser share the key), one task per phone, one desktop task on the host;
+more tasks queue.
 Cancel is checked before every action and while waiting, so a task stops
 within one step. Tasks survive a restart: unfinished ones are resumed from
 their last page, with their step history rebuilt from the event log.
@@ -86,9 +93,11 @@ def _iso_now() -> str:
 class _Stop(Exception):
     """The task ends here: done, failed or cancelled."""
 
-    def __init__(self, status: str, summary: str, *, answer: str = "", reason: str = "") -> None:
+    def __init__(self, status: str, summary: str, *, answer: str = "", reason: str = "",
+                 extra: dict[str, Any] | None = None) -> None:
         super().__init__(summary)
         self.status, self.summary, self.answer, self.reason = status, summary, answer, reason
+        self.extra = extra or {}  # more for the task's result, e.g. a phone task's verification
 
 
 class _Suspended(Exception):
@@ -147,6 +156,12 @@ def describe(action: dict[str, Any], node: Node | None = None) -> str:
         return "Wait for the page"
     if kind == "download":
         return f"Download {label}"
+    if kind == "hotkey":
+        return f"Press {'+'.join(str(key) for key in action.get('keys') or [])}"
+    if kind == "open_app":
+        return f"Open the app {str(action.get('name') or '')[:40]}"
+    if kind == "switch_window":
+        return f"Read the window {label}"
     return kind.replace("_", " ").capitalize()
 
 
@@ -177,6 +192,10 @@ def _personal(text: str) -> bool:
 
 
 def _default_surface(task: store.Task) -> Any:
+    if task.surface == "desktop":
+        from kriya.desktop import DesktopSurface
+
+        return DesktopSurface(task_id=task.task_id, profile_id=task.profile_id, goal=task.goal)
     from kriya.browser import BrowserSurface
 
     return BrowserSurface(
@@ -185,7 +204,21 @@ def _default_surface(task: store.Task) -> Any:
 
 
 def _default_operator(task: store.Task) -> Any:
+    if task.surface == "desktop":
+        from kriya.operator import DESKTOP_SYSTEM_PROMPT
+
+        return ModelOperator(system_prompt=DESKTOP_SYSTEM_PROMPT)
     return ModelOperator()
+
+
+_WHERE = {"browser": "the browser on the Mac", "cloud_browser": "the cloud browser", "desktop": "the Mac's desktop"}
+
+
+def where(task: store.Task) -> str:
+    """The surface in plain words: "the browser on the Mac", a phone's name..."""
+    if task.surface == "phone":
+        return str((task.envelope.get("phone") or {}).get("device_label") or "the phone")
+    return _WHERE.get(task.surface, task.surface)
 
 
 class TaskRuntime:
@@ -224,20 +257,33 @@ class TaskRuntime:
         surface: str = "browser",
         session_id: str | None = None,
         max_steps: int | None = None,
+        options: dict[str, Any] | None = None,
     ) -> store.Task:
+        """``options`` for a phone task: device, app_scope, mode, verification_level, timeout_s."""
         owner = validate_profile_id(profile_id)
         goal = " ".join(str(goal or "").split())
         if len(goal) < 4:
             raise ValueError("Describe the errand in a sentence")
-        if start_url:
-            from kriya.browser import validate_start_url
+        requested = (surface or "browser").strip().lower()
+        envelope: dict[str, Any] = {}
+        if requested == "phone":
+            from kriya import phone
 
-            start_url = validate_start_url(start_url)
-        chosen = choose_surface(surface, goal=goal, start_url=start_url, done_when=done_when)
-        if chosen not in {"browser", "cloud_browser"}:
-            raise ValueError(
-                f"Tasks on the {chosen} surface are not available yet; use computer_use or phone_use for now"
-            )
+            chosen, start_url = "phone", ""
+            envelope["phone"] = phone.admit(owner, goal, options)
+        elif requested == "desktop":
+            from kriya import desktop
+
+            chosen, start_url = "desktop", ""
+            envelope["desktop"] = desktop.admit(owner)
+        else:
+            if start_url:
+                from kriya.browser import validate_start_url
+
+                start_url = validate_start_url(start_url)
+            chosen = choose_surface(requested, goal=goal, start_url=start_url, done_when=done_when)
+            if chosen not in {"browser", "cloud_browser"}:
+                raise ValueError(f"Unknown task surface {chosen!r}: use browser, phone or desktop")
         active = store.list_tasks(profile_id=owner, status="queued,running,waiting_approval,waiting_help")
         limit = int(_env_float("NARAD_KRIYA_MAX_ACTIVE", 3))
         if len(active) >= limit:
@@ -251,10 +297,10 @@ class TaskRuntime:
             surface=chosen,
             session_id=session_id,
             max_steps=max(3, min(steps, 60)),
+            envelope=envelope,
         )
         store.add_event(
-            task.task_id, profile_id=owner, kind="created",
-            summary=f"Queued on the {'cloud browser' if chosen == 'cloud_browser' else 'browser on the Mac'}",
+            task.task_id, profile_id=owner, kind="created", summary=f"Queued on {where(task)}",
             data={"surface": chosen},
         )
         self._enqueue(task)
@@ -279,6 +325,10 @@ class TaskRuntime:
             control.wake.set()
         if queued or control is None:
             # Nothing is running it (queued, or not picked up since a restart): stop it here.
+            if task.surface == "phone":
+                from kriya import phone
+
+                phone.stop_remote(task)  # a dispatched phone task leaves no orphan on Artemis
             if task.proposal_id:
                 import anumati
 
@@ -372,7 +422,11 @@ class TaskRuntime:
     def _lock_key(task: store.Task) -> str:
         if task.surface in {"browser", "cloud_browser"}:
             return f"browser:{task.profile_id}"
-        return task.surface  # desktop and phone: one at a time for the whole host
+        if task.surface == "phone":
+            from kriya import phone
+
+            return phone.lock_key(task)  # one task per phone, whoever's
+        return task.surface  # desktop: one at a time for the whole host
 
     def _enqueue(self, task: store.Task) -> None:
         with self._lock:
@@ -434,17 +488,25 @@ class TaskRuntime:
             if event["kind"] == "step" and event["data"].get("line")
         ]
         usage = dict(task.usage or {})
+        opening = {"phone": "Starting on the phone", "desktop": "Opening the window"}.get(
+            task.surface, "Opening the page"
+        )
         store.update_task(
             task_id, profile_id=profile_id,
             status="running" if resumed_status in {"queued", "running"} else resumed_status,
             started_ts=task.started_ts or time.time(),
-            detail="Opening the page" if resumed_status == "queued" else task.detail,
+            detail=opening if resumed_status == "queued" else task.detail,
         )
         if resumed_status == "queued":
             store.add_event(task_id, profile_id=profile_id, kind="started", summary="Started")
         operator = None
         surface = None
         try:
+            if task.surface == "phone":
+                from kriya import phone
+
+                phone.run(self, store.get_task(task_id, profile_id=profile_id), control, resumed_status)
+                raise _Stop("failed", "The phone task ended without a result.")
             operator = self._operator_factory(task)
             usage.setdefault("model", getattr(operator, "model", ""))
             while True:
@@ -463,7 +525,8 @@ class TaskRuntime:
                                     summary=f"{move} Continuing in the browser on the Mac.")
         except _Stop as stop:
             self._finish(store.get_task(task_id, profile_id=profile_id), stop.status, stop.summary,
-                         answer=stop.answer, reason=stop.reason, usage=usage, surface=surface)
+                         answer=stop.answer, reason=stop.reason, usage=usage, surface=surface,
+                         extra=stop.extra)
         except _Suspended:
             store.update_task(task_id, profile_id=profile_id, usage=usage)
         except Exception as exc:
@@ -602,7 +665,8 @@ class TaskRuntime:
         if action.get("ref") and action["action"] in {"click", "fill", "type", "select", "check", "uncheck",
                                                         "press"}:
             details = surface.element_details(str(action["ref"]))
-        verdict = classify_browser_action(policy_action, details, injection=bool(observation.injection))
+        verdict = classify_browser_action(policy_action, details, injection=bool(observation.injection),
+                                          environment=getattr(surface, "environment", "browser"))
         return verdict, details
 
     def _perform(
@@ -632,6 +696,8 @@ class TaskRuntime:
             return StepOutcome("refused", line, fresh, True)
         if verified:
             line = f"{text} → {_effect_words(action, result, fresh)}"
+            if getattr(result, "note", ""):
+                line += f" ({result.note})"
             self._step_event(task, step, line, "ok")
             return StepOutcome("ok", line, fresh, changed)
         if retry:
@@ -682,7 +748,9 @@ class TaskRuntime:
             "target_label": label or None,
         }
         policy_like = {**exact, "target": {"name": label}} if label else exact
-        summary = _steps_summary([policy_like], [label or None], _host(page_url))
+        desktop = surface.kind == "desktop"
+        summary = _steps_summary([policy_like], [label or None],
+                                 f"the Mac ({observation.title})" if desktop else _host(page_url))
         target = f"{task.task_id} @ {page_url}"[:500]
         screenshot = surface.screenshot_file("approval")
         proposal, _created = anumati.propose(
@@ -695,8 +763,9 @@ class TaskRuntime:
             preview={
                 "kind": "browser",
                 "signed_in": False,
-                "page_url": page_url,
-                "page_title": observation.title,
+                "desktop": desktop,
+                "page_url": "" if desktop else page_url,
+                "page_title": f"The Mac: {observation.title}" if desktop else observation.title,
                 "screenshot_url": _media_path(screenshot),
                 "reason": verdict.reason,
                 "warning": (
@@ -715,6 +784,8 @@ class TaskRuntime:
             "args": args,
             "summary": summary,
             "node": {"role": node.role, "name": node.name} if node is not None else None,
+            # A check, not part of what runs: kept out of the hash, used to verify the step.
+            "expect": action.get("expect") if isinstance(action.get("expect"), dict) else None,
         }
         usage["approvals"] = int(usage.get("approvals", 0)) + 1
         task = store.update_task(
@@ -784,6 +855,8 @@ class TaskRuntime:
 
         args = pending["args"]
         action = dict(args["actions"][0])
+        if pending.get("expect"):
+            action["expect"] = dict(pending["expect"])
         node_info = pending.get("node") or {}
         node = Node(role=str(node_info.get("role") or ""), name=str(node_info.get("name") or ""),
                     ref=str(action.get("ref") or "")) if node_info else None
@@ -797,7 +870,8 @@ class TaskRuntime:
             self._step_event(task, step, line, "blocked")
             return StepOutcome("blocked", line, self._observe(surface, usage))
         refusal = _dharma_gate(
-            "browser_submit", f"{action['action']} on {str(args['page_url'])[:180]}",
+            getattr(surface, "dharma_action", "browser_submit"),
+            f"{action['action']} on {str(args['page_url'])[:180]}",
             {"task_id": task.task_id, "action": action["action"]},
         )
         if refusal:
@@ -950,11 +1024,12 @@ class TaskRuntime:
         reason: str = "",
         usage: dict[str, Any] | None = None,
         surface: Any = None,
+        extra: dict[str, Any] | None = None,
     ) -> None:
         if not task.active:
             return
         url = (surface.url if surface is not None and surface.is_open else "") or task.last_url
-        result = {"summary": summary, "answer": answer, "reason": reason or status, "url": url}
+        result = {"summary": summary, "answer": answer, "reason": reason or status, "url": url, **(extra or {})}
         changes: dict[str, Any] = {
             "status": status, "detail": summary, "result": result, "finished_ts": time.time(),
             "proposal_id": None, "pending": None, "help": None, "last_url": url,

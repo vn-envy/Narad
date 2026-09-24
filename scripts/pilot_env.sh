@@ -54,7 +54,8 @@ export NARAD_JEV_ROUTE_MODE="${NARAD_JEV_ROUTE_MODE:-off}"
 # Owner decision (2026-09-24): Sarvam is trusted for this household (training
 # opted out, minimum retention). Speech goes to local or trusted providers only.
 export NARAD_PROVIDER_TIERS="${NARAD_PROVIDER_TIERS:-sarvam=trusted}"
-export NARAD_JEV_PHONE_MODE="${NARAD_JEV_PHONE_MODE:-active}"
+# Android admission is local (risk_policy) and Artemis's own verified result
+# decides a phone task's outcome; no cloud decision service is asked.
 export NARAD_ARTEMIS_URL="${NARAD_ARTEMIS_URL:-http://127.0.0.1:$ARTEMIS_PORT}"
 export ARTEMIS_KEEP_DEVICE_AWAKE="${ARTEMIS_KEEP_DEVICE_AWAKE:-false}"
 export ARTEMIS_HELPER_AUTO_INSTALL="${ARTEMIS_HELPER_AUTO_INSTALL:-false}"

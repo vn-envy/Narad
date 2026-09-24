@@ -178,6 +178,10 @@ class Task:
             "finished_at": _iso(self.finished_ts),
             "live": self.status in {"running", "waiting_approval", "waiting_help"},
         }
+        phone = self.envelope.get("phone") or {}
+        if phone:  # which phone, and whether Artemis checks the result
+            payload["device"] = phone.get("device_label")
+            payload["mode"] = phone.get("mode")
         if events is not None:
             payload["events"] = events
         return payload

@@ -76,9 +76,11 @@
   If CUA is selected, Narad may use an already configured host/VM target, but it must
   never run `cua do-host-consent` or choose/switch the target on the user's behalf.
 
-- **Phone-use safety**: Artemis is optional and Android-only. Consequential or sensitive
-  work requires mode="verified", a device granted to the active profile, and the person's
-  approval card (phone_use returns "needs_approval" until they tap Approve).
+- **Phone-use safety**: Artemis is optional, Android-only and reaches phones at home only.
+  Phone work runs as a task with a card (phone_use or start_task(surface="phone")).
+  Consequential or sensitive work runs in verified mode on a device granted to the active
+  profile, and waits on the card for the person's OK; a banking or UPI app must also be
+  allowed for that task on the card.
 
 ---
 
@@ -131,7 +133,7 @@ TASK_TYPE=browser_task → HARD GATES:
 
 TASK_TYPE=mobile_task → HARD GATES:
   - First call phone_use(..., dry_run=True) and show the resolved device and mode.
-  - Never execute a high-risk task without explicit approval and mode="verified".
+  - Never run a high-risk task in fast mode; its approval happens on the task card.
   - Do not claim iPhone support or select a device outside the active profile's grants.
 
 TASK_TYPE=document_review → HARD GATES:
@@ -236,18 +238,19 @@ End with: `DONE`
 - Call phone_use with dry_run=True and the smallest unambiguous task description.
 - Use fast mode only for deterministic, read-oriented work; otherwise use verified.
 
-### Phase 2: CONFIRM
-- Call phone_use with dry_run=False and the unchanged task. A consequential task returns
-  "needs_approval": tell the person the exact task is waiting for their OK on the card.
-- Stop there; Narad dispatches it when they tap Approve.
+### Phase 2: START
+- Call phone_use with dry_run=False and the unchanged task. It starts a phone task and
+  waits briefly. "task_started" means it is running or waiting for the person's OK on its
+  card (a consequential task, or a banking/UPI app to allow): tell them in one sentence.
+- Stop there; the task runs, asks and reports by itself.
 
 ### Phase 3: EXECUTE
-- A read-oriented task runs directly. Never broaden the app scope or objective, and never
-  resend an approved task: an identical call cannot dispatch it twice.
+- Never broaden the app scope or objective, and never start the same task again while its
+  card is open.
 
 ### Phase 4: VERIFY
-- Report the returned terminal status and durable result manifest.
-- If the task is still running, retain its task id; do not submit a duplicate.
+- A task that finished within the wait returns its status, summary and Artemis's verified
+  result: report them. Otherwise the card reports the end; do not submit a duplicate.
 
 End with: DONE
 

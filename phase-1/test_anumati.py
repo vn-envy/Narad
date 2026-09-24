@@ -515,22 +515,41 @@ def test_an_approved_browser_action_fails_if_its_button_changed(shop) -> None:
 
 
 def test_phone_tasks_with_side_effects_wait_for_approval(home, monkeypatch) -> None:
-    grant = {"external_id": "emulator-5554", "label": "Asha's phone"}
-    dispatched = Mock(side_effect=artemis_adapter.ArtemisAdapterError("phone offline"))
+    from kriya import runtime as kriya_runtime
+
+    grant = {"external_id": "emulator-5554", "label": "Phone A", "target_id": "target_a"}
+    sent: list[tuple[str, str]] = []
+
+    def artemis(method, path, *, payload=None, timeout_s=10):
+        sent.append((method, path))
+        if path == "/api/status":
+            return {"status": "idle", "queue": [], "active_tasks": [],
+                    "model_info": {"provider": "google", "id": "gemini-3.7-flash"}}
+        raise artemis_adapter.ArtemisAdapterError("phone offline")
+
+    monkeypatch.setenv("NARAD_ARTEMIS_URL", "http://127.0.0.1:8124")
+    monkeypatch.setenv("NARAD_PHONE_USE_WAIT_S", "5")
     monkeypatch.setattr(artemis_adapter, "resolve_interaction_target", lambda *_a, **_k: grant)
-    monkeypatch.setattr(artemis_adapter, "artemis_status", lambda **_k: {"ready": True, "available": True})
-    monkeypatch.setattr(artemis_adapter, "_request", dispatched)
+    monkeypatch.setattr(artemis_adapter, "_request", artemis)
+    monkeypatch.setattr(kriya_runtime, "_deliver", lambda **_k: None)
+    runtime = kriya_runtime.TaskRuntime(poll_s=0.02)
+    monkeypatch.setattr(kriya_runtime, "_RUNTIME", runtime)
     with profile_scope("asha"):
         read = artemis_adapter.phone_use("Open YouTube and play the news", dry_run=False)
         waiting = artemis_adapter.phone_use(
             "Pay the milk bill on PhonePe", mode="verified", dry_run=False, confirmed=True
         )
 
-    assert read["status"] == "error"  # read-oriented: dispatched straight away (the phone is "offline")
-    assert waiting["status"] == "needs_approval"
-    dispatched.assert_called_once()  # only the read task reached Artemis
-    assert waiting["approval"]["summary"] == "On Asha's phone: Pay the milk bill on PhonePe"
-    assert waiting["approval"]["args"]["mode"] == "verified"
+    # Read-oriented: dispatched straight away (the phone is "offline"); the payment waits.
+    assert read["status"] == "error" and "did not start" in read["summary"]
+    assert waiting["status"] == "task_started" and waiting["task"]["status"] == "waiting_approval"
+    assert sent.count(("POST", "/api/run")) == 1  # only the read task reached Artemis
+    proposal = anumati.get(waiting["task"]["proposal_id"], profile_id="asha")
+    assert proposal.summary == "On Phone A: Pay the milk bill on PhonePe"
+    assert proposal.args["mode"] == "verified" and proposal.args["allowed_apps"] == []
+    assert proposal.preview["blocked_apps"] == [{"package": "com.phonepe.app", "name": "PhonePe"}]
+    runtime.cancel(waiting["task_id"], profile_id="asha")
+    runtime.wait(waiting["task_id"], profile_id="asha", statuses={"cancelled"}, timeout_s=5)
 
 
 def test_desktop_input_always_waits_even_with_confirmed(home, monkeypatch) -> None:

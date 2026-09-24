@@ -5,7 +5,9 @@ GET  /tasks/{id}                 one task with its step list, and its approval w
 POST /tasks/{id}/cancel          stop it on the server, within one step
 POST /tasks/{id}/resume          continue after a sign-in or captcha (waiting_help only)
 POST /tasks/{id}/takeover        tap, type, key, scroll or back on the page (waiting_help only)
-GET  /tasks/{id}/frame           the latest viewport as a JPEG (1-2 fps polling; never cached)
+POST /tasks/{id}/allow-app       a phone task: allow one banking/UPI app for this task (a new proposal)
+GET  /tasks/{id}/frame           the latest view (1-2 fps polling; never cached): a page JPEG, the
+                                 phone's latest screenshot (JPEG) or the Mac window (PNG)
 
 Every route resolves the caller with the server's identity helper, and a
 task is looked up only in the caller's own store, so another profile's task
@@ -25,6 +27,10 @@ from pydantic import BaseModel, Field
 log = logging.getLogger("narad.kriya")
 
 _NO_STORE = {"Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"}
+
+
+class AllowAppRequest(BaseModel):
+    package: str = Field(min_length=3, max_length=200)
 
 
 class TakeoverRequest(BaseModel):
@@ -114,6 +120,27 @@ def build_tasks_router(identity: Callable[[Request, Optional[str]], str]) -> API
             raise HTTPException(status_code=502, detail="The page did not respond") from exc
         return {"ok": True, "url": result.get("url"), "refused": result.get("refused")}
 
+    @router.post("/tasks/{task_id}/allow-app")
+    async def allow_app(task_id: str, body: AllowAppRequest, request: Request) -> dict[str, Any]:
+        from kriya import phone
+
+        import anumati
+
+        profile_id, _task = await asyncio.to_thread(_owned, request, task_id)
+        device = (request.headers.get("x-narad-device-id") or request.headers.get("user-agent") or "")[:160]
+        try:
+            task = await asyncio.to_thread(
+                phone.allow_app, task_id, profile_id=profile_id, package=body.package.strip(),
+                decided_by=profile_id, device=device,
+            )
+        except PermissionError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except anumati.ApprovalError as exc:  # decided or expired meanwhile
+            raise HTTPException(status_code=409, detail=str(exc)[:300]) from exc
+        return await asyncio.to_thread(task_payload, task)
+
     @router.get("/tasks/{task_id}/frame")
     async def frame(task_id: str, request: Request) -> Response:
         profile_id, _task = await asyncio.to_thread(_owned, request, task_id)
@@ -123,7 +150,8 @@ def build_tasks_router(identity: Callable[[Request, Optional[str]], str]) -> API
             data = None
         if not data:
             return Response(status_code=204, headers=_NO_STORE)
-        return Response(content=data, media_type="image/jpeg", headers=_NO_STORE)
+        kind = "image/png" if data[:8] == b"\x89PNG\r\n\x1a\n" else "image/jpeg"
+        return Response(content=data, media_type=kind, headers=_NO_STORE)
 
     return router
 

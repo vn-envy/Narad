@@ -200,7 +200,8 @@ _READ_ACTIONS = frozenset({
 })
 _INPUT_ACTIONS = frozenset({"fill", "set_field", "type", "select", "check", "uncheck"})
 _ENTER_KEYS = frozenset({"enter", "return", "numpadenter"})
-_DESKTOP_PASSIVE = frozenset({"screenshot", "wait", "move"})
+# switch_window (a Kriya desktop step) only changes which window Narad reads.
+_DESKTOP_PASSIVE = frozenset({"screenshot", "wait", "move", "switch_window"})
 
 
 def classify_label(text: str, *, context: str = "") -> Verdict | None:
@@ -384,22 +385,36 @@ def classify_browser_action(
     return Verdict(INPUT, kind or "unknown", "No side effect")
 
 
-# Natural-language tasks for a phone: the verb decides.
+# Natural-language tasks for a phone: the verb decides, in English, Hinglish
+# and Hindi. Over-matching only asks for one more approval, so the list is broad.
 _TASK_COMMIT = _phrases(
     "send", "submit", "publish", "post", "buy", "purchase", "pay", "checkout", "delete", "remove",
     "cancel", "transfer", "book", "reserve", "apply", "sign", "authori[sz]e", "message", "call",
-    "install", "uninstall", r"place (?:an |my |the )?order", "reply", "share", "upload", "भेजें", "भेजो",
-    "भुगतान", "bhejo",
-    r"bhej do", r"pay karo", r"order karo", r"book karo", "kharido", "खरीदें", "हटाएं", r"call karo",
+    "install", "uninstall", r"place (?:an |my |the )?order", "order", "recharge", "reply", "share", "upload",
+    "forward", "subscribe", "unsubscribe", "block", "report", "donate",
+    # Hinglish: "paise bhejo", "pay kar do", "recharge karo", "cancel kar do".
+    "bhejo", r"bhej do", "bhejna", "bhejiye", r"paise? bhejo", r"pay karo", r"pay kar do", r"payment karo",
+    r"transfer karo", r"transfer kar do", r"recharge karo", r"recharge kar do", r"order karo",
+    r"order kar do", r"book karo", r"book kar do", r"cancel karo", r"cancel kar do", r"delete karo",
+    r"delete kar do", "hatao", r"hata do", "mitao", r"mita do", "kharido", "khareedo", r"kharid lo",
+    r"call karo", r"call lagao", r"phone karo", r"message karo", r"msg karo", r"msg bhejo", r"reply karo",
+    r"post karo", r"share karo", r"install karo", r"forward karo",
+    # Hindi (Devanagari).
+    "भेजें", "भेजो", "भेज दो", "भेजना", "भुगतान", "पेमेंट", "ट्रांसफर", "रिचार्ज", "ऑर्डर", "कैंसिल",
+    "रद्द करो", "रद्द करें", "डिलीट", "हटाएं", "हटाओ", "हटा दो", "मिटाओ", "मिटा दो", "खरीदें", "खरीदो",
+    "खरीद लो", "बुक करो", "बुक करें", "कॉल करो", "कॉल करें", "फ़ोन करो", "फोन करो", "मैसेज करो",
+    "पोस्ट करो", "शेयर करो", "इंस्टॉल",
 )
 _TASK_SENSITIVE = _phrases(
     "bank", "brokerage", "wallet", "payment", r"medical records?", "prescription", "password", "passcode",
     "otp", r"one[- ]?time", r"private key", r"seed phrase", "upi", "paytm", "phonepe", r"google pay", "gpay",
+    r"net ?banking", "bhim", r"amazon pay", r"upi pin", "mpin", "cvv", r"(?:credit|debit) card", "aadhaar",
+    r"pan card", "बैंक", "यूपीआई", "ओटीपी", "पासवर्ड", "वॉलेट", "खाता",
 )
 
 
 def classify_task(text: str) -> Verdict:
-    """Classify a free-text task (phone_use). Any commit verb or sensitive app waits."""
+    """Classify a free-text task (a phone task). Any commit verb or sensitive app waits."""
     task = " ".join(str(text or "").split())
     match = _TASK_COMMIT.search(task)
     if match:
@@ -408,6 +423,104 @@ def classify_task(text: str) -> Verdict:
     if match:
         return Verdict(COMMIT, "sensitive", f"The task touches {match.group(0).lower()}")
     return Verdict(READ, "read", "A read-oriented task")
+
+
+# Banking, UPI and wallet apps: package -> the names people call them by.
+# A phone task that names one, is scoped to one, or finds one on screen is
+# refused unless the person allows that app for that task on the approval
+# card. The owner can add apps in NARAD_HOME/config/phone_app_denylist.json
+# ({"apps": [{"package": "...", "names": ["..."]}]}); the file can only add to
+# this list, never remove from it. Check the family's own apps against it.
+PHONE_APP_DENYLIST: dict[str, tuple[str, ...]] = {
+    "com.google.android.apps.nbu.paisa.user": ("Google Pay", "GPay", "Tez"),
+    "com.phonepe.app": ("PhonePe", "फोनपे"),
+    "net.one97.paytm": ("Paytm", "पेटीएम"),
+    "in.org.npci.upiapp": ("BHIM",),
+    "com.dreamplug.androidapp": ("CRED",),
+    "com.mobikwik_new": ("MobiKwik",),
+    "com.freecharge.android": ("Freecharge",),
+    "com.sbi.lotusintouch": ("YONO SBI", "YONO", "SBI"),
+    "com.snapwork.hdfc": ("HDFC Bank", "HDFC"),
+    "com.csam.icici.bank.imobile": ("iMobile Pay", "iMobile", "ICICI"),
+    "com.axis.mobile": ("Axis Mobile", "Axis Bank"),
+    "com.msf.kbank.mobile": ("Kotak",),
+    "com.bankofbaroda.mconnect": ("bob World", "Bank of Baroda"),
+}
+_PACKAGE_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+$")
+
+
+def _denylist_file():
+    from narad_config import CONFIG_DIR
+
+    return CONFIG_DIR / "phone_app_denylist.json"
+
+
+def phone_app_denylist() -> dict[str, tuple[str, ...]]:
+    """The built-in list plus the owner's additions (which cannot remove any)."""
+    apps = {package: tuple(names) for package, names in PHONE_APP_DENYLIST.items()}
+    try:
+        import json
+
+        extra = json.loads(_denylist_file().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return apps
+    for row in (extra.get("apps") if isinstance(extra, dict) else None) or []:
+        package = str((row or {}).get("package") or "").strip() if isinstance(row, dict) else ""
+        if not _PACKAGE_RE.fullmatch(package):
+            continue
+        names = tuple(str(name).strip() for name in row.get("names") or [] if str(name).strip())[:8]
+        apps[package] = tuple(dict.fromkeys(apps.get(package, ()) + names))
+    return apps
+
+
+def app_label(package: str, apps: dict[str, tuple[str, ...]] | None = None) -> str:
+    names = (apps if apps is not None else phone_app_denylist()).get(package) or ()
+    return names[0] if names else package
+
+
+def denylisted_apps(text: str, app_scope: str = "") -> list[dict[str, str]]:
+    """The banking/UPI/wallet apps a phone task names or is scoped to."""
+    apps = phone_app_denylist()
+    words = " ".join(str(text or "").split())
+    found: list[dict[str, str]] = []
+    for package, names in apps.items():
+        named = any(_phrases(re.escape(name)).search(words) for name in names) or package in words
+        if named or package == str(app_scope or "").strip():
+            found.append({"package": package, "name": app_label(package, apps)})
+    return found
+
+
+def denylisted_package(package: str) -> dict[str, str] | None:
+    """{"package", "name"} when ``package`` (e.g. a foreground app) is on the list."""
+    apps = phone_app_denylist()
+    package = str(package or "").strip()
+    return {"package": package, "name": app_label(package, apps)} if package in apps else None
+
+
+@dataclass(frozen=True)
+class PhoneAdmission:
+    """What a phone task needs before it may run: an approval, and which
+    denylisted apps the person must allow for it."""
+
+    verdict: Verdict
+    apps: tuple[dict[str, str], ...] = ()
+
+    @property
+    def needs_approval(self) -> bool:
+        return self.verdict.needs_approval
+
+    def blocked(self, allowed: list[str] | tuple[str, ...] | set[str] = ()) -> list[dict[str, str]]:
+        return [app for app in self.apps if app["package"] not in set(allowed)]
+
+
+def classify_phone_task(text: str, app_scope: str = "") -> PhoneAdmission:
+    """Local Android admission: the task classifier plus the app denylist,
+    which can only tighten (a read-only task that opens PhonePe still waits)."""
+    verdict = classify_task(text)
+    apps = tuple(denylisted_apps(text, app_scope))
+    if apps and not verdict.needs_approval:
+        verdict = Verdict(COMMIT, "sensitive", f"The task opens {apps[0]['name']}, a banking or UPI app")
+    return PhoneAdmission(verdict, apps)
 
 
 def commit_label(category: str) -> str:
