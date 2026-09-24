@@ -51,6 +51,7 @@ phase-6/session_log.jsonl
 output/
 outputs/
 phase-7/outputs/
+phase-4/frontend/screenshots/
 
 # Git recovery artifacts
 *.lock.stale

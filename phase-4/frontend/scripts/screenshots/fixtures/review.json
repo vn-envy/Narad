@@ -1,0 +1,75 @@
+{
+  "rev_0f1e2d3c4b5a6978": {
+    "review_id": "rev_0f1e2d3c4b5a6978",
+    "status": "pending",
+    "created_at": "@now-6m",
+    "doc_type": "lab_report",
+    "source_name": "CBC and thyroid report, photo.jpg",
+    "pages": [
+      { "page": 1, "width": 1240, "height": 1754, "source": "ocr", "poor": false, "image_url": "/documents/reviews/rev_0f1e2d3c4b5a6978/pages/1" }
+    ],
+    "document": { "patient_name": "Kamla Sharma", "test_date": "2026-09-20", "lab": "City Diagnostics" },
+    "items": [
+      {
+        "id": "it_1",
+        "kind": "lab",
+        "label": "Haemoglobin",
+        "value": "11.2",
+        "unit": "g/dL",
+        "reference_range": "12.0 - 15.0",
+        "normalised_value": 11.2,
+        "flag": "low",
+        "details": {},
+        "page": 1,
+        "confidence": 0.97,
+        "issues": [],
+        "saveable": true,
+        "default_checked": true,
+        "crop_url": "/crops/haemoglobin.svg"
+      },
+      {
+        "id": "it_2",
+        "kind": "lab",
+        "label": "TSH",
+        "value": "4.8",
+        "unit": "µIU/mL",
+        "reference_range": "0.4 - 4.2",
+        "normalised_value": 4.8,
+        "flag": "high",
+        "details": {},
+        "page": 1,
+        "confidence": 0.62,
+        "issues": ["low_confidence"],
+        "saveable": true,
+        "default_checked": false,
+        "crop_url": "/crops/tsh.svg"
+      },
+      {
+        "id": "it_3",
+        "kind": "lab",
+        "label": "Fasting blood sugar",
+        "value": "96",
+        "unit": "mg/dL",
+        "reference_range": "70 - 100",
+        "normalised_value": 96,
+        "flag": "normal",
+        "details": {},
+        "page": 1,
+        "confidence": 0.95,
+        "issues": [],
+        "saveable": true,
+        "default_checked": true,
+        "crop_url": "/crops/sugar.svg"
+      }
+    ],
+    "rejected_count": 1,
+    "escalation": {
+      "suggested": true,
+      "pages": [1],
+      "reason": "The TSH line is blurred on the photo.",
+      "label": "Gemini",
+      "tier": "trusted"
+    },
+    "saved": null
+  }
+}

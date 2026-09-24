@@ -1,0 +1,12 @@
+{
+  "calls": [
+    { "ts": "@now-2m", "source": "agent", "model": "gemini-worker", "provider": "gemini", "tier": "trusted", "entities": {}, "turn_id": "turn_b2" },
+    { "ts": "@now-2m", "source": "search", "model": "exa", "provider": "exa", "tier": "web", "entities": {}, "turn_id": "turn_b2" },
+    { "ts": "@now-2m", "source": "search", "model": "exa", "provider": "exa", "tier": "web", "entities": {}, "turn_id": "turn_b2" },
+    { "ts": "@now-40m", "source": "agent", "model": "deepseek-chat", "provider": "deepseek", "tier": "redact", "entities": { "PERSON": 2, "PHONE": 1 }, "turn_id": "turn_a1" },
+    { "ts": "@now-41m", "source": "tapas", "model": "deepseek-chat", "provider": "deepseek", "tier": "redact", "entities": { "PERSON": 1 } },
+    { "ts": "@now-1d", "source": "tts", "model": "bulbul", "provider": "sarvam", "tier": "trusted", "entities": {}, "turn_id": "turn_x9" },
+    { "ts": "@now-1d", "source": "agent", "model": "grok", "provider": "xai", "tier": "blocked", "blocked": "policy", "turn_id": "turn_x9" },
+    { "ts": "@now-2d", "source": "embedding", "model": "local-embed", "provider": "local", "tier": "local", "entities": {} }
+  ]
+}

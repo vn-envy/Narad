@@ -1,0 +1,52 @@
+{
+  "apr_1a2b3c4d5e6f7a8b": {
+    "id": "apr_1a2b3c4d5e6f7a8b",
+    "surface": "email",
+    "action": "send_email",
+    "target": "office@school.example.com",
+    "args": {},
+    "args_hash": "5f1c0e2a9b7d4c3e8a6f1b2d0c9e7a5f3b1d8c6e4a2f0b9d7c5e3a1f8b6d4c2e",
+    "summary": "Send an email to the class teacher: Kavya will be absent on Friday",
+    "risk_class": "send",
+    "risk_label": "Sends an email",
+    "preview": {
+      "kind": "email",
+      "from": "asha.sharma@example.com",
+      "to": ["office@school.example.com"],
+      "cc": ["ravi.sharma@example.com"],
+      "subject": "Leave application for Kavya Sharma, Class 6B, Friday",
+      "body": "Dear Ma'am,\n\nKavya Sharma of Class 6B will not be able to attend school this Friday because of a family function in Jaipur. She will catch up on the homework over the weekend.\n\nThank you,\nAsha Sharma"
+    },
+    "status": "pending",
+    "created_at": "@now-3m",
+    "expires_at": "@now+12m",
+    "expires_in_s": 720,
+    "session_id": "sess_demo_thread",
+    "editable": true
+  },
+  "apr_9f8e7d6c5b4a3921": {
+    "id": "apr_9f8e7d6c5b4a3921",
+    "surface": "task",
+    "action": "click",
+    "target": "Continue to payment",
+    "args": {},
+    "args_hash": "0a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a9b",
+    "summary": "Continue to payment for 2 AC chair car seats, Delhi to Jaipur, Saturday 06:05",
+    "risk_class": "pay",
+    "risk_label": "Goes to payment",
+    "preview": {
+      "kind": "browser",
+      "page_url": "https://trains.example.com/booking/review",
+      "page_title": "Review your booking",
+      "screenshot_url": "/media/computer-use/asha/review.png",
+      "reason": "The next step opens the payment page.",
+      "warning": null
+    },
+    "status": "pending",
+    "created_at": "@now-1m",
+    "expires_at": "@now+14m",
+    "expires_in_s": 840,
+    "session_id": "sess_demo_thread",
+    "editable": false
+  }
+}

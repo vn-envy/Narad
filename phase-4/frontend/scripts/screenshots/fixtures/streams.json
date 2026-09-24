@@ -1,0 +1,42 @@
+{
+  "partial": {
+    "query": "Plan my Saturday in Jaipur with Kamla. She can't walk far.",
+    "terminal": false,
+    "events": [
+      { "type": "route", "data": { "avatar": "Rama", "reason": "planning", "via": "prerouter" } },
+      { "type": "avatar_start", "data": { "avatar": "Rama", "task": "Plan a gentle Saturday in Jaipur for two, short walks only", "discipline": "planning" } },
+      { "type": "text_delta", "data": { "source": "Rama", "handoff": true, "text": "Here is a gentle Saturday in Jaipur that keeps walking short and leaves time to rest.\n\n" } },
+      { "type": "text_delta", "data": { "source": "Rama", "handoff": true, "text": "**Morning.** The 06:05 train reaches Jaipur at 10:35. Take an auto straight to the hotel and rest until lunch. " } },
+      { "type": "text_delta", "data": { "source": "Rama", "handoff": true, "text": "Albert Hall Museum is flat and has lifts, so it suits Kamla well; plan about an hour there.\n\n**Afternoon.** Lunch near the museum, then a short drive to" } }
+    ]
+  },
+  "answer": {
+    "query": "Can you explain what TSH means on Kamla's report, in simple words?",
+    "terminal": true,
+    "events": [
+      { "type": "avatar_start", "data": { "avatar": "Krishna", "task": "Explain TSH in plain words", "discipline": "education" } },
+      { "type": "text_delta", "data": { "source": "Krishna", "handoff": true, "text": "TSH is a message your brain sends to the thyroid gland in the neck." } },
+      { "type": "avatar_done", "data": { "avatar": "Krishna", "discipline": "education" } },
+      { "type": "narad_synthesis", "data": { "text": "TSH is a message your brain sends to the thyroid gland in the neck. When the thyroid is slow, the brain sends more TSH to wake it up, so a high TSH usually means the thyroid is working a little slowly.\n\nKamla's report shows 4.8, just above the range printed on it (0.4 to 4.2). A value like this is common and often rechecked after a few weeks. Her doctor is the right person to say whether the Thyroxine dose should change.\n\nWould you like me to add \"ask about TSH\" to the list for her next visit?" } },
+      { "type": "privacy_receipt", "data": { "v": 1, "turn_id": "turn_c3", "stayed_local": false, "destinations": [ { "provider": "gemini", "tier": "trusted", "sources": ["answer"], "calls": 1, "replaced": {} } ], "refused": {} } },
+      { "type": "usage", "data": { "prompt_tokens": 1830, "completion_tokens": 142, "total_tokens": 1972, "cost_usd": 0 } },
+      { "type": "done", "data": { "session_id": "sess_demo_thread", "turn_id": "turn_c3" } }
+    ]
+  },
+  "errand": {
+    "query": "Find train seats to Jaipur for Saturday, and email Kavya's teacher that she'll miss school on Friday. Also here is Kamla's lab report.",
+    "terminal": true,
+    "events": [
+      { "type": "avatar_start", "data": { "avatar": "Matsya", "task": "Find AC chair car seats, Delhi to Jaipur, Saturday morning", "discipline": "retrieval" } },
+      { "type": "task_started", "data": "@task:tsk_0123456789abcdef" },
+      { "type": "avatar_start", "data": { "avatar": "Krishna", "task": "Leave email to the class teacher", "discipline": "communication" } },
+      { "type": "approval_requested", "data": "@approval:apr_1a2b3c4d5e6f7a8b" },
+      { "type": "document_review", "data": { "review_id": "rev_0f1e2d3c4b5a6978", "doc_type": "lab_report", "item_count": 3, "needs_a_look": 1 } },
+      { "type": "avatar_done", "data": { "avatar": "Matsya", "discipline": "retrieval" } },
+      { "type": "avatar_done", "data": { "avatar": "Krishna", "discipline": "communication" } },
+      { "type": "narad_synthesis", "data": { "text": "Three things are moving:\n\n- The train search is running on the Mac. You can watch it, and it will stop before any payment.\n- The email to Kavya's teacher is ready. Nothing is sent until you approve it.\n- I read 3 values from Kamla's report. Please check them against the photo before I save them." } },
+      { "type": "privacy_receipt", "data": { "v": 1, "turn_id": "turn_d4", "stayed_local": false, "destinations": [ { "provider": "deepseek", "tier": "redact", "sources": ["answer"], "calls": 3, "replaced": { "PERSON": 3, "EMAIL": 1 } }, { "provider": "exa", "tier": "web", "sources": ["search"], "calls": 1, "replaced": {} } ], "refused": {} } },
+      { "type": "done", "data": { "session_id": "sess_demo_thread", "turn_id": "turn_d4" } }
+    ]
+  }
+}
