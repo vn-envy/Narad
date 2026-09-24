@@ -1,5 +1,7 @@
 # Narad × Nebius/NVIDIA: one build for the family pilot and the hackathon (v2)
 
+> **Deferred (2026-09-24).** The owner paused the hackathon to focus only on the family pilot. This plan is kept for reference. The pilot direction lives in [PILOT_READINESS_PLAN](./PILOT_READINESS_PLAN_2026-09-23.md).
+
 *2026-09-23. Event: [Nebius x NVIDIA Global AI Hackathon](https://nebiusglobalaihackathon.devpost.com/) (Devpost), **Personal AI** track. Deadline **Fri 2026-10-30, 10:00 PT (22:30 IST)**.*
 
 v2 applies an independent three-lens review (hackathon judge, build feasibility, family-pilot safety). The full review, including how the lenses' conflicts were resolved, is in [HACKATHON_PLAN_REVIEW](./HACKATHON_PLAN_REVIEW_2026-09-23.md). Research and verification status: [HACKATHON_RESEARCH](./HACKATHON_RESEARCH_2026-09-23.md) and [VENDOR_RESEARCH](./VENDOR_RESEARCH_2026-09-23.md). Items marked *(unverified)* are checked on **Sep 24** (§5): our sandbox could not reach devpost.com, nebius.com or the Token Factory docs.

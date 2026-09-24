@@ -2,6 +2,23 @@
 
 *2026-09-23. Scope: make Narad reliably do work for a family across phones, laptops, and the host Mac, with faster turns, more correct actions, and data that stays under your control. Built phase by phase; each phase ends with a measurable exit gate.*
 
+## Direction (2026-09-24): pilot first, hackathon deferred
+
+The family pilot is the only goal. The hackathon documents stay in `docs/` for reference, but they are deferred and none of their constraints apply: no Nemotron-only rule, no filmed errand, no feature freeze. What carries over from their reviews is the pilot-safety work: one egress chokepoint, privacy receipts, care circles, staged rollout, consent, honest metrics, and host uptime.
+
+**Pilot:** 4 people, all on Android phones, and one M5 MacBook Air (24 GB) as the host.
+
+The build runs in four stages. Each stage has a rollout gate, and nobody new joins until that gate is green.
+
+| Stage | Goal | Contents | Who joins |
+|---|---|---|---|
+| **A. Safe to invite** | Your data rules actually hold | **One egress chokepoint** for every model, embedding and search call. **Redaction gateway v0**: India-ID rules with checksums, the family name list, placeholders restored on the Mac, fail closed. **Provider trust tiers**: `local` / `trusted` / `redact` / `blocked`, with DeepSeek set to `redact` and xAI to `blocked`. Tapas and Sankalpa routed through the gateway. A per-turn egress ledger. Phase 0 carryovers. Pilot hostname moved out of git, with Cloudflare Access in front. `launchd` supervision, backups, an uptime ping. Consent and metric definitions. | Owner (already) |
+| **B. Pleasant on phones** | Fast, and easy to use on Android | Token streaming, with the single-agent answer passed straight through (no second model call). A privacy receipt on each message. Hash-bound approvals delivered by Web Push. Care circles. An Activity inbox. A service worker with an offline shell. A mobile design pass. ML redaction (gliner-PII or OpenMed) on typed text and uploads. Hinglish handling and crisis phrases. | First family member |
+| **C. Gets errands done** | Real agency | Kriya v0: a perceive → act → settle → verify loop over Playwright accessibility snapshots, with live view and stop from the phone. Outcome contracts for the paths the family actually uses. The cloud browser (self-hosted Steel) for unauthenticated tasks. Android control over ADB at home first; the Companion app for phones away from home comes after that. | All four |
+| **D. Measure & iterate** | Evidence, then improvement | The Pariksha benchmark (fixture sites plus a synthetic leak set). Pilot counts and outcomes, never prompts. A weekly review. The remaining phases (6 and 7) of the plan below. | — |
+
+The phases further down are still the backlog. The stages above set the order and the rollout gates.
+
 Evidence for every finding below was read from the code at `98c23c5` and spot-checked. Latency figures marked *est.* are code-reading estimates; Phase 1 replaces them with measurements.
 
 ---
