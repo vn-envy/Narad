@@ -380,9 +380,8 @@ class MockApi:
             route.fulfill(status=status, content_type=kind, body=body)
 
     def static(self, route: Route, path: str) -> None:
-        if self.host_down and route.request.resource_type == "document":
-            route.fulfill(status=530, content_type="text/html", body="<h1>Origin unreachable</h1>")
-            return
+        # With the Mac away, the service worker still serves the cached shell;
+        # only the API answers with Cloudflare's 530, as it would.
         target = DIST / path.lstrip("/")
         if path in ("/", "") or not target.is_file():
             target = DIST / "index.html"
@@ -628,6 +627,12 @@ def _scroll_up_while_streaming(page: Page, api: MockApi) -> None:
     )
 
 
+def _open_from_you(page: Page, title: str) -> None:
+    click_nav(page, "you")
+    page.get_by_role("button", name=re.compile(rf"^{re.escape(title)}\b")).first.click()
+    settle(page, 900)
+
+
 def _offline_banner(page: Page, api: MockApi) -> None:
     settle(page)
     api.host_down = True
@@ -666,6 +671,8 @@ SCENES: list[Scene] = [
     Scene("you-member", "You, for a family member", lambda p, a: click_nav(p, "you"), profile="member"),
     Scene("you-voice", "You: voice settings and privacy", lambda p, a: (click_nav(p, "you"), scroll_to_text(p, "Narad replies in"))),
     Scene("you-egress", "What left my Mac, from You", lambda p, a: (click_nav(p, "you"), open_egress(p))),
+    Scene("you-memory", "Memory, opened from You on a phone", lambda p, a: _open_from_you(p, "Memory")),
+    Scene("you-system", "System status, opened from You on a phone", lambda p, a: _open_from_you(p, "System")),
     Scene("voice", "Voice mode", lambda p, a: _voice(p, a, settings=False)),
     Scene("voice-settings", "Voice settings", lambda p, a: _voice(p, a, settings=True)),
     Scene("offline", "The Mac is asleep", _noop, host_down=True),
