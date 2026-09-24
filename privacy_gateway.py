@@ -51,6 +51,7 @@ _DEFAULT_TIERS: dict[str, str] = {
     "ollama": LOCAL,
     "ollama_chat": LOCAL,
     "narad-local": LOCAL,
+    "local-decisions": LOCAL,  # Jev-compatible decision server on loopback (Laya)
     "anthropic": TRUSTED,
     "narad-claude-sdk": TRUSTED,
     "openai": TRUSTED,

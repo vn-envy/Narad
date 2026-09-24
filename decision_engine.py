@@ -196,6 +196,13 @@ def jev_status() -> dict[str, Any]:
     }
 
 
+def _is_loopback(base_url: str) -> bool:
+    from urllib.parse import urlparse
+
+    host = (urlparse(base_url).hostname or "").lower()
+    return host in {"localhost", "127.0.0.1", "::1"}
+
+
 class JevDecisionProvider:
     """Minimal implementation of TypeSafe's official System One protocol."""
 
@@ -236,7 +243,14 @@ class JevDecisionProvider:
 
         cleaned_state, redactions = _redact(state)
         state_text = json.dumps(cleaned_state, ensure_ascii=False)
-        sensitive_allowed = allow_sensitive or _truthy("NARAD_JEV_ALLOW_SENSITIVE", default=False)
+        # A Jev-compatible server on loopback (e.g. Laya) keeps the state on
+        # the Mac, so the cloud-only sensitive-topic block does not apply.
+        egress_provider = "local-decisions" if _is_loopback(self.base_url) else "typesafe"
+        sensitive_allowed = (
+            allow_sensitive
+            or egress_provider == "local-decisions"
+            or _truthy("NARAD_JEV_ALLOW_SENSITIVE", default=False)
+        )
         if _SENSITIVE_DOMAIN.search(state_text) and not sensitive_allowed:
             return DecisionResult(
                 decision_id=decision_id,
@@ -258,7 +272,9 @@ class JevDecisionProvider:
             # leak-checked and logged, or not sent at all.
             import privacy_gateway
 
-            cleaned_state = privacy_gateway.guard_payload("typesafe", cleaned_state, source=f"jev:{decision_id}")
+            cleaned_state = privacy_gateway.guard_payload(
+                egress_provider, cleaned_state, source=f"jev:{decision_id}"
+            )
         except Exception as exc:
             return DecisionResult(
                 decision_id=decision_id,

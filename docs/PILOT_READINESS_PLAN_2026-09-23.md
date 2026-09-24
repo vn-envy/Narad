@@ -19,6 +19,110 @@ The build runs in four stages. Each stage has a rollout gate, and nobody new joi
 
 The phases further down are still the backlog. The stages above set the order and the rollout gates.
 
+**Stage A progress (2026-09-24):**
+- The privacy gateway now covers every agent call, background learner, embedding, Jev decision and text-to-speech call. It uses the OpenMed and India-ID detectors. It fails closed, keeps an egress ledger at `/privacy/egress`, and has 30+ tests.
+- The pilot hostname is out of the code.
+- Browser-step and turn-routing Jev are off by default. They added 0.5–2 s per step for advisory output only.
+
+Still open in Stage A:
+- per-profile scoping for logs and artifacts;
+- Cloudflare Access;
+- `launchd` supervision and backups;
+- consent and metric definitions.
+
+## Stack decisions (2026-09-24): Indic voice, Indic documents, local decision models
+
+These decisions come from two source-checked research passes, one on Sarvam and Indic open models, one on Jev, CUA-S1 and Laya. They put experience and functionality first, then privacy, then cost. Sarvam and Laya numbers are vendor-reported unless marked otherwise. Every Mac figure is an estimate until `scripts/bench_local_stack.py` has been run on the M5 Air.
+
+### Voice (Hindi, Hinglish, English)
+
+| Job | Decision | Why |
+|---|---|---|
+| **Reply language** | Add a per-profile `reply_language` and `script`, and have the LLM write Hindi (Devanagari or Roman) directly. This fixes the हिन्दी toggle, which today reads *English* text in a Hindi voice. | This is the most audible bug. It needs no new vendor. |
+| **TTS** | Stream sentence by sentence: the first sentence plays while the reply is still streaming, and the 500-character cap is removed. Hindi and regional languages use **Sarvam Bulbul v3** once Sarvam is `trusted`. English uses Smallest.ai once it is `trusted`. The offline fallback is Kokoro/VoxCPM, with IndicF5 replacing Kokoro for Hindi. | Voice quality and time to first audio decide whether the family keeps using voice. Speech can't be pseudonymised, so it may only go to `local` or `trusted` providers (enforced since `fd828e6`). |
+| **STT** | **Local by default.** Replace CPU faster-whisper `small` with the winner of a bake-off between whisper-large-v3-turbo (MLX/whisper.cpp, Metal), AI4Bharat IndicConformer-600M, and NVIDIA Nemotron 3.5 ASR. Pass a language hint. **Opt-in per profile:** Sarvam **Saaras v4** streaming in `codemix` mode, once `trusted`. Set the browser fallback to `hi-IN`, with `processLocally` where supported. | This closes the biggest accuracy gap while audio stays home. Saaras adds Hinglish-faithful transcripts and live partial results. |
+| **Translation** | Local IndicTrans2-dist-200M, only for regional-language documents. No Mayura API. | The LLM already writes Hindi, and the local model is small, fast and private. |
+| **Indic LLM** | **No Sarvam LLM for Hindi turns.** | Independent benchmarks place Sarvam-30B and 105B behind open peers of similar size in Hindi, and 30B doesn't fit on the Mac. *Worth benchmarking:* Sarvam Inference serves DeepSeek V4 Flash from India, which could cut round-trip time from India once Sarvam is `trusted` (unverified). |
+
+**Sarvam's trust status.** Its Privacy Policy trains on inputs unless you opt out, and its published terms contradict each other. Sarvam therefore starts in the `redact` tier. You can promote it product by product in `~/.narad/config/provider_tiers.json` once you have done all three of these:
+1. opted out of training;
+2. set retention to the minimum in the dashboard;
+3. received written confirmation that Doc AI files are deleted after each job.
+
+### Documents in Indian languages (lab reports, statements, prescriptions, circulars, forms)
+
+The pipeline has five steps:
+1. **Local OCR** with Surya, or PaddleOCR PP-OCRv5 as the lighter alternative. The plan's earlier "Apple Vision" choice doesn't work here, because Apple Vision reportedly can't read Devanagari.
+2. **Pseudonymisation** in the privacy gateway.
+3. **Typed extraction** by the worker LLM, through a new Matsya tool `extract_fields(path, doc_type)`. It returns each value with its unit, reference range, confidence and bounding box.
+4. **Crop confirmation in the UI:** each value appears next to its image crop, and a person confirms it before Rama writes to `health.db` or `finance.db`.
+5. **Escalation, per document and with consent:** Sarvam Doc AI `extract` for handwriting and complex tables (about ₹0.5/page) once `trusted`, or Claude/Gemini, which are already `trusted`.
+
+`extract_document` and chat attachments will accept jpg/png/heic/webp and OCR scanned PDFs. The image itself is inlined only for `local` or `trusted` models.
+
+### Local decision layer (replacing cloud Jev)
+
+**Jev today is almost entirely advisory.** Only Tapas scoring and Android admission ever act on its answers. It also cost a cloud round trip on every browser step.
+
+| Contract | Decision |
+|---|---|
+| `route_turn_v1` | Cloud call off (done). Add a deterministic pre-router now. Later, a fine-tuned **Laya-multilingual** classifier head runs in shadow mode and becomes a "skip the supervisor" fast path only at ≥95% accuracy with ≥50% coverage. |
+| `browser_step_v1` | Off the synchronous path (done). **Page state** comes from DOM rules: password fields, captcha frames, dialogs, HTTP errors. **Injection** is caught by **Prompt Guard 2 86M** plus the existing regex. Next-action suggestions are dropped, because the operator model already plans. |
+| `browser_verify_v1` | Dead code: delete it. Use deterministic postconditions instead: URL, field value, toast, download. A small VLM yes/no check runs only for high-risk final states. |
+| `desktop_admission_v1` / `desktop_verify_v1` | Admission is dropped, since desktop is always confirmation-gated. Verification uses the cua-driver Effect contract plus `verify_state`. |
+| `android_admission_v1` | Keep, but run it locally: the existing regex, extended with Hinglish and Hindi side-effect phrases, plus a Laya-multilingual check that can only **tighten** gating. |
+| `android_verify_v1` | Drop it. Use Artemis's own verified-mode result instead. |
+| `tapas_score_v1` | A local idle-time judge (Gemma E4B), or the cloud through the gateway (already enforced). |
+
+**Plumbing.** Keep the `decision_engine.py` boundary. A Jev-compatible Laya server on loopback is treated as `local` by the gateway. **CUA-S1-4B** enters the Kriya bake-off as a fast action selector over 20 options or fewer. It is research-grade, so it doesn't replace anything yet.
+
+### Performance budget: M5 MacBook Air, 24 GB, fanless
+
+| Component | Residency | Memory (est.) | Target latency (p95) |
+|---|---|---|---|
+| macOS, apps, Narad backend | always | ~6.5 GB | — |
+| OpenMed PII + rules | always | 3–3.5 GB | ≤ 150 ms per new message (cached per line) |
+| Laya-multilingual (MLX) | always | ~1 GB | ≤ 20 ms per decision |
+| Prompt Guard 2 86M | always | ~0.35 GB | ≤ 50 ms per page |
+| STT engine (bake-off winner) | on demand, 5 min idle unload | 0.7–1.6 GB | final transcript ≤ 1 s after speech ends |
+| OCR (Surya/Paddle) | on demand | 0.2–3 GB | ≤ 10 s per page |
+| Chromium | while browsing | 1–2 GB | — |
+| **Heavy slot, one at a time:** Gemma 4 E4B, Qwen3-VL-8B (hard OCR / VLM verify) or Qwen3.5-4B + CUA-S1 | on demand | 3–8 GB | — |
+| Free headroom | — | ≥ 3 GB | — |
+
+**Experience targets:**
+- Before the LLM starts, a turn's added overhead is ≤ 350 ms.
+- A browser step's added overhead is ≤ 150 ms (it was 0.5–2 s).
+- Time to first audio on the phone is ≤ 3 s.
+
+**Eviction policy:**
+- `OLLAMA_MAX_LOADED_MODELS=1` and `OLLAMA_NUM_PARALLEL=1`.
+- Gemma context capped at 16K, with `keep_alive` at 5 m.
+- MLX sidecar models unload after 120 s idle.
+- A model is refused if free memory is less than its size plus 2 GB, and the call degrades to deterministic code or a `trusted` cloud provider.
+
+**Thermals:**
+- Background jobs (Tapas, embeddings, consolidation) run only on AC power, with nominal `pmset -g therm` and no turn in the last 60 s.
+- Under thermal pressure, `max_tokens` is capped and fallbacks move to the cloud where policy allows.
+
+**How these land in the stages:**
+- **Stage A (done):** Jev, TTS, Sarvam and Smallest behind the gateway.
+- **Stage B:**
+  - reply language/script;
+  - sentence-streamed TTS;
+  - STT bake-off and swap;
+  - the deterministic pre-router;
+  - the `bench_local_stack.py` run on the Mac.
+- **Stage C:**
+  - local OCR → `extract_fields` → crop confirmation;
+  - Laya and Prompt Guard as the local decision layer;
+  - CUA-S1 in the Kriya bake-off;
+  - Sarvam Doc AI escalation.
+- **Stage D:** evaluation sets:
+  - about 150 family audio clips (WER/CER, names/numbers/medicines, latency);
+  - 40 TTS texts (time to first audio, blind rating);
+  - 50 document photos with labelled fields (exact match per field, CER per script, zero PII leaks after the gateway).
+
 Evidence for every finding below was read from the code at `98c23c5` and spot-checked. Latency figures marked *est.* are code-reading estimates; Phase 1 replaces them with measurements.
 
 ---

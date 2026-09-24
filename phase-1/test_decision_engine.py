@@ -68,6 +68,29 @@ class DecisionEngineTests(unittest.TestCase):
         self.assertEqual(blocked.status, "privacy_blocked")
         never_called.assert_not_called()
 
+    def test_loopback_decision_server_is_local(self) -> None:
+        # A Laya server on the Mac receives the real state: nothing leaves.
+        captured: dict = {}
+        provider = JevDecisionProvider(api_key="local", base_url="http://127.0.0.1:8090")
+
+        def fake_post(payload, headers):
+            captured["payload"] = payload
+            return httpx.Response(
+                200,
+                request=httpx.Request("POST", "http://127.0.0.1:8090/v1/systemone"),
+                json={"model": "laya", "answers": {"risky": {"type": "noul", "noul": 0.9}}},
+            )
+
+        with patch.object(provider, "_post", side_effect=fake_post):
+            result = provider.evaluate(
+                decision_id="local_v1",
+                state={"task": "Send Asha Sharma's blood report to the clinic"},
+                questions={"risky": DecisionQuestion("noul", "Risky?")},
+                record_cost=False,
+            )
+        self.assertTrue(result.available)
+        self.assertIn("Asha Sharma", str(captured["payload"]))
+
     def test_jev_parses_typed_answers_and_redacts_state(self) -> None:
         captured: dict = {}
         provider = JevDecisionProvider(api_key="test-key")
