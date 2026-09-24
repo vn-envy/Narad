@@ -86,6 +86,11 @@ Sankalpas before running the inner agent. Models are assigned in
   Parashurama), `/teach` or "teach me" or a Gurukul check answer → Krishna, a
   bank-statement CSV → Rama, a document/photo with a summarise-style ask → Matsya,
   a bare URL → Matsya. Everything else goes to Narad.
+- **Intent → path, offered never started.** `prerouter.suggest_path` (table in
+  `phase-1/path_intent.py`: English, Hinglish, Hindi, with negatives; ambiguous means
+  nothing) recognises the six paths on unbound turns. The server emits a
+  `path_suggestion` card (Start / Continue here / Not now), once per path per thread, and
+  tells Narad with a `[PATH OFFER]` line. Only the person's tap starts or binds a run.
 
 ### Parallel routing patterns
 
@@ -144,6 +149,8 @@ Structured-plan specialist and owner of the personal data lifecycle (finance + h
 | `log_symptom` / `set_medication_reminder` / `get_health_log` | Health log |
 | `get_lab_results` | Lab values confirmed from the person's reports, per test with a trend and a link back to each value's crop |
 | `query_rxnorm` | Drug information (RxNorm REST, no auth) |
+| `track_application` | The Career path's application tracker: one row per role (shortlisted → applied → interview → offer / rejected) |
+| `extract_fields` | In a path stage: a statement or lab report photo/PDF attached in chat → a pending review the person confirms (same tool as Matsya's) |
 
 Plans emit `PLAN_JSON:` blocks that workflows can persist and execute.
 
@@ -357,6 +364,27 @@ operator model (`NARAD_OPERATOR_MODEL`, default Matsya's worker model), always t
   counts by kind; counts only), which is also stored on the assistant turn in the thread.
 - Direct `litellm.completion`/`embedding` calls outside the gateway fail CI (`phase-1/test_privacy_gateway.py`).
 
+### Workflow Paths (evidence-backed stages)
+Six durable paths (`workflow_engine.py`, `workflow_packs/`, `docs/WORKFLOW_PATHS.md`).
+- **Every stage declares `done_when`** (`inputs_complete`, `reported(fields)`,
+  `tool_succeeded(tools)`, `artifact_exists(kind)`, `records_saved(table)`, `task_done`,
+  `approval_executed`, `user_confirmed`, `guided`, and `any`), checked by
+  `workflow_evidence.py` only against evidence the Mac verifies in the run owner's own
+  stores: tool receipts the avatar wrapper records from real function responses in a turn
+  the server bound to the run, saved document reviews and their `health.db`/`finance.db`
+  rows, `kriya.db` tasks, Anumati proposals, files under `artifacts/runs/<profile>/`, the
+  person's own tap, the Gurukul loop. Another profile's id is not found.
+- **All four avatars have `report_stage_result(status, summary, fields, questions,
+  evidence_ids, reason)`** (`workflow_tools.py`): `done | needs_input | blocked |
+  in_progress`. It answers `completed`, `not_done` with what is missing,
+  `approval_requested` (a gated stage's result before approval is its preview), or
+  `recorded`. A reply's text never completes a stage.
+- **Binding is per thread, on the server**: a turn with no `workflow_run_id` gets the open
+  run bound to its thread; a stale id from another thread is dropped for the turn.
+- **Watches only append findings** (Travel price watch through a search-only Kriya task;
+  Career Gmail reply check, read-only, only when Gmail is connected). Check-ins never
+  rewind completed stages or clear approvals.
+
 ### Runtime Quality
 **AndonGate** (`andon.py`): fires on `EMPTY_RESULT` (<80 chars), `TIMEOUT` (>120s),
 `CONNECTION`, `TOOL_ERROR`; logs to `~/.narad/config/andon_log.jsonl` + SSE alert.
@@ -387,7 +415,7 @@ Workflow stages provide durable progress directly; there is no parallel Kanban o
   - A carer's copy carries the title and a one-line summary only (`shared_from`, no data or links). It follows the carer's own quiet hours and lock-screen setting. An approval reaches them as an FYI they cannot decide.
 - **Producers**:
   - Kala sends `medicine_reminder` per profile and one `health_alert` when a reminder is still unopened after `NARAD_DOSE_FOLLOWUP_MINUTES` (default 60).
-  - A finished workflow path sends `task_done`.
+  - A finished workflow path sends `task_done`; a Career Gmail reply check that found new replies sends a `reminder`.
   - A finished or failed Kriya task sends `task_done`; a task paused for a sign-in, a captcha or an expired approval sends `question` (both link to `/?task=<id>`).
   - The PWA service worker (`phase-4/frontend/public/sw.js`) shows pushes and caches only the app shell.
 
