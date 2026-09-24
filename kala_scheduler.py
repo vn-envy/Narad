@@ -11,6 +11,9 @@ NARAD_SCHEDULER_INTERVAL seconds (default 60) and:
      once per day via vahana.deliver().
      Missed slots earlier today (server was down) still fire once,
      annotated with their original time — never silently dropped.
+     Kind "medicine_reminder", so a person can share them with a carer.
+     A reminder still unopened NARAD_DOSE_FOLLOWUP_MINUTES later (default
+     60, 0 = off) is followed by one "health_alert".
   2. Delivers due Teach Anything reviews.
   3. Claims typed Workflow Path schedules and delivers restart-safe prompts.
 
@@ -161,18 +164,85 @@ def _fire_due_reminders(now: datetime, state: dict) -> int:
                     continue
                 late = (now - fire_at).total_seconds() > 15 * 60
                 note = f" (scheduled {hhmm})" if late else ""
-                deliver(
-                    kind="reminder",
+                # A distinct kind lets the person share medicine reminders
+                # with a carer (care_circle.py); "late" keeps a reminder the
+                # Mac missed while asleep out of the person's quiet hours.
+                result = deliver(
+                    kind="medicine_reminder",
                     title=f"Medication: {rem['med_name']}",
                     body=f"Take {rem['med_name']} {rem['dose']} — {rem['schedule']}{note}",
                     user_id=profile_id,
                     source="kala_scheduler.medication",
                     priority="high",
-                    data={"reminder_id": rem["id"], "slot": hhmm, "profile_id": profile_id},
+                    data={"reminder_id": rem["id"], "slot": hhmm, "profile_id": profile_id, "late": late},
                 )
+                _schedule_dose_follow_up(state, now, profile_id, rem["med_name"], hhmm, result)
                 done_today.add(key)
                 fired += 1
     delivered[today] = sorted(done_today)
+    return fired
+
+
+# ── Unseen medicine reminders (health alerts) ────────────────────────────────
+
+def _follow_up_minutes() -> int:
+    """NARAD_DOSE_FOLLOWUP_MINUTES (default 60); 0 turns the follow-up off."""
+    try:
+        return max(0, int(os.environ.get("NARAD_DOSE_FOLLOWUP_MINUTES", "60")))
+    except ValueError:
+        return 60
+
+
+def _schedule_dose_follow_up(
+    state: dict, now: datetime, profile_id: str, med_name: str, slot: str, result: Any
+) -> None:
+    minutes = _follow_up_minutes()
+    event_id = result.get("event_id") if isinstance(result, dict) else None
+    if not minutes or not event_id:
+        return
+    due = now.timestamp() + minutes * 60
+    state.setdefault("dose_follow_ups", {})[event_id] = {
+        "profile_id": profile_id, "med_name": med_name, "slot": slot, "due": due,
+    }
+
+
+def _fire_dose_follow_ups(now: datetime, state: dict) -> int:
+    """A medicine reminder still unopened after the follow-up delay becomes a
+    health alert: a second nudge to the person, and to any carer they share
+    health alerts with. Narad cannot know a dose was taken, only that the
+    reminder was never opened, and the wording says exactly that."""
+    from vahana import deliver, load_inbox
+
+    pending: dict[str, dict] = state.setdefault("dose_follow_ups", {})
+    fired = 0
+    for event_id, item in list(pending.items()):
+        due = float(item.get("due") or 0)
+        if due > now.timestamp():
+            continue
+        del pending[event_id]
+        if now.timestamp() - due > 12 * 3600:
+            continue  # stale (the server was down for hours): drop it quietly
+        profile_id = str(item.get("profile_id") or "")
+        try:
+            inbox = load_inbox(profile_id, limit=1000)
+        except Exception as exc:
+            log.warning("Kala: follow-up check failed for %s: %s", profile_id, exc)
+            continue
+        if any(row.get("id") == event_id and not row.get("read") for row in inbox):
+            deliver(
+                kind="health_alert",
+                title=f"Medicine reminder not opened: {item.get('med_name')}",
+                body=(
+                    f"The {item.get('slot')} reminder for {item.get('med_name')} has not been opened yet. "
+                    "If the dose was taken, you can ignore this."
+                ),
+                user_id=profile_id,
+                source="kala_scheduler.dose_follow_up",
+                priority="high",
+                data={"reminder_event_id": event_id, "slot": item.get("slot"), "profile_id": profile_id},
+                summary=f"The {item.get('slot')} reminder for {item.get('med_name')} has not been opened yet.",
+            )
+            fired += 1
     return fired
 
 
@@ -257,11 +327,15 @@ def tick(now: datetime | None = None) -> dict:
     """One synchronous scheduler pass. Never raises."""
     now = now or datetime.now()
     state = _load_state()
-    fired = reviews_fired = workflow_fired = 0
+    fired = reviews_fired = workflow_fired = follow_ups = 0
     try:
         fired = _fire_due_reminders(now, state)
     except Exception as exc:
         log.warning("Kala: reminder pass failed: %s", exc)
+    try:
+        follow_ups = _fire_dose_follow_ups(now, state)
+    except Exception as exc:
+        log.warning("Kala: medicine follow-up pass failed: %s", exc)
     try:
         reviews_fired = _fire_due_reviews(now, state)
     except Exception as exc:
@@ -274,13 +348,14 @@ def tick(now: datetime | None = None) -> dict:
         log.warning("Kala: workflow schedule pass failed: %s", exc)
     state["last_tick"] = now.isoformat(timespec="seconds")
     _save_state(state)
-    if fired or reviews_fired or workflow_fired:
+    if fired or reviews_fired or workflow_fired or follow_ups:
         log.info(
-            "Kala tick: %d reminder(s), %d review digest(s), %d workflow trigger(s)",
-            fired, reviews_fired, workflow_fired,
+            "Kala tick: %d reminder(s), %d follow-up(s), %d review digest(s), %d workflow trigger(s)",
+            fired, follow_ups, reviews_fired, workflow_fired,
         )
     return {
         "fired": fired,
+        "follow_ups": follow_ups,
         "reviews_fired": reviews_fired,
         "workflow_fired": workflow_fired,
         "ts": state["last_tick"],

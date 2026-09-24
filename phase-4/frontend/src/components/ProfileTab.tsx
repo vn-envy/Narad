@@ -1,6 +1,7 @@
 /**
- * ProfileTab — your PIN and your signed-in devices; the owner also looks
- * after each family member's.
+ * ProfileTab — your PIN, your signed-in devices and your notifications
+ * (NotificationSettings); the owner also looks after each family member's
+ * PIN and devices.
  *
  * A new PIN or "sign out everywhere" bumps the profile's session epoch on the
  * server, so every older token stops working at once, this device's included.
@@ -12,6 +13,7 @@ import {
   type FamilyProfile,
   type FamilyProfileSession,
 } from '@/lib/api'
+import { NotificationSettings } from './NotificationSettings'
 
 const INK = 'rgba(26,24,21,'
 const PIN_RE = /^\d{4,8}$/
@@ -315,6 +317,8 @@ export function ProfileTab({ profile, onSignedOut }: { profile: FamilyProfile; o
           )}
           <NoticeLine notice={sessionNotice} />
         </div>
+
+        <NotificationSettings profile={profile} />
 
         {profile.is_owner && (
           <>

@@ -1,3 +1,5 @@
+import { reportHostFailure, reportHostResponse } from './host-status'
+
 /** Ports used by `npm run dev` (Vite). Anywhere else — the backend serving
  *  its own dist/, a tailscale hostname, the installed PWA — is same-origin. */
 const VITE_DEV_PORTS = new Set(['5173', '5174'])
@@ -121,7 +123,11 @@ export function apiFetch(path: string, init?: RequestInit): Promise<Response> {
     headers.set('Authorization', `Bearer ${session.token}`)
     headers.set('X-Narad-Profile-ID', session.profile.user_id)
   }
-  return fetch(apiPath(path), { ...init, headers })
+  // Every answer (or silence) tells the app whether the Mac is reachable.
+  return fetch(apiPath(path), { ...init, headers }).then(
+    response => { reportHostResponse(response.status); return response },
+    error => { reportHostFailure(error); throw error },
+  )
 }
 
 export async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {

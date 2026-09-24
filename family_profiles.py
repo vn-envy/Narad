@@ -327,6 +327,31 @@ def verify_session(token: str) -> dict[str, Any] | None:
         return None
 
 
+def session_epoch(user_id: str) -> int | None:
+    """A profile's current session epoch, or None when it is not registered.
+
+    Read-only: background delivery calls this, so it never bootstraps the
+    registry."""
+    with _LOCK:
+        profile = _registered(user_id)
+        return _session_epoch(profile) if profile is not None else None
+
+
+def registered_profile(user_id: str) -> dict[str, Any] | None:
+    """The public profile if it is registered; never bootstraps the registry."""
+    with _LOCK:
+        profile = _registered(user_id)
+        return _public(profile) if profile is not None else None
+
+
+def _registered(user_id: str) -> dict[str, Any] | None:
+    safe_id = validate_profile_id(user_id)
+    if not FAMILY_PROFILES_PATH.exists():
+        return None
+    profile = (_load().get("profiles") or {}).get(safe_id)
+    return profile if isinstance(profile, dict) else None
+
+
 def revoke_sessions(user_id: str) -> int:
     """Sign a profile out on every device; returns the new session epoch."""
     safe_id = validate_profile_id(user_id)

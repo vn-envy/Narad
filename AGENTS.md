@@ -245,6 +245,34 @@ actions are denied by default; every verdict lands in Karma. Policy file:
 `CONNECTION`, `TOOL_ERROR`; logs to `~/.narad/config/andon_log.jsonl` + SSE alert.
 Workflow stages provide durable progress directly; there is no parallel Kanban or Projects subsystem.
 
+### Vahana (Delivery)
+`vahana.deliver(user_id, kind, title, body, priority, data, summary)` is the one way anything reaches a person
+(reminders, approvals, digests, Andon). It never raises and never waits on the network.
+- **Inbox first**: every event lands in `~/.narad/inbox/<profile>.jsonl`. That copy is the source of truth, served by `GET /inbox` and shown on the Activity screen, grouped as Needs you, Running and Done.
+- **Kinds**:
+  - `medicine_reminder`, `health_alert`, `task_done` and `approval_request` can be shared with a carer;
+  - `approval_result` and `question` are the other waits on a person;
+  - `reminder`, `triage`, `andon`, `swapna`, `cron` and `system` stay with the profile.
+  - Unknown kinds become `system`. `data.url` is the push deep link (same-origin only, e.g. `/?approval=<id>`); without one, the push opens the item in Activity (`/?activity=<id>`).
+- **Web Push** (`vahana_push.py`):
+  - Self-hosted VAPID keys live in `~/.narad/config/vapid.json` (0600) and devices in `profiles/<id>/push_devices.json`.
+  - Only known push services are accepted as endpoints.
+  - A device is bound to the profile's session epoch and moves profile if another person subscribes the same browser. A 404/410 from the push service drops it.
+  - Sends run on a small thread pool.
+  - ntfy is a fallback only for a profile with no Web Push device.
+  - Routes: `GET /push/vapid-public-key`, `POST/DELETE /push/subscribe`, `GET /push/devices`, `POST /push/test`.
+- **Preferences** (`profiles/<id>/notification_prefs.json`, `GET/PUT /notifications/preferences`):
+  - Lock-screen details are off by default, so pushes use generic text per kind.
+  - Quiet hours default to 22:00–07:00 in the phone's time zone. Only `urgent` pushes break them, plus the person's own on-time medicine reminders (which they can turn off). Everything else waits silently in the inbox.
+- **Care circles** (`care_circle.py`, `profiles/<subject>/care_circle.json`):
+  - The subject shares chosen kinds with a carer (`GET/PUT /care-circle`). Only the subject's own session can change it; owner and host credentials get 403.
+  - The carer sees `GET /care-circle/shared-with-me` and leaves with `DELETE /care-circle/shared-with-me/{subject}`.
+  - A carer's copy carries the title and a one-line summary only (`shared_from`, no data or links). It follows the carer's own quiet hours and lock-screen setting. An approval reaches them as an FYI they cannot decide.
+- **Producers**:
+  - Kala sends `medicine_reminder` per profile and one `health_alert` when a reminder is still unopened after `NARAD_DOSE_FOLLOWUP_MINUTES` (default 60).
+  - A finished workflow path sends `task_done`.
+  - The PWA service worker (`phase-4/frontend/public/sw.js`) shows pushes and caches only the app shell.
+
 ### Security Floor
 Enforced in `phase-1/server.py`; regression tests in `phase-1/test_profile_security.py`
 and `phase-1/test_profile_isolation.py`.

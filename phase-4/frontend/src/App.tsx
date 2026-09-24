@@ -1,10 +1,15 @@
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
+import { toast } from 'sonner'
 import { useAvatara } from './hooks/useAvatara'
 import { useIsMobile } from './hooks/useIsMobile'
 import { ChatPanel }            from './components/ChatPanel'
 import { AwarenessBar }         from './components/AwarenessBar'
 import { FamilyProfileGate }    from './components/FamilyProfileGate'
+import { HostOfflineBanner, HostOfflineScreen } from './components/HostOffline'
 import { OnboardingFlow }       from './components/OnboardingFlow'
+import { HostUnreachableError, isUnreachableStatus } from './lib/host-status'
+import { disablePush, fetchInbox, setAppBadge, syncPushSubscription } from './lib/notifications'
+import { OPEN_URL_EVENT, PUSH_EVENT, type PushPayload } from './lib/pwa'
 import {
   apiFetch,
   apiUrl,
@@ -69,9 +74,13 @@ function storeWorkflowBinding(key: string, binding: WorkflowBinding | null) {
   } catch { /* storage is optional */ }
 }
 
+/** Deep links the app handles itself; anything else (e.g. ?approval=) is left in the URL. */
+const APP_LINK_PARAMS = ['activity', 'path']
+
 export default function App() {
   const [profileSession, setActiveProfileSession] = useState<FamilyProfileSession | null>(() => getProfileSession())
   const [checkingSession, setCheckingSession] = useState(Boolean(profileSession))
+  const [hostOffline, setHostOffline] = useState(false)
 
   useEffect(() => {
     if (!profileSession) {
@@ -80,7 +89,9 @@ export default function App() {
     }
     let cancelled = false
     apiFetch('/profiles/session')
+      .catch(() => { throw new HostUnreachableError() })
       .then(async response => {
+        if (isUnreachableStatus(response.status)) throw new HostUnreachableError()
         if (!response.ok) throw new Error('Profile session expired')
         return response.json() as Promise<{ profile: FamilyProfile }>
       })
@@ -90,8 +101,13 @@ export default function App() {
         setProfileSession(refreshed)
         setActiveProfileSession(refreshed)
       })
-      .catch(() => {
+      .catch(error => {
         if (cancelled) return
+        // An asleep Mac is not a signed-out person: keep the session.
+        if (error instanceof HostUnreachableError) {
+          setHostOffline(true)
+          return
+        }
         clearProfileSession()
         setActiveProfileSession(null)
       })
@@ -102,6 +118,10 @@ export default function App() {
   // Validate the persisted token once; profile switching remounts this shell.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  if (hostOffline) {
+    return <HostOfflineScreen />
+  }
 
   if (checkingSession) {
     return (
@@ -124,11 +144,31 @@ export default function App() {
       key={profileSession.profile.user_id}
       profile={profileSession.profile}
       onSwitchProfile={() => {
-        clearProfileSession()
-        setActiveProfileSession(null)
+        // Someone else may use this phone next: it stops getting this
+        // profile's notifications (quickly, even if the Mac is slow to answer).
+        const signedOut = profileSession.profile.user_id
+        const forget = Promise.race([
+          disablePush(signedOut).catch(() => undefined),
+          new Promise(resolve => window.setTimeout(resolve, 1500)),
+        ])
+        void forget.finally(() => {
+          clearProfileSession()
+          setActiveProfileSession(null)
+        })
       }}
     />
   )
+}
+
+/** Read and strip the app's own deep-link params, leaving others (?approval=) in place. */
+function takeAppLink(): { activity: string | null; path: string | null } {
+  const url = new URL(window.location.href)
+  const link = { activity: url.searchParams.get('activity'), path: url.searchParams.get('path') }
+  if (APP_LINK_PARAMS.some(name => url.searchParams.has(name))) {
+    for (const name of APP_LINK_PARAMS) url.searchParams.delete(name)
+    window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash)
+  }
+  return link
 }
 
 function NaradSession({ profile, onSwitchProfile }: { profile: FamilyProfile; onSwitchProfile: () => void }) {
@@ -143,7 +183,12 @@ function NaradSession({ profile, onSwitchProfile }: { profile: FamilyProfile; on
     guidedSession, answerGuided, skipGuided, exitGuided,
   } = useAvatara(userId)
 
-  const [activeSurface, setActiveSurface] = useState<AppSurface>('chat')
+  const [initialLink] = useState(takeAppLink)
+  const [activeSurface, setActiveSurface] = useState<AppSurface>(() =>
+    initialLink.activity !== null ? 'activity' : initialLink.path ? 'workspaces' : 'chat')
+  const [focusEventId, setFocusEventId] = useState<string | null>(initialLink.activity)
+  const [focusRunId, setFocusRunId] = useState<string | null>(initialLink.path)
+  const [unread, setUnread] = useState(0)
   const [voiceOpen, setVoiceOpen] = useState(false)
   const [capabilities, setCapabilities] = useState<RuntimeCapabilities | null>(null)
   const [activeWorkflow, setActiveWorkflow] = useState<WorkflowRun | null>(null)
@@ -237,6 +282,91 @@ function NaradSession({ profile, onSwitchProfile }: { profile: FamilyProfile; on
     void send(pendingContinue.prompt, [], { workflowRunId: pendingContinue.runId })
   }, [pendingContinue, send, streaming, threadSessionId])
 
+  // ── Activity: unread badge, deep links, pushes while the app is open ──────
+
+  const refreshUnread = useCallback(async () => {
+    try {
+      setUnread((await fetchInbox(1)).unread)
+    } catch {
+      // The offline banner covers an unreachable Mac.
+    }
+  }, [])
+
+  useEffect(() => {
+    void refreshUnread()
+    void syncPushSubscription(userId)
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return
+      void refreshUnread()
+      void syncPushSubscription(userId)
+    }
+    const timer = window.setInterval(() => void refreshUnread(), 60_000)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [refreshUnread, userId])
+
+  useEffect(() => { setAppBadge(unread) }, [unread])
+
+  const openRun = useCallback((runId: string) => {
+    setFocusRunId(runId)
+    setActiveSurface('workspaces')
+  }, [])
+
+  /** A same-origin deep link: Activity and Paths open in place; anything else
+   *  (an approval card) is offered to its handler first, else loaded fresh. */
+  const openUrl = useCallback((url: string) => {
+    const target = new URL(url, window.location.origin)
+    if (target.origin !== window.location.origin) return
+    if (target.searchParams.has('activity')) {
+      setFocusEventId(target.searchParams.get('activity'))
+      setActiveSurface('activity')
+      return
+    }
+    if (target.searchParams.get('path')) {
+      openRun(target.searchParams.get('path') as string)
+      return
+    }
+    const link = new CustomEvent('narad:deeplink', { detail: { url: target.pathname + target.search }, cancelable: true })
+    if (!window.dispatchEvent(link)) {
+      setActiveSurface('chat')
+      return
+    }
+    window.location.assign(target.pathname + target.search + target.hash)
+  }, [openRun])
+
+  useEffect(() => {
+    const onOpen = (event: Event) => {
+      const url = (event as CustomEvent<{ url?: string }>).detail?.url
+      if (url) openUrl(url)
+    }
+    const onPush = (event: Event) => {
+      const payload = (event as CustomEvent<PushPayload>).detail
+      if (typeof payload?.unread === 'number') setUnread(payload.unread)
+      else void refreshUnread()
+      if (!payload?.id || document.visibilityState !== 'visible') return
+      // The app is open, so the service worker showed no banner: show it here,
+      // with the real title from the inbox rather than the lock-screen text.
+      fetchInbox(20)
+        .then(({ items }) => {
+          const item = items.find(entry => entry.id === payload.id)
+          toast(item?.title || payload.title, {
+            description: (item?.body || payload.body).slice(0, 140),
+            action: { label: 'Open', onClick: () => openUrl(payload.url) },
+          })
+        })
+        .catch(() => undefined)
+    }
+    window.addEventListener(OPEN_URL_EVENT, onOpen)
+    window.addEventListener(PUSH_EVENT, onPush)
+    return () => {
+      window.removeEventListener(OPEN_URL_EVENT, onOpen)
+      window.removeEventListener(PUSH_EVENT, onPush)
+    }
+  }, [openUrl, refreshUnread])
+
   const rememberWorkflow = (binding: WorkflowBinding | null, run: WorkflowRun | null = null) => {
     setWorkflowBinding(binding)
     setActiveWorkflow(run)
@@ -273,6 +403,8 @@ function NaradSession({ profile, onSwitchProfile }: { profile: FamilyProfile; on
 
   return (
     <>
+      <HostOfflineBanner />
+
       {/* Noise texture overlay */}
       <div className="noise-overlay" />
 
@@ -337,9 +469,13 @@ function NaradSession({ profile, onSwitchProfile }: { profile: FamilyProfile; on
                 onSwitchProfile={onSwitchProfile}
                 andonAlert={andonAlert}
                 capabilities={capabilities}
-                activeWorkflowRunId={activeWorkflow?.run_id}
+                activeWorkflowRunId={focusRunId ?? activeWorkflow?.run_id}
                 onContinueWorkflow={continueWorkflow}
                 onOpenSetup={() => setSetupOpen(true)}
+                focusEventId={focusEventId}
+                onOpenUrl={openUrl}
+                onOpenRun={openRun}
+                onUnreadChange={setUnread}
               />
             </Suspense>
           )}
@@ -384,8 +520,13 @@ function NaradSession({ profile, onSwitchProfile }: { profile: FamilyProfile; on
           avatars={avatars}
           activeSteps={activeSteps}
           activeSurface={activeSurface}
-          onNavigate={setActiveSurface}
+          onNavigate={surface => {
+            setFocusEventId(null)
+            setFocusRunId(null)
+            setActiveSurface(surface)
+          }}
           horizontal={isMobile}
+          unread={unread}
         />
       </div>
 

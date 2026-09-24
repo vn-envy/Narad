@@ -58,6 +58,7 @@ def _deliver_and_capture(**kwargs) -> tuple[dict, list[str]]:
 
     with patch.object(vahana.urllib.request, "urlopen", side_effect=fake_urlopen):
         result = vahana.deliver(kind="reminder", title="Medication", body="Take it", **kwargs)
+        vahana.drain_pushes()  # pushes are sent off-thread
     return result, urls
 
 

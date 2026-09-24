@@ -8,6 +8,8 @@ import {
   type FamilyProfileInvite,
   type FamilyProfileSession,
 } from '@/lib/api'
+import { HostUnreachableError, isUnreachableStatus } from '@/lib/host-status'
+import { HostOfflineScreen } from './HostOffline'
 import { MahatiLogo } from './MahatiLogo'
 
 interface Props {
@@ -46,15 +48,21 @@ export function FamilyProfileGate({ onAuthenticated }: Props) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const [offline, setOffline] = useState(false)
+
   const load = async () => {
-    const response = await apiFetch('/profiles')
+    const response = await apiFetch('/profiles').catch(() => { throw new HostUnreachableError() })
+    if (isUnreachableStatus(response.status)) throw new HostUnreachableError()
     const payload = await readJson<{ profiles: FamilyProfile[] }>(response)
     setProfiles(payload.profiles)
   }
 
   useEffect(() => {
     clearProfileSession()
-    void load().catch(() => setError('Narad could not load family profiles. Check that the server is running.'))
+    void load().catch(error => {
+      if (error instanceof HostUnreachableError) setOffline(true)
+      else setError('Narad could not load family profiles. Check that the server is running.')
+    })
   }, [])
 
   const finish = (session: FamilyProfileSession) => {
@@ -170,6 +178,8 @@ export function FamilyProfileGate({ onAuthenticated }: Props) {
     setOwnerPin('')
     setError(null)
   }
+
+  if (offline) return <HostOfflineScreen />
 
   return (
     <main className="family-gate">

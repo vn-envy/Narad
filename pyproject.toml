@@ -27,6 +27,9 @@ dependencies = [
     "pyjwt[crypto]>=2.8",
     # AES-256-GCM for encrypted backups (scripts/narad_backup.py).
     "cryptography>=42",
+    # Self-hosted Web Push to family phones (vahana_push.py): MPL-2.0, with
+    # py-vapid (MPL-2.0) and http-ece (MIT).
+    "pywebpush>=2.0,<3",
     "pydantic>=2.6.0",
     "nest_asyncio>=1.6.0",
     "numpy>=1.26.0",

@@ -2,6 +2,10 @@ import { StrictMode, Component } from 'react'
 import type { ErrorInfo, ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App'
+import { registerServiceWorker } from './lib/pwa'
+
+// Production builds over HTTPS (or localhost) only: push and the offline shell.
+registerServiceWorker()
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state = { error: null }

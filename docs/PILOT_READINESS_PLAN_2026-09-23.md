@@ -80,6 +80,25 @@ Still open in Stage A:
 5. **Autoplay.** Close and reopen the app, open voice mode and ask something without touching anything else. The reply must still play.
 6. **Replay.** Tap the speaker on an old reply. It plays at once, and a second tap stops it.
 
+**Stage B progress (2026-09-24), notifications and the phone shell** (closes most of Fix H):
+- **Web Push, self-hosted.** VAPID keys are generated on the Mac (`~/.narad/config/vapid.json`, 0600). Each profile subscribes its own phones (`/push/*`), and only known push services are accepted as endpoints.
+  - A device is tied to the profile's session epoch, so "sign out everywhere" also silences a lost phone.
+  - A 404/410 answer drops the subscription.
+  - `vahana.deliver` pushes to every device of that profile off-thread. The inbox copy stays the source of truth, and ntfy is only the fallback for a profile with no Web Push device.
+- **Lock-screen privacy.** Details are off by default, so a push says only "Narad has a reminder for you" or "Narad needs your OK". Quiet hours (22:00–07:00 in the phone's time zone) let only urgent pushes through, plus the person's own on-time medicine reminders. Both settings are per profile, in Profile.
+- **Care circles.** A person shares chosen kinds with a family member: medicine reminders, missed doses and health alerts, finished tasks, and approvals as FYI.
+  - Only the person themself can grant it; the owner cannot.
+  - The carer can leave.
+  - Carer copies carry a title and one line, and follow the carer's own quiet hours and lock-screen setting.
+  - Kala's medicine reminders now fire as `medicine_reminder` per profile, and an unopened one is followed by a `health_alert` after 60 minutes. A finished path sends `task_done`.
+- **Activity screen.** It groups Needs you, Running and Done, with an unread badge in the navigation and on the app icon, and deep links to `/?approval=<id>` and to Paths. It also has the "Notifications on this phone" control.
+- **Service worker.** It caches the versioned app shell only, never API responses or `/media`.
+  - Navigations are network-first. A Cloudflare Access redirect passes through and is never cached.
+  - An asleep Mac or a tunnel error opens the cached shell on a "Narad's Mac is asleep or offline" screen.
+  - A new build takes over on the next launch or on "Reload".
+- **Evidence:** `phase-1/test_web_push.py` (real RFC 8291 encryption, decrypted in the test) and `phase-4/frontend/tests/sw.test.mjs` (the cache policy). The manual phone checklist is in the README under "Notifications on phones".
+- **Still open from Fix H:** approvals delivered by push need the hash-bound approval card (a parallel change). Live view and takeover, server-side stop, and iOS voice playback are also still open.
+
 ## Stack decisions (2026-09-24): Indic voice, Indic documents, local decision models
 
 These decisions come from two source-checked research passes, one on Sarvam and Indic open models, one on Jev, CUA-S1 and Laya. They put experience and functionality first, then privacy, then cost. Sarvam and Laya numbers are vendor-reported unless marked otherwise. Every Mac figure is an estimate until `scripts/bench_local_stack.py` has been run on the M5 Air.
@@ -495,6 +514,8 @@ Each phase is one reviewable PR (or a small stack). Exit gates are hard: a phase
 | Unsafe actions | 0 |
 
 ### Phase 5: Cross-device experience
+
+> **Status (2026-09-24):** the Activity surface, self-hosted Web Push and the PWA shell (offline "host asleep" page, versioned shell cache) have landed. Care circles and lock-screen privacy were added alongside them (see Stage B progress). The rest of this phase is still open.
 
 - **Chat**
   - An activity timeline plus generative tool cards: a browser card with a live frame, an approval card with Approve/Reject/Edit, and result cards.
