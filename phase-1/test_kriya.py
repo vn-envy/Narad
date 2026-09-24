@@ -279,11 +279,12 @@ def test_commit_step_waits_for_approval_then_runs_exactly_once(home) -> None:
     assert 'click "Pay now"' in proposal.summary and proposal.preview["task_id"] == task.task_id
     assert runtime.frame(task.task_id, profile_id="asha").startswith(b"\xff\xd8")
 
-    # Approving through the app's route leaves it approved (no executor); the loop runs it.
+    # Approving through the app's route runs nothing itself (no executor): the
+    # task loop takes the approval, possibly before this call returns.
     assert anumati.execute_approved(
         anumati.approve(proposal.proposal_id, profile_id="asha", decided_by="asha").proposal_id,
         profile_id="asha",
-    ).status == "approved"
+    ).status in {"approved", "executing", "executed"}
     done = _wait(runtime, task.task_id, "done")
     assert [item["ref"] for item in surface.executed] == ["e3", "e4"]
     assert done.result["answer"] == "Order number 4411"
