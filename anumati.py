@@ -51,7 +51,7 @@ from profile_context import current_profile_id, profile_root, profile_scope, val
 log = logging.getLogger("narad.anumati")
 
 SURFACES = frozenset({
-    "email", "browser", "signed_in_browser", "desktop", "phone", "executor", "workflow",
+    "email", "browser", "signed_in_browser", "desktop", "phone", "executor", "workflow", "http",
 })
 STATUSES = (
     "pending", "approved", "executing", "rejected", "expired", "edited", "executed", "failed",
@@ -245,12 +245,20 @@ class ActionProposal:
 
 
 _TYPED_KEYS = frozenset({"value", "text", "fields"})
+_SECRET_HEADER_RE = re.compile(r"(?i)^(authorization|proxy-authorization|cookie|x-api-key|api-key|x-auth-token)$")
 
 
 def _public_args(surface: str, args: Any) -> Any:
     """Typed values stay in the store (they are what runs) but are masked in the
     app, the chat stream and the phone's local storage; the summary names the
     ones that are not secrets."""
+    if surface == "http" and isinstance(args, dict):
+        # API keys and cookies in a request's headers never leave the store.
+        headers = {
+            key: "••••" if _SECRET_HEADER_RE.match(str(key)) else value
+            for key, value in (args.get("headers") or {}).items()
+        }
+        return {**args, "headers": headers}
     if surface not in {"browser", "signed_in_browser", "desktop"} or not isinstance(args, dict):
         return args
     actions = [

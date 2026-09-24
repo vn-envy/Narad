@@ -159,6 +159,9 @@ export interface ApprovalPreview {
   signed_in?: boolean
   reason?: string
   warning?: string | null
+  // http (a request that changes something on another service)
+  method?: string
+  url?: string
   // phone / desktop / workflow
   device?: string
   mode?: string

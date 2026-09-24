@@ -214,6 +214,23 @@ def _check_url(url: str) -> str | None:
     return None
 
 
+# Methods that only read. Anything else can change something on another
+# service (post to a webhook, create or delete a record), so the person
+# approves the exact request on their phone first (anumati.py).
+_READ_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+_SECRET_HEADER_RE = re.compile(r"(?i)^(authorization|proxy-authorization|cookie|x-api-key|api-key|x-auth-token)$")
+
+
+def _http_summary(method: str, url: str, body_bytes: bytes | None) -> str:
+    host = urlparse(url).hostname or url
+    text = (body_bytes or b"").decode("utf-8", errors="replace").strip()
+    return f"{method} to {host}" + (f": {text[:160]}" if text else "")
+
+
+def _public_headers(headers: dict) -> dict:
+    return {key: "••••" if _SECRET_HEADER_RE.match(str(key)) else value for key, value in headers.items()}
+
+
 def http_request(
     method: str,
     url: str,
@@ -222,6 +239,12 @@ def http_request(
     timeout_s: int = TIMEOUT_S,
 ) -> dict:
     """Make an HTTP request to any public REST API or webhook endpoint.
+
+    GET, HEAD and OPTIONS run at once. POST, PUT, PATCH and DELETE change
+    something on another service, so they put an approval card for this exact
+    request on the person's phone and return status "needs_approval"; Narad
+    sends it only when they tap Approve. Tell them it is waiting for their OK;
+    never ask them to type "yes", and don't repeat the call to confirm it.
 
     Use this when you need to:
     - Call a REST API directly with specific parameters or auth headers
@@ -240,7 +263,7 @@ def http_request(
         timeout_s: Seconds before timeout (default 30, max 120).
 
     Returns:
-        status:        "ok" | "error" | "http_error"
+        status:        "ok" | "error" | "http_error" | "needs_approval" | "already_done"
         status_code:   HTTP response code
         body:          Response body as string (capped at 12000 chars)
         body_json:     Parsed JSON if response Content-Type is application/json
@@ -285,6 +308,49 @@ def http_request(
         elif isinstance(body, str):
             body_bytes = body.encode()
 
+    if method in _READ_METHODS:
+        return _send(method, url, headers, body_bytes, timeout_s)
+
+    import anumati
+
+    args = {
+        "method": method,
+        "url": url,
+        "headers": headers,
+        "body": (body_bytes or b"").decode("utf-8", errors="replace"),
+        "timeout_s": timeout_s,
+    }
+    preview = {"method": method, "url": url, "headers": _public_headers(headers), "body": args["body"][:2000]}
+    gate = anumati.require(
+        surface="http",
+        action=method.lower(),
+        target=url,
+        args=args,
+        summary=_http_summary(method, url, body_bytes),
+        risk_class="send",
+        preview=preview,
+    )
+    if gate.status == "needs_approval":
+        return anumati.needs_approval_result(gate.proposal, message=gate.proposal.summary, preview=preview)
+    if gate.status == "already_executed":
+        return anumati.already_executed_result(gate.proposal, preview=preview)
+    result = _send(method, url, headers, body_bytes, timeout_s)
+    anumati.record_result(gate.proposal.proposal_id, result, profile_id=gate.proposal.profile_id)
+    return result
+
+
+def _execute_http_proposal(proposal) -> dict:
+    args = proposal.args
+    # The address is checked again: DNS may have changed since the proposal.
+    url_error = _check_url(args["url"])
+    if url_error:
+        return {"status": "error", "message": url_error}
+    body = args.get("body") or ""
+    return _send(args["method"], args["url"], dict(args.get("headers") or {}),
+                 body.encode() if body else None, int(args.get("timeout_s") or TIMEOUT_S))
+
+
+def _send(method: str, url: str, headers: dict, body_bytes: bytes | None, timeout_s: int) -> dict:
     start = time.time()
 
     try:
@@ -607,3 +673,12 @@ def search_last30days(
         source_backends=source_backends,
         errors=errors,
     )
+
+
+def _register_approvals() -> None:
+    import anumati
+
+    anumati.register_executor("http", _execute_http_proposal)
+
+
+_register_approvals()

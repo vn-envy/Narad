@@ -112,7 +112,7 @@ document extraction, critical analysis (steelman + red-team), and the local file
 | `exa_search` | Exa auto/fast/deep research with highlights, schemas, grounding, and freshness controls |
 | `exa_contents` | Bounded full-text extraction for known public URLs |
 | `browse_url` | Playwright headless browser for JS SPAs and specific URLs |
-| `http_request` | Direct REST API / webhook calls |
+| `http_request` | Direct REST API / webhook calls; POST/PUT/PATCH/DELETE wait for an Anumati approval |
 | `computer_use` | Persistent isolated Playwright or profile-granted signed-in BrowserSkill sessions; semantic actions, batched execution, and trace artifacts; desktop is opt-in. Benign steps run; the first commit step returns `needs_approval` (Anumati) |
 | `phone_use` | Optional profile-granted Android execution through Artemis; consequential tasks need verified mode and an Anumati approval |
 | `browser_screenshot` / `browser_fill` / `browser_upload_and_submit` | Compatible form helpers over one shared session: screenshot → fill → approval card → Narad submits |
@@ -233,7 +233,7 @@ all; Anumati decides whether this person approved this exact one.
 ### Anumati (Approvals)
 Commit-class side effects run only against an `ActionProposal` the person approved on
 their phone (`anumati.py`). A model's `confirmed=True` or `dry_run=False` approves nothing.
-- **Proposal**: surface (email / browser / signed_in_browser / desktop / phone / workflow),
+- **Proposal**: surface (email / browser / signed_in_browser / desktop / phone / workflow / http),
   action, target, canonical args, and `args_hash` = sha256 over all four; a summary the tool
   builds from the args; risk class; preview (email fields or a screenshot); 15-minute expiry
   (24 h for path steps, `NARAD_APPROVAL_TTL_S`); decided by / at / device; result. Stored per
@@ -243,8 +243,11 @@ their phone (`anumati.py`). A model's `confirmed=True` or `dry_run=False` approv
   `needs_approval` with the pending proposal (an identical request reuses it, an executed
   one returns `already_done`). Covered: `send_email`, commit steps in `computer_use`
   (isolated, signed-in, desktop), `browser_fill` / `browser_upload_and_submit` submits,
-  consequential `phone_use` tasks, and workflow stage confirmations. The owner-only shell
-  tools keep their own allowlist gate.
+  consequential `phone_use` tasks, workflow stage confirmations, and `http_request` POST /
+  PUT / PATCH / DELETE (GET, HEAD and OPTIONS run at once; secret headers are masked on the
+  card). The owner-only shell tools keep their own allowlist gate. `create_event` stays
+  model-confirmed on purpose: it only adds a private event to the person's own calendar
+  (no attendees), which they can delete, so it is reversible input, not a commit.
 - **Deciding**: `GET /approvals?status=pending`, `GET /approvals/{id}`,
   `POST /approvals/{id}/approve|reject|edit` (edit: email recipients, subject, body; it
   creates a new proposal with a new hash). Profiles only see their own (others get 404).

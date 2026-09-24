@@ -147,6 +147,19 @@ function ScreenPreview({ preview }: { preview: ApprovalPreview }) {
 
 function OtherPreview({ proposal }: { proposal: ApprovalProposal }) {
   const preview = proposal.preview
+  if (proposal.surface === 'http') {
+    return (
+      <div className="flex flex-col gap-1">
+        <Field label="Sends" value={[preview.method, hostOf(preview.url)].filter(Boolean).join(' to ')} />
+        <Field label="Address" value={preview.url} />
+        {preview.body && (
+          <div className="mt-1 text-[12.5px] leading-relaxed whitespace-pre-wrap break-words overflow-y-auto" style={{ maxHeight: 160, color: 'var(--ink-70)' }}>
+            {preview.body}
+          </div>
+        )}
+      </div>
+    )
+  }
   if (proposal.surface === 'workflow') {
     return (
       <div className="flex flex-col gap-1">

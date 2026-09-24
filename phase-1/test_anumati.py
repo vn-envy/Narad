@@ -137,6 +137,44 @@ def test_send_email_waits_for_the_person_and_runs_once_when_approved(home, gmail
     assert results[0]["data"]["expires_at"] == proposal["expires_at"]
 
 
+def test_http_writes_wait_for_the_person_and_reads_do_not(home, monkeypatch: pytest.MonkeyPatch) -> None:
+    import http_skill
+
+    sent: list[tuple] = []
+
+    def _send(method, url, headers, body_bytes, timeout_s):
+        sent.append((method, url, dict(headers), body_bytes))
+        return {"status": "ok", "status_code": 200, "message": "HTTP 200"}
+
+    monkeypatch.setattr(http_skill, "_send", _send)
+    monkeypatch.setattr(http_skill, "_check_url", lambda url: None)
+    hook = "https://hooks.example.com/services/T1"
+    with profile_scope("asha"):
+        read = http_skill.http_request("GET", "https://api.example.com/status")
+        waiting = http_skill.http_request(
+            "POST", hook, headers={"Authorization": "Bearer secret-token"}, body={"text": "Dinner at 8"},
+        )
+    assert read["status"] == "ok" and sent[0][0] == "GET"
+    assert waiting["status"] == "needs_approval" and len(sent) == 1
+
+    proposal = waiting["approval"]
+    assert proposal["summary"] == 'POST to hooks.example.com: {"text": "Dinner at 8"}'
+    # The phone never sees the API key; the store keeps it because it is what runs.
+    assert "secret-token" not in json.dumps(proposal)
+    assert proposal["preview"]["headers"]["Authorization"] == "••••"
+
+    anumati.approve(proposal["id"], profile_id="asha", decided_by="asha", device="Pixel 8")
+    done = anumati.execute_approved(proposal["id"], profile_id="asha")
+    assert done.status == "executed"
+    assert sent[-1] == ("POST", hook, {"Authorization": "Bearer secret-token",
+                                        "Content-Type": "application/json"}, b'{"text": "Dinner at 8"}')
+    with profile_scope("asha"):
+        again = http_skill.http_request(
+            "POST", hook, headers={"Authorization": "Bearer secret-token"}, body={"text": "Dinner at 8"},
+        )
+    assert again["status"] == "already_done" and len(sent) == 2
+
+
 def test_a_changed_argument_is_a_different_proposal(home, gmail) -> None:
     with profile_scope("asha"):
         first = email_skill.send_email(**_email(), dry_run=False)
