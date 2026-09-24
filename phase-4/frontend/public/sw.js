@@ -109,15 +109,18 @@ function parsePushPayload(text, origin) {
 function offlinePage() {
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#211f1c"><title>Narad is offline</title>
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)"><title>Narad is offline</title>
 <style>
+  :root{color-scheme:light dark}
   body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;box-sizing:border-box;
-    background:#211f1c;color:#fcfaf2;font:16px/1.5 Inter,system-ui,sans-serif;text-align:center}
+    background:#fff;color:#111;font:16px/1.5 system-ui,sans-serif;text-align:center}
   main{max-width:360px}
-  h1{font:700 24px/1.2 'Playfair Display',Georgia,serif;margin:18px 0 8px}
-  p{margin:0 0 22px;color:rgba(252,250,242,.62)}
+  h1{font:600 24px/1.2 Georgia,serif;margin:18px 0 8px}
+  p{margin:0 0 22px;color:rgba(17,17,17,.62)}
   .dot{width:12px;height:12px;border-radius:50%;background:#c2410c;margin:0 auto;box-shadow:0 0 0 6px rgba(194,65,12,.18)}
-  button{min-height:48px;padding:0 26px;border:0;border-radius:11px;background:#c2410c;color:#fff;font:700 14px Inter,system-ui,sans-serif}
+  button{min-height:48px;padding:0 26px;border:0;border-radius:999px;background:#c2410c;color:#fff;font:600 15px system-ui,sans-serif}
+  @media (prefers-color-scheme:dark){body{background:#000;color:#f5f5f5}p{color:rgba(245,245,245,.62)}}
 </style></head><body><main>
 <div class="dot"></div>
 <h1 id="t">Narad's Mac is asleep or offline</h1>

@@ -4,6 +4,7 @@ import { useAvatara } from './hooks/useAvatara'
 import { useIsMobile } from './hooks/useIsMobile'
 import { ChatPanel }            from './components/ChatPanel'
 import { AwarenessBar }         from './components/AwarenessBar'
+import { EdgeAmbience }         from './components/EdgeAmbience'
 import { FamilyProfileGate }    from './components/FamilyProfileGate'
 import { HostOfflineBanner, HostOfflineScreen } from './components/HostOffline'
 import { ConsentGate }          from './components/ConsentGate'
@@ -424,8 +425,8 @@ function NaradSession({ profile, onSwitchProfile }: { profile: FamilyProfile; on
 
   return (
     <>
-      {/* Noise texture overlay */}
-      <div className="noise-overlay" />
+      {/* The page stays plain; the working avatar's colour glows at the edges. */}
+      <EdgeAmbience avatars={avatars} naradActive={naradActive} />
 
       <div className="app-shell flex flex-col overflow-hidden" style={{ position: 'relative', zIndex: 1 }}>
       <HostOfflineBanner />

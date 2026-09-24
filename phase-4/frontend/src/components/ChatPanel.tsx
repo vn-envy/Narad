@@ -13,8 +13,8 @@ import type {
 import { useTTS, VOICE_AVATARS } from '../hooks/useTTS'
 import { unlockAudio } from '@/lib/speech-queue'
 import type { TTSAvatar } from '../hooks/useTTS'
-import { MahatiLogo } from './MahatiLogo'
-import { ZigzagBank } from './Motifs'
+import { Veena, type VeenaMood } from './Veena'
+import { AvatarGlyph } from './AvatarGlyph'
 import { GuruMessage } from './GuruCards'
 import { ApprovalCard, type ApprovalChange } from './ApprovalCard'
 import { MessageFooter } from './MessageFooter'
@@ -50,7 +50,7 @@ import {
 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { AVATAR_COLOURS, AVATAR_RGB, DEVA, isAvatarName } from '@/lib/avatara-constants'
+import { AVATAR_COLOURS, AVATAR_RGB, isAvatarName } from '@/lib/avatara-constants'
 import { apiFetch, apiPath, apiUrl, type WorkflowRun } from '@/lib/api'
 import type { FamilyProfile } from '@/lib/api'
 import { useIsMobile } from '@/hooks/useIsMobile'
@@ -58,11 +58,12 @@ import { PROFILE_COLORS, ProfileBadge } from './ProfileBadge'
 import { textLang } from '@/lib/trust'
 import { toast } from 'sonner'
 
-const SUGGESTIONS: Array<{ label: string; prompt: string }> = [
-  { label: 'Plan my week',        prompt: 'Plan my week from my calendar and open tasks.' },
-  { label: 'Research a topic',    prompt: 'Research the latest on ' },
-  { label: 'Teach me something',  prompt: '/teach me ' },
-  { label: 'Automate something',  prompt: 'Write a script that ' },
+/** The empty chat introduces the four avatāras; a tap starts a prompt in their line of work. */
+const AVATAR_INTROS: Array<{ name: AvatarName; role: string; prompt: string }> = [
+  { name: 'Matsya',      role: 'Research a topic',   prompt: 'Research the latest on ' },
+  { name: 'Rama',        role: 'Plan my week',       prompt: 'Plan my week from my calendar and open tasks.' },
+  { name: 'Krishna',     role: 'Teach me something', prompt: '/teach me ' },
+  { name: 'Parashurama', role: 'Automate something', prompt: 'Write a script that ' },
 ]
 
 const MEDIA_RE = /https?:\/\/\S+\/media\/[^\s"')]+\.(mp4|wav|mp3)/gi
@@ -196,13 +197,13 @@ const MarkdownMessage = memo(function MarkdownMessage({ text, live = false }: { 
             const isBlock = str.includes('\n') || !!className?.startsWith('language-')
             if (!isBlock) {
               return (
-                <code className="font-mono text-[0.88em] px-1 py-0.5 rounded" style={{ background: 'var(--ink-08)', color: 'var(--kajal)' }}>
+                <code className="font-code text-[0.88em] px-1 py-0.5 rounded" style={{ background: 'var(--ink-08)', color: 'var(--kajal)' }}>
                   {children}
                 </code>
               )
             }
             return (
-              <code className={cn('font-mono text-[13px] block leading-relaxed', className)} style={{ color: 'var(--kajal)' }}>
+              <code className={cn('font-code text-[13px] block leading-relaxed', className)} style={{ color: 'var(--kajal)' }}>
                 {children}
               </code>
             )
@@ -276,18 +277,13 @@ function AvatarChips({ avatars }: { avatars: AvatarName[] }) {
       {avatars.map(a => (
         <span
           key={a}
-          className="px-2 py-px rounded organic-border inline-flex items-baseline gap-1 font-mono text-[11px] tracking-[0.04em]"
+          className="pl-1.5 pr-2 py-0.5 rounded-full inline-flex items-center gap-1 font-mono text-[11px] tracking-[0.04em]"
           style={{
             color: isAvatarName(a) ? `var(--avatar-${a.toLowerCase()})` : 'var(--ink-70)',
-            borderColor: `rgba(${AVATAR_RGB[a]}, 0.30)`,
             background: `rgba(${AVATAR_RGB[a]}, 0.08)`,
           }}
         >
-          {isAvatarName(a) && (
-            <span aria-hidden="true" style={{ fontFamily: 'var(--font-deva)', fontSize: 12 }}>
-              {DEVA[a]?.charAt(0)}
-            </span>
-          )}
+          {isAvatarName(a) && <AvatarGlyph name={a} size={14} />}
           {a}
         </span>
       ))}
@@ -443,7 +439,7 @@ interface Props {
 /** Within this many pixels of the end, the chat follows new text. */
 const FOLLOW_SLACK_PX = 48
 
-const HEADER_BUTTON = 'n-icon-btn transition-colors hover:bg-white/10'
+const HEADER_BUTTON = 'n-icon-btn transition-colors hover:bg-black/5 dark:hover:bg-white/10'
 
 export function ChatPanel({
   userId,
@@ -514,6 +510,11 @@ export function ChatPanel({
   }
 
   const liveText = streaming ? liveAnswer?.text ?? '' : ''
+
+  // Veena's face in the header: thinking while Narad chooses, working (with
+  // that avatar's string humming) while one works, a wince on an error.
+  const workingAvatar = Object.values(avatars).find(a => a.state === 'active')?.name ?? null
+  const veenaMood: VeenaMood = error ? 'oops' : workingAvatar ? 'working' : streaming ? 'thinking' : 'calm'
 
   useEffect(() => {
     if (followRef.current) scrollToBottom()
@@ -681,12 +682,12 @@ export function ChatPanel({
   return (
     <div className="flex flex-col h-full overflow-hidden" style={{ background: 'var(--paper)' }}>
 
-      {/* Header — dark chrome with the Playfair wordmark */}
+      {/* Header — frosted, beaded lower edge; Veena's face shows what Narad is doing */}
       <header
-        className="flex items-center gap-2 sm:gap-3 pl-3 pr-1.5 sm:px-5 flex-shrink-0 relative overflow-hidden"
-        style={{ background: 'var(--chrome)', minHeight: 'calc(56px + env(safe-area-inset-top))', paddingTop: 'env(safe-area-inset-top)' }}
+        className="chrome-frost flex items-center gap-2 sm:gap-3 pl-3 pr-1.5 sm:px-5 flex-shrink-0 relative overflow-hidden"
+        style={{ minHeight: 'calc(56px + env(safe-area-inset-top))', paddingTop: 'env(safe-area-inset-top)' }}
       >
-        <MahatiLogo size={isMobile ? 28 : 32} />
+        <Veena variant="face" size={isMobile ? 34 : 38} mood={veenaMood} active={workingAvatar} />
         <div className="flex flex-col gap-0 min-w-0">
           <span
             className="label-hero leading-none"
@@ -694,11 +695,11 @@ export function ChatPanel({
           >
             NARAD.OS
           </span>
-          <span aria-hidden="true" className="text-[12px] leading-tight mt-0.5" style={{ color: 'rgba(252,250,242,0.6)', fontFamily: 'var(--font-deva)' }}>
+          <span aria-hidden="true" className="text-[12px] leading-tight mt-0.5" style={{ color: 'var(--on-chrome-muted)', fontFamily: 'var(--font-deva)' }}>
             नारद  अवतारा
           </span>
         </div>
-        <div className="ml-auto z-10 flex items-center gap-0.5 sm:gap-1.5" style={{ color: 'rgba(252,250,242,0.82)' }}>
+        <div className="ml-auto z-10 flex items-center gap-0.5 sm:gap-1.5" style={{ color: 'rgba(var(--rgb-on-chrome),0.82)' }}>
           {onOpenVoice && (
             <button type="button" onClick={onOpenVoice} className={HEADER_BUTTON} aria-label="Talk to Narad (voice mode)" title="Voice mode">
               <Mic size={19} />
@@ -727,10 +728,6 @@ export function ChatPanel({
           ) : (
             <ProfileBadge profile={profile} onSwitch={onSwitchProfile} compact={isMobile} />
           )}
-        </div>
-        {/* Zigzag motif at bottom edge of header */}
-        <div className="absolute bottom-0 left-0 w-full overflow-hidden pointer-events-none" style={{ height: 12, opacity: 0.1 }} aria-hidden="true">
-          <ZigzagBank color="var(--on-chrome)" className="w-full" />
         </div>
       </header>
 
@@ -777,29 +774,26 @@ export function ChatPanel({
         aria-label="Conversation"
       >
         {messages.length === 0 && (
-          <div className="flex flex-col items-center justify-center gap-3 my-auto py-8 px-2 text-center">
-            <div style={{ opacity: 0.85 }} aria-hidden="true">
-              <MahatiLogo size={56} />
-            </div>
-            <p className="text-[36px] leading-tight" lang="hi" style={{ fontFamily: 'var(--font-deva)', color: 'var(--sindoor)', opacity: 0.85 }}>नमस्ते</p>
-            <p className="label-hero text-[17px]" style={{ color: 'var(--ink-70)' }}>
+          <div className="flex flex-col items-center justify-center gap-3 my-auto py-6 px-2 text-center">
+            <Veena mood="hello" size={isMobile ? 104 : 120} />
+            <p className="text-[36px] leading-tight" lang="hi" style={{ fontFamily: 'var(--font-deva)', color: 'var(--sindoor)' }}>नमस्ते</p>
+            <p className="label-hero text-[17px] text-balance max-w-[320px]" style={{ color: 'var(--ink-70)' }}>
               Ask anything — Narad plucks the right string.
             </p>
-            <div className="flex flex-wrap justify-center gap-2 mt-3 max-w-[440px]">
-              {SUGGESTIONS.map(s => (
+            <div className="grid grid-cols-2 gap-2.5 mt-3 w-full max-w-[440px] text-left">
+              {AVATAR_INTROS.map(a => (
                 <button
-                  key={s.label}
+                  key={a.name}
                   type="button"
-                  onClick={() => handleEdit(s.prompt)}
-                  className="px-4 rounded-full cursor-pointer transition-colors duration-150 text-[14px]"
-                  style={{
-                    minHeight: 44,
-                    color: 'var(--ink-85)',
-                    background: 'var(--surface-raised)',
-                    border: '1px solid var(--ink-12)',
-                  }}
+                  onClick={() => handleEdit(a.prompt)}
+                  className="folk-card flex items-center gap-2 px-2.5 py-3 cursor-pointer active:scale-[0.97] transition-transform duration-150"
+                  style={{ minHeight: 64 }}
                 >
-                  {s.label}
+                  <AvatarGlyph name={a.name} size={28} style={{ flex: 'none' }} />
+                  <span className="flex flex-col min-w-0">
+                    <span className="label-hero text-[15px] leading-tight" style={{ color: `var(--avatar-${a.name.toLowerCase()})` }}>{a.name}</span>
+                    <span className="text-[12.5px] leading-snug" style={{ color: 'var(--ink-55)' }}>{a.role}</span>
+                  </span>
                 </button>
               ))}
             </div>
@@ -867,7 +861,7 @@ export function ChatPanel({
             <div
               key={msg.id}
               className={cn(
-                'group/bubble flex flex-col gap-0.5 w-full',
+                'chat-row group/bubble flex flex-col gap-0.5 w-full',
                 msg.role === 'user' ? 'items-end' : 'items-start'
               )}
             >
@@ -1036,11 +1030,7 @@ export function ChatPanel({
 
               {/* Active avatar label + task */}
               <div className="flex items-center gap-2 px-1 min-w-0">
-                {activeName && isAvatarName(activeName) && (
-                  <span aria-hidden="true" style={{ fontFamily: 'var(--font-deva)', fontSize: 14, color: streamColour }}>
-                    {DEVA[activeName]?.charAt(0)}
-                  </span>
-                )}
+                <AvatarGlyph name={activeName && isAvatarName(activeName) ? activeName : 'narad'} size={20} live />
                 <span className="text-[13px] font-semibold flex-shrink-0" style={{ color: streamColour }}>
                   {activeAvatar ? activeAvatar.name : 'Narad'}
                 </span>
@@ -1111,7 +1101,7 @@ export function ChatPanel({
             minHeight: 44,
             background: 'var(--chrome)',
             color: 'var(--on-chrome)',
-            border: '1px solid rgba(252,250,242,0.18)',
+            border: '1px solid rgba(var(--rgb-on-chrome),0.18)',
             boxShadow: '0 4px 14px rgba(0,0,0,0.25)',
           }}
         >

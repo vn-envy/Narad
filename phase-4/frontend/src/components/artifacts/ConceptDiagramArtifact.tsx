@@ -103,7 +103,7 @@ export function ConceptDiagramArtifact({ topic, doc }: Props) {
                 dominantBaseline="middle"
                 fontSize={isRoot ? 8 : 7}
                 fontFamily="monospace"
-                fill={isRoot ? 'rgba(252,250,242,0.85)' : 'rgba(var(--rgb-ink),0.7)'}
+                fill={isRoot ? 'color-mix(in srgb, var(--paper) 85%, transparent)' : 'rgba(var(--rgb-ink),0.7)'}
                 style={{ pointerEvents: 'none', userSelect: 'none' }}
               >
                 {node.label.length > 14 ? `${node.label.slice(0, 13)}…` : node.label}
@@ -117,7 +117,7 @@ export function ConceptDiagramArtifact({ topic, doc }: Props) {
         className="absolute bottom-2 left-2 right-2 rounded px-3 py-2"
         style={{ background: 'var(--kajal)' }}
       >
-        <p className="font-mono text-[9px] leading-snug" style={{ color: 'rgba(252,250,242,0.78)' }}>
+        <p className="font-mono text-[9px] leading-snug" style={{ color: 'color-mix(in srgb, var(--paper) 78%, transparent)' }}>
           {hovered
             ? nodes.find(node => node.id === hovered)?.note
             : 'Hover a node to inspect the explanation. Use the main chat to add or remove nodes explicitly.'}

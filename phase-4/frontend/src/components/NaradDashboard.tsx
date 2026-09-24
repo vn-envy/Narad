@@ -20,7 +20,6 @@ import { WorkflowPathsPanel } from './WorkflowPathsPanel'
 import { ProfileBadge } from './ProfileBadge'
 import { YouPanel } from './YouPanel'
 import { ActivityPanel } from './ActivityPanel'
-import { ZigzagBank } from './Motifs'
 
 type SystemSection = 'status' | 'trace' | 'models'
 
@@ -148,11 +147,11 @@ function SurfaceFrame({ children }: { children: ReactNode }) {
   )
 }
 
-/** A phone screen's title band: the same dark chrome as Chat's header. */
+/** A phone screen's title band: the same frosted chrome as Chat's header. */
 function PhoneHeader({ surface, onBack }: { surface: DashboardSurface; onBack?: () => void }) {
   const meta = SURFACE_META[surface]
   return (
-    <header className="screen-header relative overflow-hidden" style={onBack ? { paddingLeft: 4 } : undefined}>
+    <header className="screen-header chrome-frost relative overflow-hidden" style={onBack ? { paddingLeft: 4 } : undefined}>
       {onBack && (
         <button type="button" className="n-icon-btn" onClick={onBack} aria-label="Back to You">
           <ArrowLeft size={20} />
@@ -161,9 +160,6 @@ function PhoneHeader({ surface, onBack }: { surface: DashboardSurface; onBack?: 
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 9, minWidth: 0 }}>
         <span className="screen-eyebrow" aria-hidden="true">{meta.eyebrow}</span>
         <h1>{meta.label}</h1>
-      </div>
-      <div className="absolute bottom-0 left-0 w-full overflow-hidden pointer-events-none" style={{ height: 12, opacity: 0.1 }} aria-hidden="true">
-        <ZigzagBank color="var(--on-chrome)" className="w-full" />
       </div>
     </header>
   )
@@ -284,8 +280,8 @@ export function NaradDashboard({
                 gap: 7,
                 padding: '5px 9px',
                 borderRadius: 999,
-                border: '1px solid rgba(252,250,242,0.13)',
-                color: 'rgba(252,250,242,0.66)',
+                border: '1px solid rgba(var(--rgb-on-chrome),0.13)',
+                color: 'rgba(var(--rgb-on-chrome),0.66)',
                 fontSize: 11.5,
                 whiteSpace: 'nowrap',
               }}
@@ -313,9 +309,9 @@ export function NaradDashboard({
                 minHeight: 40,
                 padding: '0 12px',
                 borderRadius: 8,
-                border: '1px solid rgba(252,250,242,0.14)',
-                background: 'rgba(252,250,242,0.07)',
-                color: 'rgba(252,250,242,0.78)',
+                border: '1px solid rgba(var(--rgb-on-chrome),0.14)',
+                background: 'rgba(var(--rgb-on-chrome),0.07)',
+                color: 'rgba(var(--rgb-on-chrome),0.78)',
                 fontSize: 12,
                 fontWeight: 600,
                 cursor: 'pointer',

@@ -148,7 +148,7 @@ function Choice<T extends string>({ value, options, onChange }: {
             lineHeight: 1.2,
             border: '1px solid rgba(252,250,242,0.26)',
             background: value === key ? 'rgba(252,250,242,0.92)' : 'transparent',
-            color: value === key ? '#2d2a26' : '#fcfaf2',
+            color: value === key ? '#111111' : '#fcfaf2',
           }}
         >
           {label}
@@ -617,7 +617,7 @@ export function VoiceMode({ open, onClose, messages, streaming, liveAnswer = nul
       role="dialog"
       aria-modal="true"
       aria-label="Voice mode"
-      style={{ background: 'radial-gradient(ellipse at 50% 42%, var(--chrome-2) 0%, var(--chrome) 70%)', color: '#fcfaf2' }}
+      style={{ background: 'radial-gradient(ellipse at 50% 42%, var(--stage-2) 0%, var(--stage) 70%)', color: '#fcfaf2' }}
       onPointerDown={unlockAudio}
     >
       <div className="absolute right-3 flex items-center gap-2" style={{ top: 'calc(12px + env(safe-area-inset-top))' }}>
@@ -674,7 +674,7 @@ export function VoiceMode({ open, onClose, messages, streaming, liveAnswer = nul
             animation: state === 'thinking' || state === 'transcribing' ? 'voicePulse 1.6s ease-in-out infinite' : 'none',
           }}
         />
-        <span className="absolute inset-0 flex items-center justify-center" style={{ color: '#2d2a26' }}>
+        <span className="absolute inset-0 flex items-center justify-center" style={{ color: '#111111' }}>
           {state === 'paused' ? <MicOff size={38} /> : stoppable ? <Square size={30} /> : <Mic size={38} />}
         </span>
       </button>
@@ -700,7 +700,7 @@ export function VoiceMode({ open, onClose, messages, streaming, liveAnswer = nul
           role="dialog"
           aria-label="Voice settings"
           className="absolute inset-x-0 bottom-0 max-h-[80vh] overflow-y-auto rounded-t-2xl px-5 pt-3 sm:mx-auto sm:max-w-md"
-          style={{ background: 'var(--chrome)', borderTop: '1px solid rgba(252,250,242,0.14)', color: '#fcfaf2', paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}
+          style={{ background: 'var(--stage)', borderTop: '1px solid rgba(252,250,242,0.14)', color: '#fcfaf2', paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}
         >
           <div className="flex items-center justify-between">
             <h2 className="text-[16px] font-semibold">Voice settings</h2>

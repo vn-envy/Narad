@@ -109,7 +109,7 @@ export function AwarenessBar({
         width: 72,
         padding: '10px 8px',
         background: 'var(--chrome)',
-        borderLeft: '1px solid rgba(252,250,242,0.06)',
+        borderLeft: '1px solid rgba(var(--rgb-on-chrome),0.06)',
       }}
     >
       {/* Avatar strings */}
@@ -151,14 +151,14 @@ export function AwarenessBar({
                     ? colour
                     : done
                     ? `rgba(${rgb}, 0.30)`
-                    : 'rgba(252,250,242,0.06)',
+                    : 'rgba(var(--rgb-on-chrome),0.06)',
                   color: active
-                    ? '#fcfaf2'
+                    ? 'var(--on-chrome)'
                     : done
-                    ? 'rgba(252,250,242,0.85)'
-                    : 'rgba(252,250,242,0.40)',
+                    ? 'rgba(var(--rgb-on-chrome),0.85)'
+                    : 'rgba(var(--rgb-on-chrome),0.40)',
                   border: active
-                    ? `1.5px solid rgba(252,250,242,0.35)`
+                    ? `1.5px solid rgba(var(--rgb-on-chrome),0.35)`
                     : `1.5px solid rgba(${rgb}, ${done ? 0.4 : 0.28})`,
                 }}
               >
@@ -171,7 +171,7 @@ export function AwarenessBar({
                   fontSize: 8,
                   marginTop: 2,
                   letterSpacing: '0.08em',
-                  color: active ? colour : 'rgba(252,250,242,0.28)',
+                  color: active ? colour : 'rgba(var(--rgb-on-chrome),0.28)',
                 }}
               >
                 {i + 1}
@@ -184,7 +184,7 @@ export function AwarenessBar({
                   style={{
                     background: 'var(--chrome)',
                     border: `1px solid rgba(${rgb}, 0.45)`,
-                    color: 'rgba(252,250,242,0.9)',
+                    color: 'rgba(var(--rgb-on-chrome),0.9)',
                     top: '50%',
                     transform: 'translateY(-50%)',
                     boxShadow: '0 4px 16px rgba(0,0,0,0.35)',
@@ -229,7 +229,7 @@ export function AwarenessBar({
           display: 'grid',
           gridTemplateColumns: '1fr',
           gap: 4,
-          borderTop: '1px solid rgba(252,250,242,0.08)',
+          borderTop: '1px solid rgba(var(--rgb-on-chrome),0.08)',
           paddingTop: 9,
         }}
       >
@@ -251,8 +251,8 @@ export function AwarenessBar({
                 padding: '5px 4px',
                 border: 0,
                 borderRadius: 9,
-                background: active ? 'rgba(252,250,242,0.12)' : 'transparent',
-                color: active ? '#fcfaf2' : 'rgba(252,250,242,0.55)',
+                background: active ? 'rgba(var(--rgb-on-chrome),0.12)' : 'transparent',
+                color: active ? 'var(--on-chrome)' : 'rgba(var(--rgb-on-chrome),0.55)',
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',

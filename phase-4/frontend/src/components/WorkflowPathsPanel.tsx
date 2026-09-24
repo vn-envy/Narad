@@ -367,7 +367,7 @@ export function WorkflowPathsPanel({ userId, streaming, activeRunId, onContinue 
   const activeRuns = runs.filter(run => !['completed', 'cancelled'].includes(run.status))
 
   return (
-    <div style={{ height: '100%', minHeight: 0, overflow: 'auto', background: 'linear-gradient(135deg, rgba(180,83,9,0.035), transparent 42%), var(--paper)' }}>
+    <div className="panel-scroll" style={{ height: '100%', minHeight: 0, overflow: 'auto', background: 'var(--paper)' }}>
       <div className="paths-body" style={{ minHeight: '100%', display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(245px, 0.72fr) minmax(0, 1.8fr)' }}>
         <aside style={{ padding: isMobile ? 14 : 18, borderRight: isMobile ? 0 : '1px solid rgba(var(--rgb-ink),0.09)', borderBottom: isMobile ? '1px solid rgba(var(--rgb-ink),0.09)' : 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>

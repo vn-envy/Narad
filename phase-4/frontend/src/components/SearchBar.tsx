@@ -134,7 +134,7 @@ export function SearchBar({ userId, onNavigate, tone = 'light' }: Props) {
       <div style={{ position: 'relative' }}>
         <span style={{
           position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)',
-          color: open ? 'var(--sindoor)' : tone === 'dark' ? 'rgba(252,250,242,0.48)' : 'rgba(var(--rgb-ink),0.35)', fontSize: 14, pointerEvents: 'none',
+          color: open ? 'var(--sindoor)' : tone === 'dark' ? 'rgba(var(--rgb-on-chrome),0.48)' : 'rgba(var(--rgb-ink),0.35)', fontSize: 14, pointerEvents: 'none',
         }}>⌕</span>
         <input
           className={tone === 'dark' ? 'dashboard-search-dark' : undefined}
@@ -146,11 +146,11 @@ export function SearchBar({ userId, onNavigate, tone = 'light' }: Props) {
           placeholder="Search memory, sessions, and tasks…"
           style={{
             width: '100%',
-            background: tone === 'dark' ? 'rgba(252,250,242,0.075)' : 'rgba(var(--rgb-ink),0.06)',
-            border: `1px solid ${open ? 'var(--sindoor)' : tone === 'dark' ? 'rgba(252,250,242,0.14)' : 'rgba(var(--rgb-ink),0.15)'}`,
+            background: tone === 'dark' ? 'rgba(var(--rgb-on-chrome),0.075)' : 'rgba(var(--rgb-ink),0.06)',
+            border: `1px solid ${open ? 'var(--sindoor)' : tone === 'dark' ? 'rgba(var(--rgb-on-chrome),0.14)' : 'rgba(var(--rgb-ink),0.15)'}`,
             borderRadius: 8,
             padding: '6px 48px 6px 32px',
-            color: tone === 'dark' ? '#fcfaf2' : 'var(--kajal)',
+            color: tone === 'dark' ? 'var(--on-chrome)' : 'var(--kajal)',
             fontFamily: 'var(--font-body)',
             fontSize: 12.5, outline: 'none',
             boxShadow: open ? '0 0 0 3px rgba(242,142,28,0.18)' : 'none',
@@ -162,8 +162,8 @@ export function SearchBar({ userId, onNavigate, tone = 'light' }: Props) {
             onClick={() => { setQuery(''); setOpen(false) }}
             style={{
               position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
-              fontSize: 10, color: tone === 'dark' ? 'rgba(252,250,242,0.6)' : 'rgba(var(--rgb-ink),0.45)', background: tone === 'dark' ? 'rgba(252,250,242,0.08)' : 'rgba(var(--rgb-ink),0.08)',
-              border: `1px solid ${tone === 'dark' ? 'rgba(252,250,242,0.12)' : 'rgba(var(--rgb-ink),0.12)'}`, borderRadius: 3, padding: '1px 5px',
+              fontSize: 10, color: tone === 'dark' ? 'rgba(var(--rgb-on-chrome),0.6)' : 'rgba(var(--rgb-ink),0.45)', background: tone === 'dark' ? 'rgba(var(--rgb-on-chrome),0.08)' : 'rgba(var(--rgb-ink),0.08)',
+              border: `1px solid ${tone === 'dark' ? 'rgba(var(--rgb-on-chrome),0.12)' : 'rgba(var(--rgb-ink),0.12)'}`, borderRadius: 3, padding: '1px 5px',
               cursor: 'pointer',
             }}
           >✕</button>
@@ -171,8 +171,8 @@ export function SearchBar({ userId, onNavigate, tone = 'light' }: Props) {
           <span style={{
             position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
             fontFamily: 'var(--font-mono)', fontSize: 10,
-            color: tone === 'dark' ? 'rgba(252,250,242,0.42)' : 'rgba(var(--rgb-ink),0.35)', background: tone === 'dark' ? 'rgba(252,250,242,0.06)' : 'rgba(var(--rgb-ink),0.06)',
-            border: `1px solid ${tone === 'dark' ? 'rgba(252,250,242,0.11)' : 'rgba(var(--rgb-ink),0.12)'}`, borderRadius: 3, padding: '1px 5px',
+            color: tone === 'dark' ? 'rgba(var(--rgb-on-chrome),0.42)' : 'rgba(var(--rgb-ink),0.35)', background: tone === 'dark' ? 'rgba(var(--rgb-on-chrome),0.06)' : 'rgba(var(--rgb-ink),0.06)',
+            border: `1px solid ${tone === 'dark' ? 'rgba(var(--rgb-on-chrome),0.11)' : 'rgba(var(--rgb-ink),0.12)'}`, borderRadius: 3, padding: '1px 5px',
           }}>⌘K</span>
         )}
       </div>

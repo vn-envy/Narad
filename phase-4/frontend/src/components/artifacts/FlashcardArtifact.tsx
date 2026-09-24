@@ -52,7 +52,7 @@ export function FlashcardArtifact({ topic, doc }: Props) {
             className="font-mono text-center leading-relaxed"
             style={{
               fontSize: 12,
-              color: flipped ? 'rgba(252,250,242,0.85)' : 'rgba(var(--rgb-ink),0.8)',
+              color: flipped ? 'color-mix(in srgb, var(--paper) 85%, transparent)' : 'rgba(var(--rgb-ink),0.8)',
             }}
           >
             {flipped ? card.back : card.front}

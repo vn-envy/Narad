@@ -75,7 +75,7 @@ export function ToolWorkspacePanel({ toolUi, onClose }: Props) {
         style={{
           height: 34,
           background: 'var(--kajal)',
-          borderBottom: '1px solid rgba(252,250,242,0.07)',
+          borderBottom: '1px solid color-mix(in srgb, var(--paper) 7%, transparent)',
         }}
       >
         <button
@@ -84,11 +84,11 @@ export function ToolWorkspacePanel({ toolUi, onClose }: Props) {
           style={{ background: '#ff5f57' }}
           title="Close"
         />
-        <span className="font-mono text-[9px] tracking-[0.12em] uppercase flex-1 text-center" style={{ color: 'rgba(252,250,242,0.52)', marginLeft: -18 }}>
+        <span className="font-mono text-[9px] tracking-[0.12em] uppercase flex-1 text-center" style={{ color: 'color-mix(in srgb, var(--paper) 52%, transparent)', marginLeft: -18 }}>
           {toolUi.avatar} · {toolUi.tool}
         </span>
         <button onClick={onClose} className="opacity-30 hover:opacity-60 transition-opacity">
-          <X size={10} style={{ color: 'rgba(252,250,242,0.8)' }} />
+          <X size={10} style={{ color: 'color-mix(in srgb, var(--paper) 80%, transparent)' }} />
         </button>
       </div>
 
