@@ -82,6 +82,8 @@ py-modules = [
     "learning_workspace",
     "conversation_memory",
     "dharma",
+    "anumati",
+    "risk_policy",
     "privacy_gateway",
     "tool_result",
     "init_workspace",

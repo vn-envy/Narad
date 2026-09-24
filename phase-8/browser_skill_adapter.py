@@ -28,6 +28,7 @@ _REF_RE = re.compile(r"@?(e\d+)\b")
 # VOM renders one ref per line: ``@e5 button "Send" [ctx: ...] placeholder="..."``.
 _REF_LINE_RE = re.compile(r'^\s*@(e\d+)\s+([^\s"\[]+)(?:\s+("(?:[^"\\]|\\.)*"))?(.*)$')
 _PLACEHOLDER_RE = re.compile(r'\bplaceholder=("(?:[^"\\]|\\.)*")')
+_CONTEXT_RE = re.compile(r"\[ctx:\s*([^\]]*)\]")
 _EFFECT_STATES = frozenset({"none", "unknown", "committed"})
 _SESSIONS_LOCK = threading.RLock()
 
@@ -447,6 +448,10 @@ def observation_ref_elements(text: str) -> dict[str, dict[str, str]]:
         placeholder = _PLACEHOLDER_RE.search(rest or "")
         if placeholder:
             element["placeholder"] = _json_text(placeholder.group(1))
+        context = _CONTEXT_RE.search(rest or "")
+        if context:
+            # The landmark or dialog around the element (a cookie banner, a checkout).
+            element["context"] = context.group(1).strip()[:200]
         if elements.setdefault(ref, element) != element:
             conflicting.add(ref)
     for ref in conflicting:

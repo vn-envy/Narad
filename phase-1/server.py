@@ -1343,6 +1343,127 @@ async def delete_interaction_target(
     return {"ok": True, "removed": True, "target_id": target_id}
 
 
+# ── Anumati approvals ─────────────────────────────────────────────────────────
+# Hash-bound proposals a person approves, rejects or edits from their phone.
+# Each profile's proposals live in its own store, so another profile's id is
+# simply not found (404). Approving runs the stored action server-side through
+# the executor its surface registered, never through another model call.
+
+class ApprovalReject(BaseModel):
+    reason: str = ""
+
+
+class ApprovalEdit(BaseModel):
+    to: Optional[str] = None
+    cc: Optional[str] = None
+    subject: Optional[str] = None
+    body: Optional[str] = None
+
+
+# Quick actions (an email) finish inside the request; a slow one (a phone task)
+# keeps running and the app polls GET /approvals/{id} for its result.
+_APPROVAL_WAIT_S = 20.0
+_approval_runs: set[asyncio.Task] = set()
+
+
+def _approval_http_error(exc: Exception) -> HTTPException:
+    import anumati
+
+    if isinstance(exc, anumati.ProposalNotFound):
+        return HTTPException(status_code=404, detail="Approval not found")
+    if isinstance(exc, anumati.ProposalClosed):
+        return HTTPException(status_code=409, detail=str(exc))
+    return HTTPException(status_code=422, detail=str(exc))
+
+
+def _approval_device(request: Request) -> str:
+    device = request.headers.get("x-narad-device-id", "").strip()
+    return (device or request.headers.get("user-agent", "")).strip()[:160]
+
+
+def _approval_run_done(task: asyncio.Task) -> None:
+    _approval_runs.discard(task)
+    if not task.cancelled() and task.exception() is not None:
+        logging.getLogger("narad.server").error("Approved action failed to run: %s", task.exception())
+
+
+@app.get("/approvals")
+async def list_approvals(request: Request, status: Optional[str] = None, limit: int = 50):
+    import anumati
+
+    profile_id = _assert_profile_match(request, None)
+    try:
+        rows = await asyncio.to_thread(anumati.list_proposals, profile_id=profile_id, status=status, limit=limit)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    return {"approvals": [row.to_payload() for row in rows]}
+
+
+@app.get("/approvals/{proposal_id}")
+async def get_approval(proposal_id: str, request: Request):
+    import anumati
+
+    profile_id = _assert_profile_match(request, None)
+    try:
+        proposal = await asyncio.to_thread(anumati.get, proposal_id, profile_id=profile_id)
+    except anumati.ApprovalError as exc:
+        raise _approval_http_error(exc)
+    return proposal.to_payload()
+
+
+@app.post("/approvals/{proposal_id}/approve")
+async def approve_approval(proposal_id: str, request: Request):
+    import anumati
+
+    profile_id = _assert_profile_match(request, None)
+    try:
+        await asyncio.to_thread(
+            anumati.approve, proposal_id, profile_id=profile_id, decided_by=profile_id,
+            device=_approval_device(request),
+        )
+    except anumati.ApprovalError as exc:
+        raise _approval_http_error(exc)
+    run = asyncio.create_task(asyncio.to_thread(anumati.execute_approved, proposal_id, profile_id=profile_id))
+    _approval_runs.add(run)
+    run.add_done_callback(_approval_run_done)
+    try:
+        proposal = await asyncio.wait_for(asyncio.shield(run), timeout=_APPROVAL_WAIT_S)
+    except asyncio.TimeoutError:
+        proposal = await asyncio.to_thread(anumati.get, proposal_id, profile_id=profile_id)
+    return proposal.to_payload()
+
+
+@app.post("/approvals/{proposal_id}/reject")
+async def reject_approval(proposal_id: str, request: Request, body: Optional[ApprovalReject] = None):
+    import anumati
+
+    profile_id = _assert_profile_match(request, None)
+    try:
+        proposal = await asyncio.to_thread(
+            anumati.reject, proposal_id, profile_id=profile_id, decided_by=profile_id,
+            device=_approval_device(request), reason=(body.reason if body else "")[:500],
+        )
+    except anumati.ApprovalError as exc:
+        raise _approval_http_error(exc)
+    return proposal.to_payload()
+
+
+@app.post("/approvals/{proposal_id}/edit")
+async def edit_approval(proposal_id: str, body: ApprovalEdit, request: Request):
+    """Replace a pending email with the person's version: a new proposal, a new hash."""
+    import anumati
+
+    profile_id = _assert_profile_match(request, None)
+    try:
+        proposal = await asyncio.to_thread(
+            anumati.edit, proposal_id, body.model_dump(exclude_none=True), profile_id=profile_id,
+            decided_by=profile_id, device=_approval_device(request),
+        )
+    except (anumati.ApprovalError, ValueError) as exc:
+        raise _approval_http_error(exc)
+    return proposal.to_payload()
+
+
 @app.post("/chat")
 async def chat(req: ChatRequest, request: Request):
     req.user_id = _assert_profile_match(request, req.user_id)
@@ -2455,6 +2576,13 @@ async def _run_agent_task(
                         "session_id": session_id,
                     },
                 }))
+                # A step that needs the person's OK shows its approval card here too.
+                stage_confirmation = workflow_run.state.get("confirmation") or {}
+                if stage_confirmation.get("status") == "pending" and stage_confirmation.get("proposal_id"):
+                    import anumati
+
+                    stage_proposal = anumati.get(stage_confirmation["proposal_id"], profile_id=req.user_id)
+                    await queue.put(json.dumps({"type": "approval_requested", "data": stage_proposal.to_payload()}))
             except Exception as workflow_exc:
                 logging.getLogger("narad.server").warning(
                     "Workflow stage result was not advanced: %s", workflow_exc

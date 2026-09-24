@@ -333,7 +333,9 @@ class BrowserSkillAdapterTests(unittest.TestCase):
         ])
         elements = browser_skill_adapter.observation_ref_elements(text)
 
-        self.assertEqual(elements["e2"], {"ref": "e2", "role": "button", "name": "Place order"})
+        self.assertEqual(
+            elements["e2"], {"ref": "e2", "role": "button", "name": "Place order", "context": "Checkout"}
+        )
         self.assertEqual(elements["e1"]["placeholder"], "you@example.com")
         self.assertEqual(elements["e3"]["name"], "Docs")
         self.assertEqual(elements["e4"]["placeholder"], "Password")
@@ -381,8 +383,9 @@ class BrowserSkillAdapterTests(unittest.TestCase):
             next_page = run({"action": "click", "ref": "e2"})
 
         for payload in gated:
-            self.assertEqual(payload["status"], "confirmation_required")
+            self.assertEqual(payload["status"], "needs_approval")
             self.assertTrue(payload["requires_confirmation"])
+            self.assertEqual(payload["approval"]["surface"], "signed_in_browser")
         self.assertEqual(next_page["status"], "ok")
         executed.assert_called_once()
 
@@ -407,7 +410,8 @@ class ArtemisAdapterTests(unittest.TestCase):
         self.assertEqual(preview["status"], "preview")
         self.assertTrue(preview["requires_confirmation"])
         self.assertEqual(preview["provenance"]["profile_id"], "alice")
-        self.assertEqual(blocked["status"], "confirmation_required")
+        self.assertEqual(blocked["status"], "needs_approval")
+        self.assertEqual(blocked["approval"]["summary"], "On Alice phone: Send a message to Sam")
 
     def test_remote_artemis_requires_https_and_token(self) -> None:
         with patch.dict(

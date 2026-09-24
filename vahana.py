@@ -38,7 +38,10 @@ from narad_config import INBOX_DIR
 
 log = logging.getLogger("narad.vahana")
 
-_VALID_KINDS = {"reminder", "swapna", "andon", "cron", "system", "triage"}
+_VALID_KINDS = {
+    "reminder", "swapna", "andon", "cron", "system", "triage",
+    "approval_request", "approval_result",  # Anumati (anumati.py)
+}
 _NTFY_PRIORITY = {"urgent": "5", "high": "4", "default": "3", "low": "2"}
 _NTFY_TOPIC_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 _TOPIC_LOCK = threading.Lock()
@@ -150,6 +153,7 @@ def deliver(
 
     Args:
         kind:     reminder | swapna | andon | cron | system | triage
+                  | approval_request | approval_result
         title:    Short headline shown in inbox and as push title.
         body:     Full text of the event.
         user_id:  Inbox owner.

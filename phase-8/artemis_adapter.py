@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import time
 import uuid
 from typing import Any
@@ -15,20 +14,11 @@ from interaction_targets import operation_lock, resolve_interaction_target
 
 from narad_config import ARTIFACTS_DIR
 from profile_context import current_profile_id, validate_profile_id
+from risk_policy import COMMIT, Verdict, classify_task
 from tool_result import artifact, envelope, ui_panel
 
 _TERMINAL = frozenset({"completed", "success", "failed", "cancelled", "canceled", "rejected"})
 _SUCCESS = frozenset({"completed", "success"})
-_SIDE_EFFECT = re.compile(
-    r"\b(send|submit|publish|post|buy|purchase|pay|checkout|delete|remove|cancel|"
-    r"transfer|book|reserve|apply|sign|authorize|message|call|install|uninstall)\b",
-    re.IGNORECASE,
-)
-_SENSITIVE = re.compile(
-    r"\b(bank|brokerage|wallet|payment|medical record|prescription|password|passcode|otp|"
-    r"one[- ]?time|private key|seed phrase)\b",
-    re.IGNORECASE,
-)
 
 
 class ArtemisAdapterError(RuntimeError):
@@ -252,8 +242,12 @@ def phone_use(
 
     Use ``mode='fast'`` only for deterministic, read-oriented tasks. Use
     ``mode='verified'`` for multi-app work, diagnostics, or anything requiring
-    checkpoints. External side effects require an exact preview and explicit
-    confirmation; high-risk work is never dispatched through fast mode.
+    checkpoints. A task that sends, pays, books, buys, deletes, posts, calls,
+    installs, or touches a bank, wallet, UPI app, password or OTP returns
+    status "needs_approval" with dry_run=False: the person approves this exact
+    task on an approval card and Narad dispatches it then. High-risk work is
+    never dispatched through fast mode. ``confirmed`` is accepted for
+    compatibility and approves nothing.
     """
     arguments = dict(
         task=task, device_id=device_id, mode=mode, app_scope=app_scope,
@@ -307,9 +301,11 @@ def _phone_use(
             readiness=artemis_status(include_devices=False),
         )
     readiness = artemis_status(include_devices=False)
-    high_risk = bool(_SIDE_EFFECT.search(clean_task) or _SENSITIVE.search(clean_task))
+    verdict = classify_task(clean_task)
     decision_hint, stricter_jev_gate = _android_admission_hint(clean_task, mode, app_scope)
-    high_risk = high_risk or stricter_jev_gate
+    if stricter_jev_gate and not verdict.needs_approval:
+        verdict = Verdict(COMMIT, "sensitive", "The admission check judged this task consequential")
+    high_risk = verdict.needs_approval
     preview = {
         "task": clean_task,
         "device_id": resolved_device,
@@ -328,7 +324,7 @@ def _phone_use(
                 summary=clean_task,
                 sections=[
                     {"title": "Device", "body": str((grant or {}).get("label") or resolved_device)},
-                    {"title": "Safety", "body": "Explicit confirmation required." if high_risk else "Read-oriented task; execution is still observable and stoppable."},
+                    {"title": "Safety", "body": "Waits for approval in the Narad app." if high_risk else "Read-oriented task; execution is still observable and stoppable."},
                 ],
                 tone="computer-use",
             ),
@@ -344,14 +340,6 @@ def _phone_use(
             error="artemis_unavailable",
             readiness=readiness,
         )
-    if high_risk and not confirmed:
-        return envelope(
-            status="confirmation_required",
-            summary="This Android task may create an external or sensitive side effect.",
-            requires_confirmation=True,
-            planned_task=preview,
-            provenance={"engine": "artemis", "profile_id": owner, "decision_hint": decision_hint},
-        )
     if high_risk and mode != "verified":
         return envelope(
             status="blocked",
@@ -359,6 +347,119 @@ def _phone_use(
             error="verified_mode_required",
             planned_task=preview,
         )
+    consumed = None
+    if high_risk:
+        # `confirmed` approves nothing: the person approves this exact task.
+        import anumati
+
+        gate = anumati.require(
+            **_phone_approval_spec(
+                clean_task, resolved_device, grant, mode, app_scope, verification_level, verdict
+            ),
+            profile_id=owner,
+        )
+        if gate.status == "needs_approval":
+            return anumati.needs_approval_result(
+                gate.proposal,
+                planned_task=preview,
+                provenance={"engine": "artemis", "profile_id": owner, "decision_hint": decision_hint},
+            )
+        if gate.status == "already_executed":
+            return anumati.already_executed_result(gate.proposal, planned_task=preview)
+        consumed = gate.proposal
+    result = _dispatch_phone_task(
+        owner=owner,
+        task=clean_task,
+        device_id=resolved_device,
+        grant=grant,
+        mode=mode,
+        app_scope=app_scope,
+        verification_level=verification_level,
+        timeout_s=timeout_s,
+        high_risk=high_risk,
+        decision_hint=decision_hint,
+    )
+    if consumed is not None:
+        import anumati
+
+        anumati.record_result(consumed.proposal_id, result, profile_id=owner)
+    return result
+
+
+def _phone_approval_spec(
+    task: str,
+    device_id: str,
+    grant: dict[str, Any] | None,
+    mode: str,
+    app_scope: str,
+    verification_level: str,
+    verdict: Verdict,
+) -> dict[str, Any]:
+    """The hash-bound part of a phone task: the exact goal, device and mode."""
+    label = str((grant or {}).get("label") or device_id)
+    return {
+        "surface": "phone",
+        "action": verdict.category,
+        "target": f"{label} ({device_id})",
+        "args": {
+            "task": task,
+            "device_id": device_id,
+            "mode": mode,
+            "app_scope": app_scope or "",
+            "verification_level": verification_level,
+        },
+        "summary": f"On {label}: {task}",
+        "risk_class": verdict.category,
+        "preview": {
+            "kind": "phone",
+            "device": label,
+            "mode": mode,
+            "app_scope": app_scope or None,
+            "reason": verdict.reason,
+        },
+    }
+
+
+def _execute_phone_proposal(proposal: Any) -> dict[str, Any]:
+    """Dispatch an approved phone task, if the device is still granted and reachable."""
+    owner = proposal.profile_id
+    args = proposal.args
+    with operation_lock(f"android:{args['device_id']}"):
+        try:
+            resolved_device, grant = _resolve_device(owner, str(args["device_id"]))
+        except ArtemisAdapterError as exc:
+            return {"status": "error", "summary": str(exc)}
+        readiness = artemis_status(include_devices=False)
+        if not readiness.get("ready"):
+            return {"status": "unavailable", "summary": str(readiness.get("reason") or "Artemis is unavailable")}
+        return _dispatch_phone_task(
+            owner=owner,
+            task=str(args["task"]),
+            device_id=resolved_device,
+            grant=grant,
+            mode=str(args["mode"]),
+            app_scope=str(args.get("app_scope") or ""),
+            verification_level=str(args["verification_level"]),
+            timeout_s=600,
+            high_risk=True,
+            decision_hint=None,
+        )
+
+
+def _dispatch_phone_task(
+    *,
+    owner: str,
+    task: str,
+    device_id: str,
+    grant: dict[str, Any] | None,
+    mode: str,
+    app_scope: str,
+    verification_level: str,
+    timeout_s: int,
+    high_risk: bool,
+    decision_hint: dict[str, Any] | None,
+) -> dict[str, Any]:
+    clean_task, resolved_device = task, device_id
     if high_risk:
         try:
             from dharma import gate_action
@@ -488,3 +589,12 @@ def _phone_use(
         decision_hint=decision_hint,
         verification_hint=verification_hint,
     )
+
+
+def _register_approvals() -> None:
+    import anumati
+
+    anumati.register_executor("phone", _execute_phone_proposal)
+
+
+_register_approvals()

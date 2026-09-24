@@ -109,11 +109,18 @@ def test_external_action_requires_preview_and_approval() -> None:
     )
     assert run.status == "waiting_confirmation"
     assert run.state["confirmation"]["status"] == "pending"
+    # The stage approval is an Anumati proposal: nothing else can approve it.
+    proposal_id = run.state["confirmation"]["proposal_id"]
+    with pytest.raises(PermissionError):
+        workflow_engine.approve_stage(run.run_id, approved_by="asha")
 
     with patch("dharma.gate_action", return_value=SimpleNamespace(allowed=True, reasons=[])):
-        run = workflow_engine.approve_stage(run.run_id, approved_by="asha")
+        run = workflow_engine.approve_pending_stage(run.run_id, approved_by="asha")
     assert run.status == "active"
     assert run.state["confirmation"]["status"] == "approved"
+    import anumati
+
+    assert anumati.get(proposal_id, profile_id="asha").status == "executed"
 
     run = workflow_engine.complete_current_stage(run.run_id, summary="Application submitted after approval")
     assert run.current_stage_id == "track"
@@ -160,7 +167,7 @@ def _fire(run_id: str, template_id: str, due: datetime) -> workflow_engine.Workf
 def _approve_and_complete(run_id: str, summary: str) -> workflow_engine.WorkflowRun:
     workflow_engine.request_stage_confirmation(run_id, summary=f"Preview: {summary}")
     with patch("dharma.gate_action", return_value=SimpleNamespace(allowed=True, reasons=[])):
-        workflow_engine.approve_stage(run_id, approved_by="user")
+        workflow_engine.approve_pending_stage(run_id, approved_by="user")
     return workflow_engine.complete_current_stage(run_id, summary=summary)
 
 
@@ -204,7 +211,7 @@ def test_scheduled_check_in_never_drops_a_pending_or_approved_confirmation() -> 
     assert run.state["scheduled_prompt"]["stage_id"] == "market_scan"
 
     with patch("dharma.gate_action", return_value=SimpleNamespace(allowed=True, reasons=[])):
-        run = workflow_engine.approve_stage(run.run_id, approved_by="asha")
+        run = workflow_engine.approve_pending_stage(run.run_id, approved_by="asha")
     run = _fire(run.run_id, "weekly_scan", datetime(2026, 9, 21, 3, 30, tzinfo=timezone.utc))
     assert run.current_stage_id == "apply"
     assert run.state["confirmation"]["status"] == "approved"
@@ -307,7 +314,7 @@ def test_schedule_pushes_match_what_the_schedule_did() -> None:
     assert "waiting for your approval" in deliver.call_args.kwargs["body"]
 
     with patch("dharma.gate_action", return_value=SimpleNamespace(allowed=True, reasons=[])):
-        workflow_engine.approve_stage(run.run_id, approved_by="priya")
+        workflow_engine.approve_pending_stage(run.run_id, approved_by="priya")
     run = workflow_engine.complete_current_stage(run.run_id, summary="Booked")
     while run.current_stage_id:
         run = workflow_engine.complete_current_stage(run.run_id, summary=f"Completed {run.current_stage_id}")

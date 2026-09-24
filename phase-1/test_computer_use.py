@@ -27,6 +27,17 @@ from computer_use_skill import (
     computer_use,
 )
 
+import anumati
+
+
+def _approved_call(*args, **kwargs):
+    """Call computer_use, approve the proposal it waits on, and call it again:
+    the second, identical call consumes that approval and runs."""
+    waiting = computer_use(*args, **kwargs)
+    assert waiting["status"] == "needs_approval", waiting
+    anumati.approve(waiting["proposal_id"], profile_id="default", decided_by="default")
+    return computer_use(*args, **kwargs)
+
 
 class ComputerUseContractTests(unittest.TestCase):
     def test_url_policy_rejects_credential_and_metadata_urls(self) -> None:
@@ -324,7 +335,7 @@ class CuaDriverAdapterTests(unittest.TestCase):
         ), patch.object(
             computer_use_skill, "_dharma_gate", return_value=None
         ), patch.object(computer_use_skill.subprocess, "run", side_effect=fake_run):
-            payload = computer_use(
+            payload = _approved_call(
                 "Scroll the document",
                 environment="desktop",
                 actions=actions,
@@ -361,13 +372,20 @@ class CuaDriverAdapterTests(unittest.TestCase):
             with patch.object(
                 interaction_targets, "resolve_interaction_target", return_value={"target_id": "target_host"}
             ):
-                allowed = computer_use(
+                # The model's confirmed=True no longer drives the desktop...
+                waiting = computer_use(
                     "Click", environment="desktop", actions=actions, dry_run=False, confirmed=True
                 )
+                executed.assert_not_called()
+                # ...the person's approval does, through the desktop executor.
+                anumati.approve(waiting["proposal_id"], profile_id="default", decided_by="default")
+                done = anumati.execute_approved(waiting["proposal_id"], profile_id="default")
 
         self.assertEqual(denied["status"], "unavailable")
         self.assertEqual(denied["error"], "desktop_target_unavailable")
-        self.assertEqual(allowed["status"], "ok")
+        self.assertEqual(waiting["status"], "needs_approval")
+        self.assertEqual(done.status, "executed")
+        self.assertEqual(done.result["status"], "ok")
         executed.assert_called_once()
 
     def test_pyautogui_scroll_uses_wheel_notches(self) -> None:
@@ -483,7 +501,7 @@ class ComputerUseBrowserIntegrationTests(unittest.TestCase):
             dry_run=False,
             confirmed=False,
         )
-        self.assertEqual(blocked["status"], "confirmation_required")
+        self.assertEqual(blocked["status"], "needs_approval")
         self.assertTrue(blocked["requires_confirmation"])
 
         closed = computer_use(

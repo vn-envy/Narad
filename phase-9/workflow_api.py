@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from workflow_engine import (
-    approve_stage,
+    approve_pending_stage,
     build_workflow_context,
     complete_current_stage,
     get_workflow_run,
@@ -130,7 +130,9 @@ async def act_on_workflow_run(
         elif action == "request_confirmation":
             run = request_stage_confirmation(run_id, summary=body.summary, details=body.payload)
         elif action == "approve":
-            run = approve_stage(run_id, approved_by=user_id)
+            # The stage's Anumati proposal is approved and carried out, so the
+            # Paths screen and the approval card are one decision.
+            run = approve_pending_stage(run_id, approved_by=user_id)
         elif action in {"complete", "advance"}:
             current = workflow_run_payload(run, include_history=False).get("current_stage") or {}
             if current.get("requires_confirmation") and run.status != "active":

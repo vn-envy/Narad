@@ -85,8 +85,10 @@ def browser_fill(
     """Fill fields in one browser session and optionally submit.
 
     dry_run=True changes only the in-page form state and returns a screenshot.
-    It does not submit. For dry_run=False, confirmed must reflect explicit user
-    approval for this exact form preview.
+    It does not submit. dry_run=False fills the fields, then stops at the
+    submit with status "needs_approval": the person sees the filled form on an
+    approval card on their phone, and Narad submits it when they tap Approve.
+    ``confirmed`` is accepted for compatibility and approves nothing.
     """
     if not isinstance(fields, dict):
         message = "fields must be an object"
@@ -114,7 +116,7 @@ def browser_fill(
         actions=actions,
         environment="browser",
         # Filling is a reversible page-local preview, so execute it. The submit
-        # action remains confirmation-gated by computer_use.
+        # waits for the person's Anumati approval inside computer_use.
         dry_run=False,
         confirmed=confirmed,
     )
@@ -128,12 +130,14 @@ def browser_upload_and_submit(
     session_id: str = "",
     confirmed: bool = False,
 ) -> dict[str, Any]:
-    """Fill, upload, and submit after explicit confirmation.
+    """Fill, then upload and submit once the person approves on their phone.
 
     Always pass the session_id returned by browser_screenshot/browser_fill so
-    the reviewed page, cookies, and field state remain intact. Without
-    confirmed=True the fields are filled as a page-local preview and the batch
-    stops at computer_use's confirmation gate before any file is uploaded.
+    the reviewed page, cookies, and field state remain intact. The fields are
+    filled as a page-local preview and the batch stops before any file is
+    uploaded, with status "needs_approval"; Narad uploads and submits exactly
+    this when the person taps Approve. ``confirmed`` is accepted for
+    compatibility and approves nothing.
     """
     if _domain_is_blocked(url):
         message = f"Submission is blocked for sensitive domain {urlparse(url).hostname}."
@@ -159,7 +163,7 @@ def browser_upload_and_submit(
         session_id=session_id,
         actions=actions,
         environment="browser",
-        # Upload and submit stay gated by computer_use; never self-confirm here.
+        # Upload and submit wait for the person's approval inside computer_use.
         dry_run=False,
         confirmed=confirmed,
     )
