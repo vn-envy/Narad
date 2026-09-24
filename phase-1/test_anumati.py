@@ -601,6 +601,8 @@ def test_commit_labels_need_approval(label: str, category: str) -> None:
     ("Sort by price", "", "filter"),
     ("Next", "", "step"),
     ("Proceed to checkout", "", "step"),
+    # Opening the payment page is a step; paying on it is the commit.
+    ("Continue to payment", "", "step"),
     ("Add to cart", "", "cart"),
     ("Page 3", "", "pagination"),
     ("Load more", "", "pagination"),
@@ -615,6 +617,11 @@ def test_commit_labels_need_approval(label: str, category: str) -> None:
 def test_benign_labels_need_no_approval(label: str, context: str, category: str) -> None:
     verdict = risk_policy.classify_label(label, context=context)
     assert verdict is not None and not verdict.needs_approval and verdict.category == category
+
+
+def test_continuing_to_pay_an_amount_is_the_payment() -> None:
+    assert risk_policy.classify_label("Continue to pay ₹6,000").category == "pay"
+    assert risk_policy.classify_label("Continue to payment").needs_approval is False
 
 
 def test_a_consent_banner_never_hides_a_payment() -> None:

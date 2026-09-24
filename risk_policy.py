@@ -104,7 +104,7 @@ LABEL_RULES: tuple[Rule, ...] = (
     # A bare "Next" or "Continue" counts only as the whole label, so "Continue
     # to pay ₹6,000" still reaches the pay rule below.
     Rule("step", BENIGN, _phrases(
-        r"(?:continue|proceed|go|move on) to (?:the )?(?:checkout|payment page|cart|basket|review|summary|"
+        r"(?:continue|proceed|go|move on) to (?:the )?(?:checkout|payment(?: page| options?| methods?)?|cart|basket|review|summary|"
         r"next (?:step|page)|shipping|delivery|address|details|seat selection)",
         r"(?:view|go to|open) (?:your |my |the )?(?:cart|basket|bag)", "checkout",
     )),
