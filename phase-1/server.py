@@ -2550,7 +2550,9 @@ async def _run_agent_task(
                 from workflow_engine import record_chat_stage_result as _record_workflow_result
                 from workflow_engine import workflow_run_payload as _workflow_run_payload
 
-                workflow_run = _record_workflow_result(
+                # Off the loop: a step that needs approval also notifies (Vahana file I/O).
+                workflow_run = await asyncio.to_thread(
+                    _record_workflow_result,
                     req.workflow_run_id,
                     user_id=req.user_id,
                     session_id=session_id,
@@ -2581,7 +2583,9 @@ async def _run_agent_task(
                 if stage_confirmation.get("status") == "pending" and stage_confirmation.get("proposal_id"):
                     import anumati
 
-                    stage_proposal = anumati.get(stage_confirmation["proposal_id"], profile_id=req.user_id)
+                    stage_proposal = await asyncio.to_thread(
+                        anumati.get, stage_confirmation["proposal_id"], profile_id=req.user_id
+                    )
                     await queue.put(json.dumps({"type": "approval_requested", "data": stage_proposal.to_payload()}))
             except Exception as workflow_exc:
                 logging.getLogger("narad.server").warning(

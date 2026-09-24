@@ -269,7 +269,14 @@ _LABEL_KEYS = ("name", "label", "text", "placeholder", "query", "intent")
 def _target_label(action: dict[str, Any]) -> str:
     """The human words for a target (its name or label), not its role or selector."""
     target = action.get("target") if isinstance(action.get("target"), dict) else {}
-    words = [str(source[key]) for source in (target, action) for key in _LABEL_KEYS if source.get(key)]
+    # On a typing step a top-level "text" is the value being typed, not a label.
+    typed = str(action.get("action") or "").lower() in _INPUT_ACTIONS
+    words = [
+        str(source[key])
+        for source in (target, action)
+        for key in _LABEL_KEYS
+        if source.get(key) and not (typed and source is action and key == "text")
+    ]
     if not words and isinstance(action.get("target"), str):
         words.append(str(action["target"]))
     return " ".join(words) or action_target_text(action)

@@ -221,7 +221,7 @@ class ActionProposal:
             "surface": self.surface,
             "action": self.action,
             "target": self.target,
-            "args": self.args,
+            "args": _public_args(self.surface, self.args),
             "args_hash": self.args_hash,
             "summary": self.summary,
             "risk_class": self.risk_class,
@@ -242,6 +242,23 @@ class ActionProposal:
             "result": self.result,
             "editable": self.surface in EDITABLE_SURFACES and self.status == "pending",
         }
+
+
+_TYPED_KEYS = frozenset({"value", "text", "fields"})
+
+
+def _public_args(surface: str, args: Any) -> Any:
+    """Typed values stay in the store (they are what runs) but are masked in the
+    app, the chat stream and the phone's local storage; the summary names the
+    ones that are not secrets."""
+    if surface not in {"browser", "signed_in_browser", "desktop"} or not isinstance(args, dict):
+        return args
+    actions = [
+        {key: "••••" if key in _TYPED_KEYS and value not in (None, "") else value for key, value in action.items()}
+        if isinstance(action, dict) else action
+        for action in args.get("actions") or []
+    ]
+    return {**args, "actions": actions}
 
 
 @dataclass(frozen=True)
@@ -935,6 +952,7 @@ def _announce(proposal: ActionProposal) -> None:
                 "proposal_id": proposal.proposal_id,
                 "url": f"/?approval={proposal.proposal_id}",
                 "status": proposal.status,
+                "expires_at": _iso(proposal.expires_ts),
             },
             priority="default",
             source="anumati",

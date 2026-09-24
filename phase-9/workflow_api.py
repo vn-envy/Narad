@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
@@ -128,17 +129,22 @@ async def act_on_workflow_run(
             details = body.payload.get("details")
             run = record_workflow_feedback(run_id, event, details=details if isinstance(details, dict) else {})
         elif action == "request_confirmation":
-            run = request_stage_confirmation(run_id, summary=body.summary, details=body.payload)
+            # Off the loop: the approval request notifies (Vahana file I/O).
+            run = await asyncio.to_thread(
+                request_stage_confirmation, run_id, summary=body.summary, details=body.payload
+            )
         elif action == "approve":
             # The stage's Anumati proposal is approved and carried out, so the
             # Paths screen and the approval card are one decision.
-            run = approve_pending_stage(run_id, approved_by=user_id)
+            run = await asyncio.to_thread(approve_pending_stage, run_id, approved_by=user_id)
         elif action in {"complete", "advance"}:
             current = workflow_run_payload(run, include_history=False).get("current_stage") or {}
             if current.get("requires_confirmation") and run.status != "active":
                 raise PermissionError("Approve the pending action before completing this stage")
             if current.get("requires_confirmation") and not (run.state.get("confirmation") or {}).get("status") == "approved":
-                run = request_stage_confirmation(run_id, summary=body.summary, details=body.payload)
+                run = await asyncio.to_thread(
+                    request_stage_confirmation, run_id, summary=body.summary, details=body.payload
+                )
             else:
                 run = complete_current_stage(
                     run_id,

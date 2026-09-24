@@ -60,7 +60,8 @@ function storedTurnAttachments(turn: StoredThreadTurn): ChatAttachment[] | undef
 
 export interface Message {
   id: string
-  role: 'user' | 'assistant'
+  /** 'approval': an Anumati card, never a reply to speak, copy or replay. */
+  role: 'user' | 'assistant' | 'approval'
   text: string
   avatarsInvolved?: AvatarName[]
   sessionId?: string
@@ -385,7 +386,7 @@ function upsertApprovalMessage(
   const index = messages.findIndex(m => m.approval && (m.approval.id === proposal.id || m.approval.id === replaces))
   if (index < 0) {
     if (!append) return messages
-    return [...messages, { id: `approval-${proposal.id}`, role: 'assistant', text: proposal.summary, approval: proposal }]
+    return [...messages, { id: `approval-${proposal.id}`, role: 'approval', text: proposal.summary, approval: proposal }]
   }
   const next = [...messages]
   next[index] = { ...next[index], text: proposal.summary, approval: proposal }

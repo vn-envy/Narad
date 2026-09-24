@@ -430,9 +430,11 @@ export function ApprovalCard({ proposal: incoming, onChange }: { proposal: Appro
 
 /**
  * The app opened from an approval notification (/?approval=<id>): show that
- * card in a bottom sheet over whatever screen is open. A page that is already
- * open can be asked to show one with a `narad:open-approval` window event or a
- * service-worker message `{ type: 'narad:open-approval', proposal_id }`.
+ * card in a bottom sheet over whatever screen is open, then drop the query
+ * from the URL. A page that is already open shows one for a cancellable
+ * `narad:deeplink` event whose link carries `?approval=`, a
+ * `narad:open-approval` window event, or a service-worker message
+ * `{ type: 'narad:open-approval', proposal_id }`.
  */
 export function ApprovalSheet({ onChange }: { onChange?: ApprovalChange }) {
   const [openId, setOpenId] = useState<string | null>(null)
@@ -458,10 +460,28 @@ export function ApprovalSheet({ onChange }: { onChange?: ApprovalChange }) {
     const onWorker = (event: MessageEvent) => {
       if (event.data?.type === 'narad:open-approval') show(String(event.data.proposal_id ?? ''))
     }
+    // The Activity screen and notification taps announce an in-app link first
+    // (cancellable); an approval link opens here without reloading the app.
+    const onDeepLink = (event: Event) => {
+      const detail = (event as CustomEvent<Record<string, unknown>>).detail ?? {}
+      const link = String(detail.url ?? detail.href ?? detail.path ?? '')
+      let id: string | null = null
+      try {
+        id = new URL(link, window.location.origin).searchParams.get('approval')
+      } catch {
+        id = null
+      }
+      if (id && /^apr_[0-9a-f]{16}$/.test(id)) {
+        event.preventDefault()
+        show(id)
+      }
+    }
     window.addEventListener('narad:open-approval', onWindow)
+    window.addEventListener('narad:deeplink', onDeepLink)
     navigator.serviceWorker?.addEventListener('message', onWorker)
     return () => {
       window.removeEventListener('narad:open-approval', onWindow)
+      window.removeEventListener('narad:deeplink', onDeepLink)
       navigator.serviceWorker?.removeEventListener('message', onWorker)
     }
   }, [])

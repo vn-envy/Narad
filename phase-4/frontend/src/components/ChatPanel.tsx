@@ -740,7 +740,7 @@ export function ChatPanel({
 
         {messages.map(msg => {
           // Anumati: a side effect waiting for this person's OK.
-          if (msg.role === 'assistant' && msg.approval) {
+          if (msg.role === 'approval' && msg.approval) {
             return (
               <div key={msg.id} className="w-full max-w-[92%] self-start">
                 <ApprovalCard proposal={msg.approval} onChange={onApprovalChange} />

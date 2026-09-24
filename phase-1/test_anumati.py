@@ -132,6 +132,9 @@ def test_send_email_waits_for_the_person_and_runs_once_when_approved(home, gmail
     gmail.assert_called_once()
     results = [item for item in anumati_home.notifications if item["kind"] == "approval_result"]
     assert [item["data"]["status"] for item in results] == ["executed"]
+    # The Activity inbox pairs a result with its request by proposal_id.
+    assert results[0]["data"]["proposal_id"] == proposal["id"]
+    assert results[0]["data"]["expires_at"] == proposal["expires_at"]
 
 
 def test_a_changed_argument_is_a_different_proposal(home, gmail) -> None:
@@ -505,7 +508,20 @@ def test_desktop_input_always_waits_even_with_confirmed(home, monkeypatch) -> No
             dry_run=False, confirmed=True,
         )
     assert waiting["status"] == "needs_approval" and waiting["approval"]["risk_class"] == "desktop_input"
+    assert waiting["approval"]["summary"] == 'On the Narad host desktop: type "hi"'
     executed.assert_not_called()
+
+
+def test_typed_values_are_masked_outside_the_store(home) -> None:
+    actions = [{"action": "fill", "ref": "e3", "value": "482913"}, {"action": "click", "ref": "e4"}]
+    proposal, _ = anumati.propose(
+        surface="browser", action="sensitive_input", target="browser_x @ https://bank.example.com/otp",
+        args={"session_id": "browser_x", "page_url": "https://bank.example.com/otp", "actions": actions},
+        summary='On bank.example.com: enter "••••" in "OTP"; click "Verify"', risk_class="sensitive_input",
+        profile_id="asha",
+    )
+    assert proposal.to_payload()["args"]["actions"][0]["value"] == "••••"
+    assert anumati.get(proposal.proposal_id, profile_id="asha").args["actions"][0]["value"] == "482913"
 
 
 # ── Risk policy v2 ───────────────────────────────────────────────────────────

@@ -248,8 +248,10 @@ _RESOLVED_ACTIONS = frozenset({"click", "submit", "press", "fill", "set_field", 
 
 def _target_name(action: dict[str, Any]) -> str:
     target = action.get("target") if isinstance(action.get("target"), dict) else {}
+    # On a typing step a top-level "text" is what gets typed, not the target.
+    typed = action.get("action") in {"fill", "set_field", "type", "select"}
     for key in ("name", "label", "text", "placeholder", "query", "intent", "ref", "selector"):
-        value = target.get(key) or action.get(key)
+        value = target.get(key) or (None if typed and key == "text" else action.get(key))
         if value:
             return str(value)
     return str(action.get("target") or "") if isinstance(action.get("target"), str) else ""
@@ -261,12 +263,13 @@ def _steps_summary(actions: list[dict[str, Any]], labels: list[str | None], wher
     for index, action in enumerate(actions):
         kind = action["action"]
         label = labels[index] if index < len(labels) else None
-        name = str(label or _target_name(action) or "the page")[:60]
+        named = str(label or _target_name(action))[:60]
+        name = named or "the page"
         if kind in {"fill", "set_field", "type", "select"}:
             value = str(action.get("value", action.get("text", "")))
             if classify_browser_action({"action": "fill", "target": {"label": name}}).category == "sensitive_input":
                 value = "••••"
-            steps.append(f'enter "{value[:60]}" in "{name}"')
+            steps.append(f'enter "{value[:60]}" in "{named}"' if named else f'type "{value[:60]}"')
         elif kind in {"check", "uncheck"}:
             steps.append(f'{kind} "{name}"')
         elif kind == "upload":
@@ -274,7 +277,7 @@ def _steps_summary(actions: list[dict[str, Any]], labels: list[str | None], wher
             files = [Path(str(item)).name for item in ([paths] if isinstance(paths, str) else paths or [])]
             steps.append(f'upload {", ".join(files) or "a file"} to "{name}"')
         elif kind == "press":
-            steps.append(f'press {action.get("key", "")} in "{name}"')
+            steps.append(f'press {action.get("key", "")} in "{named}"' if named else f'press {action.get("key", "")}')
         elif kind in {"click", "double_click"} and action.get("x") is not None:
             steps.append(f"{kind.replace('_', ' ')} at ({action.get('x')}, {action.get('y')})")
         elif kind in {"click", "submit"}:
