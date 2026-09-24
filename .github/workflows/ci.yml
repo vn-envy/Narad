@@ -17,6 +17,12 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
 
+      # The speech splitter tests run the real TypeScript module through node
+      # (22.6+ strips types natively); they skip without it.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
       # Core runtime + dev tools only: the full suite needs no optional extras
       # (the live-browser test stays opt-in via NARAD_RUN_BROWSER_TESTS=1).
       - name: Install

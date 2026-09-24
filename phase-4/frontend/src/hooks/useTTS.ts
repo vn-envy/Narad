@@ -1,59 +1,36 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { toast } from 'sonner'
-import { apiFetch } from '@/lib/api'
+import { splitForSpeech } from '@/lib/speech-segments'
+import { SpeechQueue, unlockAudio } from '@/lib/speech-queue'
 
 export type TTSAvatar = 'Krishna' | 'Rama' | 'Parashurama'
 export const VOICE_AVATARS: TTSAvatar[] = ['Krishna', 'Rama', 'Parashurama']
 
 export type TTSState = 'idle' | 'loading' | 'playing' | 'error'
 
-export function prepareText(raw: string): string {
-  return raw
-    .replace(/```[\s\S]*?```/g, '')
-    .replace(/`[^`\n]+`/g, '')
-    .replace(/^#{1,6}\s+/gm, '')
-    .replace(/\*\*\*([^*\n]+)\*\*\*/g, '$1')
-    .replace(/\*\*([^*\n]+)\*\*/g, '$1')
-    .replace(/\*([^*\n]+)\*/g, '$1')
-    .replace(/___([^_\n]+)___/g, '$1')
-    .replace(/__([^_\n]+)__/g, '$1')
-    .replace(/_([^_\n]+)_/g, '$1')
-    .replace(/~~([^~\n]+)~~/g, '$1')
-    .replace(/!\[[^\]]*\]\([^)]+\)/g, '')
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-    .replace(/^>\s*/gm, '')
-    .replace(/^[-*+]\s+/gm, '')
-    .replace(/^\d+[.)]\s+/gm, '')
-    .replace(/^[-_*]{3,}\s*$/gm, '')
-    .replace(/\|[^\n]*/g, '')
-    .replace(/[*_`~#>\\|]/g, '')
-    .replace(/[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE00}-\u{FE0F}\u{1F900}-\u{1FAFF}]/gu, '')
-    .replace(/\n{2,}/g, '. ')
-    .replace(/\n/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 500)
-}
-
+/**
+ * Read one message aloud. The text is split into speakable segments (code,
+ * tables and links become short notes) that play gaplessly while the next
+ * ones are synthesized, so long replies start at once and keep speaking.
+ */
 export function useTTS() {
   const [ttsState, setTtsState] = useState<{ state: TTSState; playingId: string | null }>({
     state: 'idle',
     playingId: null,
   })
-  const audioRef    = useRef<HTMLAudioElement | null>(null)
+  const queueRef = useRef<SpeechQueue | null>(null)
   const activeKeyRef = useRef<string | null>(null)  // source of truth; avoids stale closure
 
   const stop = useCallback(() => {
-    if (audioRef.current) {
-      audioRef.current.pause()
-      audioRef.current.src = ''
-      audioRef.current = null
-    }
+    queueRef.current?.stop()
+    queueRef.current = null
     activeKeyRef.current = null
     setTtsState({ state: 'idle', playingId: null })
   }, [])
 
-  const speak = useCallback(async (
+  useEffect(() => () => queueRef.current?.stop(), [])
+
+  const speak = useCallback((
     text: string,
     avatar: TTSAvatar,
     messageId: string,
@@ -67,72 +44,34 @@ export function useTTS() {
     }
 
     stop()
+    unlockAudio()  // still inside the tap
+    const segments = splitForSpeech(text, { lang })
+    if (segments.length === 0) {
+      toast.error('Nothing to read aloud in this reply.')
+      return
+    }
     activeKeyRef.current = key
     setTtsState({ state: 'loading', playingId: key })
 
-    const speakText = prepareText(text)
-    if (!speakText) {
-      toast.error('Nothing speakable after stripping markdown.')
-      stop()
-      return
-    }
-
-    try {
-      // Unified voice endpoint (Sarvam → VoxCPM → Kokoro); same
-      // request/response shape as the old Sarvam /tts route.
-      const res = await apiFetch('/voice/tts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: speakText, avatar, lang }),
-      })
-
-      // Bail if user stopped while fetch was in flight
-      if (activeKeyRef.current !== key) return
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ detail: res.statusText }))
-        throw new Error(err.detail ?? res.statusText)
-      }
-
-      const data = await res.json()
-      const audio_b64: string = data.audio_b64
-      if (!audio_b64) throw new Error('No audio in server response')
-
-      if (activeKeyRef.current !== key) return
-
-      const byteStr = atob(audio_b64)
-      const buf  = new ArrayBuffer(byteStr.length)
-      const view = new Uint8Array(buf)
-      for (let i = 0; i < byteStr.length; i++) view[i] = byteStr.charCodeAt(i)
-
-      const blob = new Blob([buf], { type: 'audio/wav' })
-      const url  = URL.createObjectURL(blob)
-
-      const audio = new Audio(url)
-      audioRef.current = audio
-
-      audio.onplay  = () => setTtsState({ state: 'playing', playingId: key })
-      audio.onended = () => {
+    const queue = new SpeechQueue({
+      onStart: () => {
+        if (activeKeyRef.current === key) setTtsState({ state: 'playing', playingId: key })
+      },
+      onIdle: played => {
+        if (activeKeyRef.current !== key) return
         activeKeyRef.current = null
-        setTtsState({ state: 'idle', playingId: null })
-        URL.revokeObjectURL(url)
-      }
-      audio.onerror = () => {
-        toast.error('Audio playback failed — try again.')
-        activeKeyRef.current = null
-        setTtsState({ state: 'error', playingId: null })
-        URL.revokeObjectURL(url)
-      }
-
-      await audio.play()
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      console.error('[TTS]', msg)
-      toast.error(`Voice failed: ${msg.slice(0, 120)}`)
-      activeKeyRef.current = null
-      setTtsState({ state: 'error', playingId: null })
-    }
-  }, [stop])  // no playingId dep — ref handles it
+        queueRef.current = null
+        setTtsState({ state: played === 0 && queue.failed ? 'error' : 'idle', playingId: null })
+      },
+      onError: message => {
+        console.error('[TTS]', message)
+        toast.error(`Voice failed: ${message.slice(0, 120)}`)
+      },
+    })
+    queueRef.current = queue
+    for (const segment of segments) queue.enqueue(segment, { avatar, lang })
+    queue.close()
+  }, [stop])
 
   return { speak, stop, state: ttsState.state, playingId: ttsState.playingId }
 }

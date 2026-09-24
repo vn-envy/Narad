@@ -53,6 +53,33 @@ Still open in Stage A:
 
 - **Still open:** live time-to-first-token on the Mac (Pariksha), the prompt diet, and caching.
 
+**Stage B progress (2026-09-24), voice:**
+- **Sentence-streamed TTS.** Voice mode speaks the streaming answer as it arrives, and the 500-character cap is gone.
+  - `src/lib/speech-segments.ts` splits the text at `.` `?` `!` `।` `॥`, line ends and list items. It never splits decimals, times, amounts, common English and Hindi abbreviations, or URLs. A long first sentence may end at a comma after about 120 characters.
+  - Code, tables and links become a short "on screen" note. After about 3,000 characters, voice says the rest is on screen.
+  - `src/lib/speech-queue.ts` fetches at most two segments ahead and schedules them back to back on one Web Audio clock. The final reply adds only what wasn't spoken, and `text_reset` drops the unspoken segments of that stream.
+  - Speaking, tapping the orb or asking again stops playback and aborts in-flight requests. A question asked while the last reply is still streaming stops that reply first.
+- **`/voice/tts` for segments.** It keeps a per-profile LRU cache of recent segments and returns raw WAV (`Accept: audio/wav`), a `Server-Timing` header and a 413 above 1,000 characters.
+  - Sarvam uses one pooled client with a 5 s read timeout. After a failure it is skipped for 30 s, so the local voice answers at once.
+  - `allow_raw` and the egress ledger still see every Sarvam call; cache hits send nothing.
+- **Per-profile voice settings** (`profiles/<id>/voice.json`, `GET`/`PUT /voice/preferences`, in voice mode's settings sheet): reply language (en / hi / auto), Hindi script (Devanagari / Roman), and "keep my voice on this Mac".
+  - The chat's `reply_language` now carries the script as a subtag: `hi-Latn`, `auto-Latn`.
+  - With the Mac-only setting, Sarvam is skipped for that person and the browser's speech recognition is never used.
+- **Local STT on the Mac.** The order is Sarvam, then mlx-whisper (`whisper-large-v3-turbo`, Apple Silicon only), then faster-whisper. The language hint is passed through. Local models load on first use and unload after 5 minutes idle.
+- **Evidence** (stubs; `test_voice_segments.py`, `test_voice_engine.py`, `test_voice_api.py`):
+  - At 40 tokens/s, the first segment is ready 0.3–0.4 s into a typical English, Hindi or Hinglish answer, and 0.75 s into one with a long first sentence.
+  - A `/voice/tts` miss adds about 7 ms to the engine's time. A hit returns in about 1 ms.
+  - Expected time to first audio on the phone is about 2.5–3 s: speech-to-text 0.5–1 s, the model's first token 1–1.5 s, the first sentence 0.3–0.5 s, and Sarvam TTS 0.3–0.6 s. The settings sheet shows the measured split for the last reply.
+- **Still open:** measuring on the Mac and a real Android phone (checklist below), Roman-script Hindi quality in Bulbul and Kokoro (unverified), and a Saaras streaming STT for live partial transcripts.
+
+**Voice check on a phone** (Android Chrome, installed PWA, a trusted Sarvam key, then again with "keep my voice on this Mac"):
+1. **Time to first audio.** Ask a one-line question. The first words should play within 3 s of when you stop speaking. Open voice settings and note the split under "Last reply".
+2. **Long reply.** Ask for a 10-step plan. Voice starts before the text finishes, plays with no audible gaps, skips any table or code with a short note, and ends with "the rest is on screen" if the reply is very long.
+3. **Barge-in.** While Narad is speaking, talk over it. Playback stops within half a second and it listens. Tap the orb mid-reply: it stops. Ask a new question before the old reply finishes: only the new answer is spoken.
+4. **Hindi.** Switch the language button to हिन्दी and ask in Hinglish. The reply is written and spoken in Hindi. Switch the script to Roman: the reply is Hinglish in Latin letters. With Auto, answer in the language you spoke.
+5. **Autoplay.** Close and reopen the app, open voice mode and ask something without touching anything else. The reply must still play.
+6. **Replay.** Tap the speaker on an old reply. It plays at once, and a second tap stops it.
+
 ## Stack decisions (2026-09-24): Indic voice, Indic documents, local decision models
 
 These decisions come from two source-checked research passes, one on Sarvam and Indic open models, one on Jev, CUA-S1 and Laya. They put experience and functionality first, then privacy, then cost. Sarvam and Laya numbers are vendor-reported unless marked otherwise. Every Mac figure is an estimate until `scripts/bench_local_stack.py` has been run on the M5 Air.
@@ -131,9 +158,9 @@ The pipeline has five steps:
 **How these land in the stages:**
 - **Stage A (done):** Jev, TTS, Sarvam and Smallest behind the gateway.
 - **Stage B:**
-  - reply language/script;
-  - sentence-streamed TTS;
-  - STT bake-off and swap;
+  - reply language/script (done);
+  - sentence-streamed TTS (done);
+  - STT bake-off and swap (mlx-whisper tier done; the bake-off is still open);
   - the deterministic pre-router;
   - the `bench_local_stack.py` run on the Mac.
 - **Stage C:**

@@ -92,7 +92,7 @@ try:
 except Exception:
     pass
 from pathlib import Path
-from typing import Any, AsyncGenerator, Optional
+from typing import Any, AsyncGenerator, Literal, Optional
 
 _log = logging.getLogger("narad.json_patch")
 
@@ -808,6 +808,8 @@ app.add_middleware(
     ),
     allow_methods=["*"],
     allow_headers=["*"],
+    # Voice timing, readable from a dev server on another port too.
+    expose_headers=["Server-Timing", "X-Narad-TTS-Engine", "X-Narad-TTS-Cache"],
 )
 
 # ── xAI OAuth callback CORS (auto-completion) ─────────────────────────────────
@@ -1132,19 +1134,30 @@ class ChatRequest(BaseModel):
     active_artifact_workspace_id: Optional[str] = None
     active_artifact_type: Optional[str] = None
     workflow_run_id: Optional[str] = None
-    reply_language: Optional[str] = None  # e.g. "hi" from the voice-mode हिन्दी toggle
+    # From voice mode: a language code with an optional script subtag, e.g. "hi",
+    # "hi-Latn" (Hindi in Roman script, as people text it) or "auto-Latn".
+    reply_language: Optional[str] = None
 
 
 _REPLY_LANGUAGES = {
     "hi": "Hindi in Devanagari script",
+    "hi-deva": "Hindi in Devanagari script",
+    "hi-latn": "Hindi written in Roman script (Hinglish, the way people text it), never Devanagari",
     "bn": "Bengali", "gu": "Gujarati", "kn": "Kannada", "ml": "Malayalam",
     "mr": "Marathi", "pa": "Punjabi", "ta": "Tamil", "te": "Telugu",
 }
 
 
 def _reply_language_instruction(code: Optional[str]) -> str:
-    """One line asking for the reply in the person's language; '' for English/unknown."""
-    language = _REPLY_LANGUAGES.get((code or "").strip().lower())
+    """One line asking for the reply in the person's language and script; '' for English/unknown."""
+    key = (code or "").strip().lower()
+    if key == "auto-latn":
+        return (
+            "[Reply language: answer in the language the person used. If that is Hindi or "
+            "Hinglish, write it in Roman script, never Devanagari. Keep names, numbers, "
+            "medicine names and technical terms as they are.]"
+        )
+    language = _REPLY_LANGUAGES.get(key)
     if not language:
         return ""
     return (
@@ -3525,6 +3538,37 @@ async def get_privacy_egress(request: Request, limit: int = 50):
         "redactor_ready": await asyncio.to_thread(privacy_gateway.redactor_ready),
         "calls": await asyncio.to_thread(privacy_gateway.recent_egress, limit, profile_id),
     }
+
+
+# ── Voice preferences (per profile) ───────────────────────────────────────────
+
+class VoicePreferencesUpdate(BaseModel):
+    reply_language: Optional[Literal["en", "hi", "auto"]] = None
+    script: Optional[Literal["devanagari", "roman"]] = None
+    keep_voice_on_mac: Optional[bool] = None
+
+
+@app.get("/voice/preferences")
+async def get_voice_preferences(request: Request):
+    """The caller's own voice settings: reply language, Hindi script, keep voice on the Mac."""
+    import voice_preferences
+
+    profile_id = _assert_profile_match(request, None)
+    return {"profile": profile_id, "preferences": voice_preferences.load(profile_id)}
+
+
+@app.put("/voice/preferences")
+async def put_voice_preferences(req: VoicePreferencesUpdate, request: Request):
+    import voice_preferences
+
+    profile_id = _assert_profile_match(request, None)
+    try:
+        prefs = await asyncio.to_thread(
+            voice_preferences.save, req.model_dump(exclude_none=True), profile_id
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"profile": profile_id, "preferences": prefs}
 
 
 # ── Vahana inbox endpoints (M3.1) ─────────────────────────────────────────────
