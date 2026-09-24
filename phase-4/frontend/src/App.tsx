@@ -410,6 +410,8 @@ function NaradSession({ profile, onSwitchProfile }: { profile: FamilyProfile; on
             onClose={() => setVoiceOpen(false)}
             messages={messages}
             streaming={streaming}
+            liveAnswer={liveAnswer}
+            onStopTurn={stop}
             onSend={(query, replyLanguage) =>
               void send(query, [], { workflowRunId: threadWorkflowRunId, replyLanguage })}
           />
