@@ -80,6 +80,32 @@ Still open in Stage A:
 5. **Autoplay.** Close and reopen the app, open voice mode and ask something without touching anything else. The reply must still play.
 6. **Replay.** Tap the speaker on an old reply. It plays at once, and a second tap stops it.
 
+**Stage C progress (2026-09-24), documents: read on the Mac, saved only after a person confirms:**
+- **Local OCR** (`phase-8/ocr_skill.py`, `pip install -e ".[ocr]"`). Pages become lines with text, confidence and a box normalised to the page, plus the page image.
+  - Engines: PaddleOCR PP-OCRv5 by default (mobile detection plus the Devanagari recogniser, which also reads English; Apache-2.0 code and weights; CPU on Apple Silicon, about 100 MB wheel). Surya 2 is optional (`NARAD_OCR_ENGINE=surya`): Apache-2.0 code, modified OpenRAIL-M weights, served by llama.cpp on Apple Silicon. Its README's Metal run (8 pages in parallel) reports 0.11 pages/s and a 59 s median per page, so it misses the 10 s budget and stays opt-in.
+  - One engine in memory at a time: it loads on first use and unloads after 120 s idle. Pages are OCR'd one at a time.
+  - Photos: JPG, PNG, WebP, HEIC (pillow-heif), turned upright from EXIF; PaddleOCR's orientation classifier handles sideways pages without EXIF. PDFs: a page's text layer is used when present; only pages without one are rendered and OCR'd. Results are cached per profile by file hash.
+- **`extract_document`** keeps its contract. Photos and scanned PDF pages come back as OCR text with line ids (`[p2-l7]`). Chat previews never run OCR (`extract_document_text`), so a turn's overhead does not grow.
+- **`extract_fields(path, doc_type)`** (Matsya). Types: `lab_report`, `bank_statement`, `prescription`, `school_circular`, `bill` and `generic`; the type is detected when omitted.
+  - OCR rows with ids go to the worker model through the privacy gateway (text only; DeepSeek sees placeholders). The reply is strict JSON for the type, with one repair round.
+  - Hallucination guard: every number (and date) of an item must be printed in the rows it cites. A wrong citation is repaired to the row that does print it; otherwise the item is left out and counted.
+  - Lab flags are computed on the Mac from the printed range, never by the model. Handwritten, unclear or low-confidence values start unticked.
+  - The result is a pending review under `profiles/<id>/documents/reviews/<review_id>/` with its page images, plus a `document_review` SSE event that shows a card in chat.
+- **Crop confirmation** (`DocumentReview.tsx`; `/?review=<id>` or the chat card). One value per row beside its crop, 44 px tap targets, confidence shown as "Looks clear" or "Please check: …". Crops come from `GET /documents/reviews/{id}/items/{item}/crop`, rendered from the stored page and box. Every route resolves inside the caller's own profile, so another profile gets 404.
+- **Save only what was confirmed** (`POST /documents/reviews/{id}/save`):
+  - lab values → `health.db` `lab_results` (per profile), each with its review and item ids;
+  - statement debits → `finance.db` through the same content hash as `import_csv`, so a statement confirmed twice or also imported as CSV is not counted again. Credits are shown but not saved, as with CSV;
+  - medicine reminders, calendar events and reminders (Kala delivers them) only when ticked.
+  - Rama's `get_lab_results(test_name, days)` answers "how has my HbA1c changed?" with a per-test trend and each value's crop link.
+- **Escalation, per document and with consent.** For poor pages or handwriting the review offers "Ask Gemini (or Claude, OpenAI, or a local vision model) to read this page". The page image goes only to a `local` or `trusted` model: `privacy_gateway.completion` now gates any image part through `allow_raw`, which logs the call in the egress ledger. The clearer read replaces that page's values, unticked.
+  - Sarvam Document Intelligence is not wired in. Its docs could not be fetched from the build sandbox. Search results describe an asynchronous job API (create a job, upload, start, poll, download), now being replaced by a "Doc AI" `digitise`/`extract` API. Sarvam is also still `redact`, so it cannot receive images until the owner promotes it.
+- **Evidence:** `phase-1/test_document_reading.py` (stub OCR engine, fake model, the real gateway, and the real server for crop isolation) covers row normalisation, EXIF and HEIC, the PaddleX result adapter, photo and scanned-PDF extraction, JSON repair, the guard, pseudonymisation, profile isolation, save-only-confirmed, dedupe with CSV, lab history, reminders and escalation tiers. `NARAD_OCR_REAL_TEST=1` adds a run through the installed engine.
+- **Still open:**
+  - measuring OCR on the M5 Air (`bench_local_stack.py --image`);
+  - the Stage D set of 50 labelled document photos;
+  - handwriting quality without escalation;
+  - saving a relative's report into their own profile (a care-circle decision).
+
 ## Stack decisions (2026-09-24): Indic voice, Indic documents, local decision models
 
 These decisions come from two source-checked research passes, one on Sarvam and Indic open models, one on Jev, CUA-S1 and Laya. They put experience and functionality first, then privacy, then cost. Sarvam and Laya numbers are vendor-reported unless marked otherwise. Every Mac figure is an estimate until `scripts/bench_local_stack.py` has been run on the M5 Air.
@@ -164,10 +190,10 @@ The pipeline has five steps:
   - the deterministic pre-router;
   - the `bench_local_stack.py` run on the Mac.
 - **Stage C:**
-  - local OCR → `extract_fields` → crop confirmation;
+  - local OCR → `extract_fields` → crop confirmation (built; see "Stage C progress, documents" above);
   - Laya and Prompt Guard as the local decision layer;
   - CUA-S1 in the Kriya bake-off;
-  - Sarvam Doc AI escalation.
+  - Sarvam Doc AI escalation (not built: see the documents note).
 - **Stage D:** evaluation sets:
   - about 150 family audio clips (WER/CER, names/numbers/medicines, latency);
   - 40 TTS texts (time to first audio, blind rating);
@@ -527,9 +553,9 @@ Each phase is one reviewable PR (or a small stack). Exit gates are hard: a phase
 | Path | What gets built |
 |---|---|
 | Career | Application tracker table and a Gmail reply watch |
-| Health | Lab-report extraction into health.db, per-profile reminders (today they fire only for the owner), and the logging tools wired to stages |
+| Health | Lab-report extraction into health.db (built: `extract_fields` and crop confirmation), per-profile reminders (today they fire only for the owner), and the logging tools wired to stages |
 | Travel | Structured search, a price watch that does not rewind the run, and a trip pack |
-| Finance | Statement upload, and budget and goal tools on stages |
+| Finance | Statement upload (photos and PDFs built through the document review), and budget and goal tools on stages |
 | Documents | Versioned artifacts and export |
 | Teach | Mostly unchanged |
 
