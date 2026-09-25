@@ -20,6 +20,32 @@ export interface InboxItem {
   shared_from_name?: string
 }
 
+/** How long an unanswered approval or question stays in Needs you. */
+const NEEDS_YOU_WINDOW_MS = 24 * 60 * 60_000
+
+function isRecent(item: InboxItem): boolean {
+  const age = Date.now() - new Date(item.ts).getTime()
+  const expires = Date.parse(String(item.data?.expires_at ?? ''))
+  if (Number.isFinite(expires) && expires < Date.now()) return false
+  return Number.isFinite(age) && age < NEEDS_YOU_WINDOW_MS
+}
+
+/** Needs you: open approval requests and questions from the last day. Everything else is done. */
+export function groupInbox(items: InboxItem[]): { needsYou: InboxItem[]; done: InboxItem[] } {
+  const decided = new Set(
+    items
+      .filter(item => item.kind === 'approval_result' && !item.shared_from && item.data?.proposal_id)
+      .map(item => String(item.data?.proposal_id)),
+  )
+  const needsYou = items.filter(item => {
+    if (item.shared_from || !isRecent(item)) return false
+    if (item.kind === 'question') return true
+    return item.kind === 'approval_request' && !decided.has(String(item.data?.proposal_id ?? ''))
+  })
+  const waiting = new Set(needsYou.map(item => item.id))
+  return { needsYou, done: items.filter(item => !waiting.has(item.id)) }
+}
+
 export interface InboxPayload {
   items: InboxItem[]
   unread: number

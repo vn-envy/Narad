@@ -1,8 +1,8 @@
 /**
- * Edge ambience: the page stays white (black at night); colour appears only at
- * the screen's edges, in the colour of whichever avatāra is working, breathing
- * slowly. Several at once take turns. While Narad is choosing an avatar the
- * edges glow sindoor. When no one is working there is no glow at all.
+ * Edge lights: the page stays white (black at night). While an avatāra
+ * works, the outermost column of dots on both sides of the screen takes its
+ * colour and breathes; several at once take turns. While Narad is choosing
+ * who goes, the dots are sindoor. When no one is working, nothing lights.
  */
 import { useEffect, useState } from 'react'
 import type { AvatarState } from '../hooks/useAvatara'
@@ -24,7 +24,7 @@ export function EdgeAmbience({ avatars, naradActive }: Props) {
   const colours = ambienceColours(avatars, naradActive)
   const on = colours.length > 0
   const key = colours.join('|')
-  // Keep the last colours while the glow fades out, so it never flashes grey.
+  // Keep the last colours while the dots fade out, so they never flash grey.
   const [shown, setShown] = useState<string[]>(colours)
   useEffect(() => {
     if (on) setShown(key.split('|'))
@@ -36,7 +36,7 @@ export function EdgeAmbience({ avatars, naradActive }: Props) {
       {shown.map((colour, i) => (
         <span
           key={colour}
-          className="edge-glow"
+          className="edge-dots"
           data-turns={turns ? 'true' : 'false'}
           style={{
             ['--glow' as string]: colour,

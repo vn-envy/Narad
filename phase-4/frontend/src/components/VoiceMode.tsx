@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { X, Mic, MicOff, Languages, Settings2, Square } from 'lucide-react'
+import { X, Mic, MicOff, Settings2, Square } from 'lucide-react'
 import { toast } from 'sonner'
 import { apiFetch } from '@/lib/api'
 import {
@@ -8,6 +8,7 @@ import {
 } from '@/lib/speech-segments'
 import { SpeechQueue, unlockAudio, type SpeechTiming } from '@/lib/speech-queue'
 import type { LiveAnswer, Message } from '../hooks/useAvatara'
+import { Bindu, VoiceMatrix, type BinduMood } from './pulli'
 
 /*
  * VoiceMode — hands-free voice-first interface.
@@ -75,12 +76,11 @@ const STATE_LABEL: Record<VoiceState, string> = {
   transcribing: 'transcribing…',
   thinking:     'thinking…',
   speaking:     'speaking',
-  paused:       'mic paused — tap the orb',
+  paused:       'mic paused',
   error:        'voice unavailable',
 }
 
 const LANGUAGE_LABEL: Record<ReplyLanguage, string> = { en: 'English', hi: 'हिन्दी', auto: 'Auto' }
-const NEXT_LANGUAGE: Record<ReplyLanguage, ReplyLanguage> = { en: 'hi', hi: 'auto', auto: 'en' }
 
 // RMS thresholds (0..1). Barge-in needs a louder, sustained signal so the
 // speaker output doesn't interrupt itself (echoCancellation helps too).
@@ -611,96 +611,106 @@ export function VoiceMode({ open, onClose, messages, streaming, liveAnswer = nul
   const stoppable = state === 'speaking' || state === 'thinking'
   const localSttMissing = prefs.keep_voice_on_mac && !engines.stt
 
+  const mood: BinduMood = state === 'listening' ? 'listening'
+    : state === 'thinking' || state === 'transcribing' || state === 'starting' ? 'thinking'
+    : state === 'speaking' ? 'hello'
+    : state === 'error' ? 'oops'
+    : 'hush'
+  const statusWord = state === 'speaking' ? `${speakerName} speaking` : STATE_LABEL[state].replace('…', '')
+
   return (
     <div
-      className="fixed inset-0 z-50 flex flex-col items-center justify-center"
+      className="fixed inset-0 z-50 flex flex-col items-center"
       role="dialog"
       aria-modal="true"
       aria-label="Voice mode"
-      style={{ background: 'radial-gradient(ellipse at 50% 42%, var(--stage-2) 0%, var(--stage) 70%)', color: '#fcfaf2' }}
+      style={{
+        background: 'var(--stage)',
+        color: '#f5f5f5',
+        // The stage is black in both themes: the drawing kit takes its night ink here.
+        ['--kajal' as string]: '#f5f5f5',
+        ['--glyph' as string]: 'rgba(255,255,255,0.18)',
+        ['--dot-off' as string]: 'rgba(255,255,255,0.09)',
+        ['--sindoor' as string]: '#f0673a',
+      }}
       onPointerDown={unlockAudio}
     >
-      <div className="absolute right-3 flex items-center gap-2" style={{ top: 'calc(12px + env(safe-area-inset-top))' }}>
-        <button
-          type="button"
-          onClick={() => setSettingsOpen(o => !o)}
-          aria-label="Voice settings"
-          aria-expanded={settingsOpen}
-          className="n-icon-btn transition-opacity opacity-80 hover:opacity-100"
-          style={{ background: 'rgba(252,250,242,0.1)' }}
-        >
-          <Settings2 size={20} />
-        </button>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Exit voice mode"
-          className="n-icon-btn transition-opacity opacity-80 hover:opacity-100"
-          style={{ background: 'rgba(252,250,242,0.1)' }}
-        >
-          <X size={20} />
-        </button>
-      </div>
-
-      <button
-        type="button"
-        onClick={() => savePrefs({ reply_language: NEXT_LANGUAGE[prefs.reply_language] })}
-        aria-label={`Reply language: ${LANGUAGE_LABEL[prefs.reply_language]}. Tap to change`}
-        className="absolute left-3 flex items-center gap-2 px-4 rounded-full text-[14px] transition-opacity opacity-80 hover:opacity-100"
-        style={{ top: 'calc(12px + env(safe-area-inset-top))', minHeight: 44, background: 'rgba(252,250,242,0.1)', border: '1px solid rgba(252,250,242,0.18)' }}
-      >
-        <Languages size={16} aria-hidden="true" />
-        <span lang={prefs.reply_language === 'hi' ? 'hi' : undefined}>{LANGUAGE_LABEL[prefs.reply_language]}</span>
-      </button>
-
-      {/* Orb */}
-      <button
-        onClick={toggleMic}
-        aria-label={stoppable ? 'Stop speaking' : 'Toggle microphone'}
-        className="relative rounded-full outline-none"
-        style={{ width: 170, height: 170, background: 'transparent', border: 'none', cursor: 'pointer' }}
-      >
-        <span
-          className="absolute inset-0 rounded-full"
-          style={{
-            transform: `scale(${state === 'listening' ? orbScale : 1})`,
-            transition: 'transform 90ms linear',
-            background: state === 'speaking'
-              ? 'radial-gradient(circle, rgba(200,90,58,0.9) 0%, rgba(200,90,58,0.25) 70%)'
-              : state === 'thinking' || state === 'transcribing'
-                ? 'radial-gradient(circle, rgba(252,250,242,0.35) 0%, rgba(252,250,242,0.08) 70%)'
-                : 'radial-gradient(circle, rgba(252,250,242,0.85) 0%, rgba(252,250,242,0.18) 70%)',
-            opacity: state === 'paused' ? 0.35 : 1,
-            animation: state === 'thinking' || state === 'transcribing' ? 'voicePulse 1.6s ease-in-out infinite' : 'none',
-          }}
-        />
-        <span className="absolute inset-0 flex items-center justify-center" style={{ color: '#111111' }}>
-          {state === 'paused' ? <MicOff size={38} /> : stoppable ? <Square size={30} /> : <Mic size={38} />}
+      <div className="pulli-ground" aria-hidden="true" style={{ position: 'absolute', inset: 0, pointerEvents: 'none', WebkitMaskImage: 'none', maskImage: 'none', opacity: 0.8 }} />
+      <div className="relative w-full flex items-center justify-between pl-5 pr-3" style={{ minHeight: 60, marginTop: 'env(safe-area-inset-top)' }}>
+        <span className="font-dot" style={{ fontSize: 14, color: 'rgba(245,245,245,0.62)' }}>
+          {prefs.keep_voice_on_mac ? 'VOICE · HEARD ON THE MAC' : 'VOICE · ' + LANGUAGE_LABEL[prefs.reply_language].toUpperCase()}
         </span>
-      </button>
-
-      <div role="status" className="mt-8 px-6 text-center font-mono text-[13px] uppercase tracking-widest" style={{ color: 'rgba(252,250,242,0.7)' }}>
-        {state === 'speaking' ? `${speakerName} — speaking` : STATE_LABEL[state]}
-        {active && <span className="inline-block w-1.5 h-1.5 rounded-full ml-2 align-middle" style={{ background: '#c85a3a', animation: 'voicePulse 1.2s infinite' }} />}
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setSettingsOpen(o => !o)}
+            aria-label="Voice settings"
+            aria-expanded={settingsOpen}
+            className="n-icon-btn opacity-80 hover:opacity-100"
+          >
+            <Settings2 size={20} />
+          </button>
+          <button type="button" onClick={onClose} aria-label="Exit voice mode" className="n-icon-btn opacity-80 hover:opacity-100">
+            <X size={22} />
+          </button>
+        </div>
       </div>
 
-      {transcript && (
-        <p className="mt-5 max-w-md px-8 text-center text-[17px] leading-relaxed" lang={/[\u0900-\u097F]/.test(transcript) ? 'hi' : undefined} style={{ color: '#fcfaf2' }}>
-          “{transcript}”
-        </p>
-      )}
-      {caption && state === 'speaking' && (
-        <p className="mt-3 max-w-md px-8 text-center text-[15px] leading-relaxed" lang={/[\u0900-\u097F]/.test(caption) ? 'hi' : undefined} style={{ color: 'rgba(252,250,242,0.72)' }}>
-          {caption}
-        </p>
-      )}
+      <div className="relative flex-1 w-full flex flex-col items-center justify-center gap-6 px-5 text-center">
+        <Bindu mood={mood} size={132} style={{ color: '#f5f5f5' }} />
+        <div role="status" className="font-dot" style={{ fontSize: 32, letterSpacing: '0.06em', color: state === 'paused' || state === 'error' ? 'rgba(245,245,245,0.62)' : 'var(--sindoor)' }}>
+          {statusWord.toUpperCase()}
+        </div>
+        <VoiceMatrix
+          cols={19}
+          rows={9}
+          pitch={15}
+          level={state === 'listening' ? Math.min(1, 0.25 + level * 8) : state === 'speaking' ? 0.8 : 0.15}
+          live={active}
+        />
+        {transcript && (
+          <p className="max-w-md px-3 text-[21px] leading-snug" lang={/[\u0900-\u097F]/.test(transcript) ? 'hi' : undefined} style={{ color: '#f5f5f5' }}>
+            {transcript}
+          </p>
+        )}
+        {caption && state === 'speaking' && (
+          <p className="max-w-md px-3 text-[15.5px] leading-relaxed" lang={/[\u0900-\u097F]/.test(caption) ? 'hi' : undefined} style={{ color: 'rgba(245,245,245,0.72)' }}>
+            {caption}
+          </p>
+        )}
+      </div>
+
+      {/* The one control: talk, or stop Narad talking. */}
+      <div className="relative flex flex-col items-center gap-2" style={{ paddingBottom: 'calc(28px + env(safe-area-inset-bottom))' }}>
+        <button
+          type="button"
+          onClick={toggleMic}
+          aria-label={stoppable ? 'Stop speaking' : state === 'paused' ? 'Turn the microphone on' : 'Pause the microphone'}
+          className="rounded-full grid place-items-center"
+          style={{
+            width: 84,
+            height: 84,
+            border: 0,
+            cursor: 'pointer',
+            background: state === 'paused' ? 'rgba(245,245,245,0.14)' : 'var(--sindoor)',
+            color: state === 'paused' ? '#f5f5f5' : '#000000',
+            transform: `scale(${state === 'listening' ? orbScale : 1})`,
+            transition: 'transform 90ms linear, background 150ms ease',
+          }}
+        >
+          {state === 'paused' ? <MicOff size={32} /> : stoppable ? <Square size={26} fill="currentColor" /> : <Mic size={32} />}
+        </button>
+        <span className="font-dot" style={{ fontSize: 13, color: 'rgba(245,245,245,0.55)' }}>
+          {stoppable ? 'TAP TO INTERRUPT' : state === 'paused' ? 'TAP TO TALK' : 'TAP TO PAUSE'}
+        </span>
+      </div>
 
       {settingsOpen && (
         <div
           role="dialog"
           aria-label="Voice settings"
           className="absolute inset-x-0 bottom-0 max-h-[80vh] overflow-y-auto rounded-t-2xl px-5 pt-3 sm:mx-auto sm:max-w-md"
-          style={{ background: 'var(--stage)', borderTop: '1px solid rgba(252,250,242,0.14)', color: '#fcfaf2', paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}
+          style={{ background: 'var(--stage-2)', borderRadius: '28px 28px 0 0', color: '#f5f5f5', paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}
         >
           <div className="flex items-center justify-between">
             <h2 className="text-[16px] font-semibold">Voice settings</h2>
@@ -736,7 +746,7 @@ export function VoiceMode({ open, onClose, messages, streaming, liveAnswer = nul
           >
             <span
               className="mt-0.5 inline-flex h-5 w-9 shrink-0 items-center rounded-full p-0.5 transition-colors"
-              style={{ background: prefs.keep_voice_on_mac ? '#c85a3a' : 'rgba(252,250,242,0.2)' }}
+              style={{ background: prefs.keep_voice_on_mac ? 'var(--sindoor)' : 'rgba(245,245,245,0.2)' }}
             >
               <span
                 className="h-4 w-4 rounded-full transition-transform"
@@ -771,7 +781,6 @@ export function VoiceMode({ open, onClose, messages, streaming, liveAnswer = nul
         </div>
       )}
 
-      <style>{`@keyframes voicePulse { 0%,100% { opacity: 1 } 50% { opacity: 0.45 } }`}</style>
     </div>
   )
 }

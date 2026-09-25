@@ -14,12 +14,12 @@ import { SearchBar } from './SearchBar'
 import { TracesTab } from './TracesTab'
 import { MemoryTab } from './MemoryTab'
 import { ObservabilityDeck } from './ObservabilityDeck'
-import { MadhubaniBorder } from './MadhubaniBorder'
 import { KunjiTab } from './KunjiTab'
 import { WorkflowPathsPanel } from './WorkflowPathsPanel'
 import { ProfileBadge } from './ProfileBadge'
 import { YouPanel } from './YouPanel'
 import { ActivityPanel } from './ActivityPanel'
+import { Bindu } from './pulli'
 
 type SystemSection = 'status' | 'trace' | 'models'
 
@@ -147,8 +147,10 @@ function SurfaceFrame({ children }: { children: ReactNode }) {
   )
 }
 
-/** A phone screen's title band: the same frosted chrome as Chat's header. */
-function PhoneHeader({ surface, onBack }: { surface: DashboardSurface; onBack?: () => void }) {
+/** A phone screen's top bar: the same frosted chrome as Chat's, with Bindu
+ *  and the dot wordmark. The screen's own title sits in its content. Memory
+ *  and System are opened from You, so they get Back and their name instead. */
+function PhoneHeader({ surface, onBack, working }: { surface: DashboardSurface; onBack?: () => void; working: boolean }) {
   const meta = SURFACE_META[surface]
   return (
     <header className="screen-header chrome-frost relative overflow-hidden" style={onBack ? { paddingLeft: 4 } : undefined}>
@@ -157,10 +159,10 @@ function PhoneHeader({ surface, onBack }: { surface: DashboardSurface; onBack?: 
           <ArrowLeft size={20} />
         </button>
       )}
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 9, minWidth: 0 }}>
-        <span className="screen-eyebrow" aria-hidden="true">{meta.eyebrow}</span>
-        <h1>{meta.label}</h1>
-      </div>
+      <Bindu mood={working ? 'thinking' : 'calm'} size={40} />
+      <span className="font-dot" style={{ fontSize: 23, lineHeight: 1, color: 'var(--on-chrome)' }}>
+        {onBack ? meta.label.toUpperCase() : 'NARAD'}
+      </span>
     </header>
   )
 }
@@ -230,11 +232,11 @@ export function NaradDashboard({
       {isMobile ? (
         <PhoneHeader
           surface={surface}
+          working={naradActive || streaming}
           onBack={surface === 'memory' || surface === 'system' ? () => onSurfaceChange('you') : undefined}
         />
       ) : (
         <>
-          <MadhubaniBorder height={24} />
           <header
             style={{
               minHeight: 54,
@@ -439,7 +441,6 @@ export function NaradDashboard({
         </SurfaceFrame>
       )}
 
-      {!isMobile && <MadhubaniBorder position="bottom" height={22} />}
     </main>
   )
 }

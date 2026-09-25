@@ -10,7 +10,7 @@ import {
 } from '@/lib/api'
 import { HostUnreachableError, isUnreachableStatus } from '@/lib/host-status'
 import { HostOfflineScreen } from './HostOffline'
-import { MahatiLogo } from './MahatiLogo'
+import { Bindu } from './pulli'
 
 interface Props {
   onAuthenticated: (session: FamilyProfileSession) => void
@@ -187,7 +187,7 @@ export function FamilyProfileGate({ onAuthenticated }: Props) {
       <div className="family-gate-glow family-gate-glow-two" />
       <section className="family-gate-card" aria-label="Choose a Narad profile">
         <header className="family-gate-header">
-          <MahatiLogo size={38} />
+          <Bindu mood="hello" size={40} />
           <div>
             <p className="family-gate-kicker">NARAD FAMILY</p>
             <h1>{inviting ? 'Invite someone' : creating ? 'Create your space' : selected ? `${selected.has_pin ? 'Welcome' : 'Secure your space'}, ${selected.display_name}` : 'Who is using Narad?'}</h1>

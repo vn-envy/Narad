@@ -5,6 +5,7 @@ import {
   BriefcaseBusiness,
   CalendarClock,
   Check,
+  ChevronRight,
   CirclePause,
   CirclePlay,
   FileChartColumn,
@@ -20,6 +21,7 @@ import {
 import { apiFetch, apiPath, apiUrl, type WorkflowDefinition, type WorkflowRun, type WorkflowStage } from '@/lib/api'
 import { OPEN_URL_EVENT } from '@/lib/pwa'
 import { useIsMobile } from '@/hooks/useIsMobile'
+import { Beam, Bindu, DotsRow, Fold, ScreenTitle } from './pulli'
 
 interface Props {
   userId: string
@@ -125,9 +127,9 @@ const PACK_ICONS: Record<string, PackIcon> = {
 }
 
 const cardStyle = {
-  border: '1px solid rgba(var(--rgb-ink),0.1)',
-  background: 'rgba(var(--rgb-surface),0.58)',
-  borderRadius: 12,
+  border: 0,
+  background: 'var(--surface-raised)',
+  borderRadius: 16,
 } as const
 
 function readableDate(value?: string | null): string {
@@ -368,8 +370,20 @@ export function WorkflowPathsPanel({ userId, streaming, activeRunId, onContinue 
 
   return (
     <div className="panel-scroll" style={{ height: '100%', minHeight: 0, overflow: 'auto', background: 'var(--paper)' }}>
-      <div className="paths-body" style={{ minHeight: '100%', display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(245px, 0.72fr) minmax(0, 1.8fr)' }}>
-        <aside style={{ padding: isMobile ? 14 : 18, borderRight: isMobile ? 0 : '1px solid rgba(var(--rgb-ink),0.09)', borderBottom: isMobile ? '1px solid rgba(var(--rgb-ink),0.09)' : 0 }}>
+      {isMobile && (
+        <div style={{ padding: '4px 16px 0' }}>
+          <ScreenTitle
+            title="Paths"
+            status={activeRuns.length > 0 ? `${activeRuns.length} IN PROGRESS` : undefined}
+            statusColour="var(--sindoor)"
+          >
+            Long jobs, one stage at a time.
+          </ScreenTitle>
+        </div>
+      )}
+      <div className="paths-body" style={{ minHeight: isMobile ? undefined : '100%', display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(245px, 0.72fr) minmax(0, 1.8fr)' }}>
+        {!isMobile && (
+        <aside style={{ padding: 18, borderRight: '1px solid rgba(var(--rgb-ink),0.09)' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
             <div>
               <div style={{ fontFamily: 'var(--font-hero)', fontSize: 18, fontWeight: 750 }}>Paths</div>
@@ -442,8 +456,9 @@ export function WorkflowPathsPanel({ userId, streaming, activeRunId, onContinue 
             </div>
           </div>
         </aside>
+        )}
 
-        <section style={{ minWidth: 0, padding: isMobile ? 14 : '20px 24px 30px' }}>
+        <section style={{ minWidth: 0, padding: isMobile ? '6px 12px 0' : '20px 24px 30px' }}>
           {error && (
             <div style={{ ...cardStyle, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12, padding: '9px 11px', borderColor: 'rgba(194,65,12,0.22)', color: 'var(--sindoor)', fontSize: 11 }}>
               <span>{error}</span>
@@ -531,7 +546,8 @@ export function WorkflowPathsPanel({ userId, streaming, activeRunId, onContinue 
               </div>
 
               {selectedRun.current_stage && (
-                <div style={{ ...cardStyle, marginTop: 16, padding: isMobile ? 14 : 18, background: `linear-gradient(135deg, ${selectedRun.definition.accent}0d, rgba(var(--rgb-surface),0.65))` }}>
+                <div style={{ ...cardStyle, position: 'relative', marginTop: 16, padding: isMobile ? 14 : 18, borderRadius: 20, boxShadow: 'var(--lift)' }}>
+                  <Beam colour={selectedRun.definition.accent} radius={20} live={selectedRun.status === 'active'} />
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
                     <div style={{ maxWidth: 650 }}>
                       <div style={{ fontSize: 9.5, fontWeight: 800, color: selectedRun.definition.accent, textTransform: 'uppercase', letterSpacing: '0.13em' }}>Now · {selectedRun.current_stage.owner}</div>
@@ -539,22 +555,22 @@ export function WorkflowPathsPanel({ userId, streaming, activeRunId, onContinue 
                       <p style={{ margin: '6px 0 0', fontSize: 12, lineHeight: 1.5, color: 'rgba(var(--rgb-ink),0.6)' }}>{selectedRun.current_stage.purpose}</p>
                     </div>
                     {['chat', 'answer', 'blocked'].includes(pathRun.next_action.kind) && (
-                      <button type="button" disabled={busy || streaming || selectedRun.status === 'paused'} onClick={() => onContinue(selectedRun, selectedRun.next_action.prompt)} style={{ border: 0, borderRadius: 9, padding: '10px 13px', display: 'flex', alignItems: 'center', gap: 7, background: 'var(--kajal)', color: 'var(--paper)', fontSize: 11.5, fontWeight: 750, cursor: busy || streaming ? 'wait' : 'pointer' }}>
+                      <button type="button" disabled={busy || streaming || selectedRun.status === 'paused'} onClick={() => onContinue(selectedRun, selectedRun.next_action.prompt)} style={{ border: 0, borderRadius: 999, padding: '11px 16px', display: 'flex', alignItems: 'center', gap: 7, background: 'var(--kajal)', color: 'var(--paper)', fontSize: 11.5, fontWeight: 750, cursor: busy || streaming ? 'wait' : 'pointer' }}>
                         Continue in Chat <ArrowRight size={14} />
                       </button>
                     )}
                     {['review', 'wait'].includes(pathRun.next_action.kind) && pathRun.next_action.url && (
-                      <button type="button" onClick={() => openEvidence(pathRun.next_action.url)} style={{ border: 0, borderRadius: 9, padding: '10px 13px', display: 'flex', alignItems: 'center', gap: 7, background: 'var(--kajal)', color: 'var(--paper)', fontSize: 11.5, fontWeight: 750, cursor: 'pointer' }}>
+                      <button type="button" onClick={() => openEvidence(pathRun.next_action.url)} style={{ border: 0, borderRadius: 999, padding: '11px 16px', display: 'flex', alignItems: 'center', gap: 7, background: 'var(--kajal)', color: 'var(--paper)', fontSize: 11.5, fontWeight: 750, cursor: 'pointer' }}>
                         {pathRun.next_action.kind === 'review' ? 'Confirm the values' : 'Watch the task'} <ArrowRight size={14} />
                       </button>
                     )}
                     {pathRun.next_action.kind === 'export' && (
-                      <button type="button" disabled={busy} onClick={() => void mutateRun('export')} style={{ border: 0, borderRadius: 9, padding: '10px 13px', display: 'flex', alignItems: 'center', gap: 7, background: 'var(--kajal)', color: 'var(--paper)', fontSize: 11.5, fontWeight: 750, cursor: busy ? 'wait' : 'pointer' }}>
+                      <button type="button" disabled={busy} onClick={() => void mutateRun('export')} style={{ border: 0, borderRadius: 999, padding: '11px 16px', display: 'flex', alignItems: 'center', gap: 7, background: 'var(--kajal)', color: 'var(--paper)', fontSize: 11.5, fontWeight: 750, cursor: busy ? 'wait' : 'pointer' }}>
                         Export <ArrowRight size={14} />
                       </button>
                     )}
                     {selectedRun.next_action.kind === 'approve' && (
-                      <button type="button" disabled={busy} onClick={() => void mutateRun('approve')} style={{ border: 0, borderRadius: 9, padding: '10px 13px', display: 'flex', alignItems: 'center', gap: 7, background: 'var(--tulsi)', color: '#fff', fontSize: 11.5, fontWeight: 750, cursor: busy ? 'wait' : 'pointer' }}>
+                      <button type="button" disabled={busy} onClick={() => void mutateRun('approve')} style={{ border: 0, borderRadius: 999, padding: '11px 16px', display: 'flex', alignItems: 'center', gap: 7, background: 'var(--tulsi)', color: '#fff', fontSize: 11.5, fontWeight: 750, cursor: busy ? 'wait' : 'pointer' }}>
                         Review and approve <ShieldCheck size={14} />
                       </button>
                     )}
@@ -627,7 +643,13 @@ export function WorkflowPathsPanel({ userId, streaming, activeRunId, onContinue 
                 </div>
               )}
 
-              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(0,1.55fr) minmax(250px,0.75fr)', gap: 14, marginTop: 14 }}>
+              <details className="pl-fold" open={!isMobile || undefined} style={{ marginTop: 10 }}>
+              {isMobile && (
+                <summary className="pl-row" style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 40, padding: '0 8px', borderRadius: 12, color: 'var(--ink-70)', fontSize: 12 }}>
+                  <ChevronRight size={14} className="pl-chev" aria-hidden="true" /> Stages, schedule and findings
+                </summary>
+              )}
+              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(0,1.55fr) minmax(250px,0.75fr)', gap: 14, marginTop: isMobile ? 4 : 4 }}>
                 <div style={{ ...cardStyle, padding: 15 }}>
                   <div style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.12em', color: 'rgba(var(--rgb-ink),0.43)' }}>Path stages</div>
                   <div style={{ display: 'grid', gap: 0, marginTop: 10 }}>
@@ -739,8 +761,9 @@ export function WorkflowPathsPanel({ userId, streaming, activeRunId, onContinue 
                   )}
                 </div>
               </div>
+              </details>
             </div>
-          ) : (
+          ) : isMobile ? null : (
             <div style={{ minHeight: '70%', display: 'grid', placeItems: 'center', textAlign: 'center' }}>
               <div style={{ maxWidth: 520 }}>
                 <div style={{ width: 52, height: 52, display: 'grid', placeItems: 'center', margin: '0 auto', borderRadius: 15, background: 'rgba(180,83,9,0.09)', color: '#b45309' }}><CirclePlay size={23} /></div>
@@ -751,6 +774,59 @@ export function WorkflowPathsPanel({ userId, streaming, activeRunId, onContinue 
           )}
         </section>
       </div>
+      {isMobile && (
+        <div style={{ padding: '10px 16px 28px', display: 'grid', gap: 2 }}>
+          {!selectedRun && !intakeDefinition && !loading && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '10px 4px 8px' }}>
+              <Bindu mood="calm" size={52} decorative />
+              <p style={{ fontSize: 15.5, lineHeight: 1.45, color: 'var(--ink-70)' }}>Pick a path below. Each one keeps its stage, its proof and what comes next.</p>
+            </div>
+          )}
+          {activeRuns.filter(run => run.run_id !== selectedRun?.run_id).length > 0 && (
+            <Fold summary="Also in progress" count={activeRuns.filter(run => run.run_id !== selectedRun?.run_id).length}>
+              {activeRuns.filter(run => run.run_id !== selectedRun?.run_id).map(run => (
+                <button
+                  type="button"
+                  key={run.run_id}
+                  className="pl-row"
+                  onClick={() => { setIntakeDefinition(null); void loadRun(run.run_id).catch(() => {}) }}
+                  style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12, minHeight: 60, padding: '8px 12px', border: 0, borderRadius: 14, background: 'transparent', color: 'inherit', textAlign: 'left', cursor: 'pointer' }}
+                >
+                  <DotsRow total={Math.max(1, run.stages.length)} done={run.stages.filter(stage => stage.status === 'done').length + 1} colour={run.definition?.accent || 'var(--sindoor)'} gap={9} r={2.6} live={run.status === 'active'} />
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ display: 'block', fontSize: 15.5, color: 'var(--kajal)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{run.title}</span>
+                    <span style={{ display: 'block', fontSize: 13, color: 'var(--ink-55)' }}>{run.current_stage?.title ?? statusLabel(run.status)}</span>
+                  </span>
+                  <ChevronRight size={18} aria-hidden="true" style={{ color: 'var(--ink-40)', flex: 'none' }} />
+                </button>
+              ))}
+            </Fold>
+          )}
+          <Fold summary="Start a new path" count={definitions.length} defaultOpen={!selectedRun && !intakeDefinition}>
+            {definitions.map(definition => {
+              const Icon = PACK_ICONS[definition.id] || FileChartColumn
+              const unavailable = definition.readiness.status === 'unavailable'
+              return (
+                <button
+                  type="button"
+                  key={definition.id}
+                  className="pl-row"
+                  onClick={() => startIntake(definition)}
+                  disabled={unavailable}
+                  style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12, minHeight: 60, padding: '8px 12px', border: 0, borderRadius: 14, background: 'transparent', color: 'inherit', textAlign: 'left', cursor: unavailable ? 'not-allowed' : 'pointer', opacity: unavailable ? 0.5 : 1 }}
+                >
+                  <span aria-hidden="true" style={{ width: 36, height: 36, flex: 'none', display: 'grid', placeItems: 'center', borderRadius: 999, background: 'var(--surface-raised)', color: definition.accent }}><Icon size={18} /></span>
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ display: 'block', fontSize: 15.5, fontWeight: 600, color: 'var(--kajal)' }}>{definition.title}</span>
+                    <span style={{ display: 'block', fontSize: 13, color: 'var(--ink-55)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{definition.eyebrow}</span>
+                  </span>
+                  <ChevronRight size={18} aria-hidden="true" style={{ color: 'var(--ink-40)', flex: 'none' }} />
+                </button>
+              )
+            })}
+          </Fold>
+        </div>
+      )}
     </div>
   )
 }

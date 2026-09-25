@@ -10,7 +10,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Check, ChevronLeft, FileText, Loader, X } from 'lucide-react'
+import { Check, Loader, X } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   DOC_TYPE_NAMES,
@@ -27,6 +27,7 @@ import {
   type ReviewItem,
   type SaveOptions,
 } from '@/lib/document-review'
+import { AvatarTag } from './pulli'
 
 const INK_55 = 'var(--ink-55)'
 const INK_70 = 'var(--ink-70)'
@@ -469,23 +470,19 @@ export function DocumentReviewScreen({ reviewId, onClose, onSaved }: {
         style={{ background: 'var(--paper)', maxHeight: '100dvh' }}
       >
         <header
-          className="flex items-center gap-2 px-2 flex-shrink-0"
-          style={{ minHeight: 56, paddingTop: 'env(safe-area-inset-top)', borderBottom: `1px solid ${LINE}` }}
+          className="chrome-frost flex items-center gap-2 pl-4 pr-2 flex-shrink-0"
+          style={{ minHeight: 64, paddingTop: 'env(safe-area-inset-top)' }}
         >
-          <button type="button" onClick={onClose} aria-label="Back to chat"
-            className="flex items-center justify-center rounded-full" style={{ width: 44, height: 44, color: 'var(--kajal)' }}>
-            <ChevronLeft size={22} />
-          </button>
           <div className="min-w-0 flex-1">
-            <h1 className="text-[16.5px] font-semibold truncate" style={{ color: 'var(--kajal)' }}>{title}</h1>
             {review && (
-              <div className="text-[13px] truncate" style={{ color: INK_55 }}>
-                {review.source_name} · {review.items.length} value{review.items.length === 1 ? '' : 's'}
+              <div className="font-dot text-[14px] truncate" style={{ color: INK_55 }}>
+                {`${review.source_name} · ${review.items.length} value${review.items.length === 1 ? '' : 's'}`.toUpperCase()}
               </div>
             )}
+            <h1 className="font-display text-[22px] truncate" style={{ color: 'var(--kajal)' }}>{title}</h1>
           </div>
-          <button type="button" onClick={onClose} aria-label="Close"
-            className="flex items-center justify-center rounded-full" style={{ width: 44, height: 44, color: INK_55 }}>
+          <button type="button" onClick={onClose} aria-label="Later: close and keep this for Activity"
+            className="flex items-center justify-center rounded-full" style={{ width: 44, height: 44, color: 'var(--kajal)', background: 'var(--surface-raised)' }}>
             <X size={20} />
           </button>
         </header>
@@ -622,21 +619,22 @@ export function DocumentReviewScreen({ reviewId, onClose, onSaved }: {
 
         {review && !readOnly && (
           <footer
-            className="flex gap-2 px-4 pt-3 flex-shrink-0"
-            style={{ borderTop: `1px solid ${LINE}`, paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}
+            className="chrome-frost flex flex-col items-stretch gap-1 px-4 pt-3 flex-shrink-0"
+            style={{ backgroundPosition: '0 0', paddingBottom: 'max(8px, env(safe-area-inset-bottom))' }}
           >
-            <button type="button" onClick={() => void discard()} disabled={busy !== ''}
-              className="n-btn n-btn-danger">
-              Discard
-            </button>
             <button type="button" onClick={() => void save()} disabled={busy !== '' || tickedCount === 0}
-              className="n-btn n-btn-go flex-1" style={{ fontSize: 15 }}>
+              className="n-btn n-btn-primary" style={{ minHeight: 54, fontSize: 16 }}>
               {busy === 'save' ? 'Saving…' : `Save ${tickedCount} value${tickedCount === 1 ? '' : 's'}`}
             </button>
+            <div className="flex justify-center">
+              <button type="button" onClick={() => void discard()} disabled={busy !== ''} className="n-link">
+                Discard this report
+              </button>
+            </div>
           </footer>
         )}
         {review && readOnly && (
-          <footer className="px-4 pt-3 flex-shrink-0" style={{ borderTop: `1px solid ${LINE}`, paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}>
+          <footer className="px-4 pt-3 flex-shrink-0" style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}>
             <button type="button" onClick={onClose} className="n-btn n-btn-primary n-btn-block" style={{ fontSize: 15 }}>
               Back to chat
             </button>
@@ -660,10 +658,7 @@ function ReviewCard({ notice, saved, onOpen }: { notice: DocumentReviewNotice; s
         aria-label={`${title}: ${total} value${total === 1 ? '' : 's'} to check`}
       >
         <div className="n-card-head">
-          <span className="n-chip" style={{ color: 'var(--avatar-matsya)', background: 'rgba(var(--rgb-matsya),0.08)', borderColor: 'rgba(var(--rgb-matsya),0.28)' }}>
-            <FileText size={14} aria-hidden="true" />
-            {title}
-          </span>
+          <AvatarTag name="Matsya" detail={title} />
           <span className="n-status" style={saved ? { color: 'var(--tulsi)' } : { color: 'var(--avatar-matsya)' }}>
             {saved ? 'Saved' : 'Check before saving'}
           </span>

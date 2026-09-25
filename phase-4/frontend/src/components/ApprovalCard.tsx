@@ -33,6 +33,7 @@ import {
   type ApprovalPreview,
   type ApprovalProposal,
 } from '@/lib/api'
+import { Beam } from './pulli'
 
 const RUNNING = new Set(['approved', 'executing'])
 const POLL_MS = 2_000
@@ -82,7 +83,7 @@ function Field({ label, value }: { label: string; value?: string }) {
   if (!value) return null
   return (
     <div className="flex gap-2 text-[14px] leading-snug">
-      <span className="font-mono text-[12px] uppercase tracking-wide pt-[2px] w-[64px] shrink-0" style={{ color: 'var(--ink-55)' }}>
+      <span className="font-dot text-[14px] uppercase pt-[1px] w-[64px] shrink-0" style={{ color: 'var(--ink-55)' }}>
         {label}
       </span>
       <span className="min-w-0 break-words" style={{ color: 'var(--kajal)', overflowWrap: 'anywhere' }}>{value}</span>
@@ -99,7 +100,7 @@ function EmailPreview({ preview }: { preview: ApprovalPreview }) {
       {preview.body && (
         <div
           className="mt-1.5 rounded-lg px-3 py-2.5 text-[14px] leading-relaxed whitespace-pre-wrap break-words overflow-y-auto"
-          style={{ maxHeight: 200, background: 'var(--surface-2)', border: 'var(--folk-border)' }}
+          style={{ maxHeight: 220, background: 'var(--paper)', borderRadius: 14 }}
           tabIndex={0}
           aria-label="Email text"
         >
@@ -360,9 +361,10 @@ export function ApprovalCard({ proposal: incoming, onChange }: { proposal: Appro
   return (
     <section
       className="n-card"
-      style={{ ['--card-accent' as string]: accent }}
+      style={{ ['--card-accent' as string]: accent, boxShadow: open ? 'var(--lift)' : undefined }}
       aria-label={`Approval: ${proposal.summary}`}
     >
+      {open && <Beam colour="var(--sindoor)" />}
       <div className="n-card-head">
         <span className="n-chip">
           <SurfaceIcon surface={proposal.surface} />
@@ -396,36 +398,29 @@ export function ApprovalCard({ proposal: incoming, onChange }: { proposal: Appro
       {!editing && (
         <div className="n-card-actions flex-col justify-center" style={{ minHeight: FOOTER_MIN_HEIGHT }}>
           {open ? (
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => void decide('reject')}
-                disabled={busy !== null}
-                className="n-btn flex-1 px-2"
-              >
-                {busy === 'reject' ? <Loader size={16} className="animate-spin" aria-hidden="true" /> : <X size={16} aria-hidden="true" />}
-                Reject
-              </button>
-              {proposal.editable && (
-                <button
-                  type="button"
-                  onClick={() => setEditing(true)}
-                  disabled={busy !== null}
-                  className="n-btn flex-1 px-2"
-                >
-                  <Pencil size={15} aria-hidden="true" />
-                  Edit
-                </button>
-              )}
+            <div className="flex flex-col items-stretch gap-1">
               <button
                 type="button"
                 onClick={() => void decide('approve')}
                 disabled={busy !== null}
-                className="n-btn n-btn-go flex-[1.5] px-2"
+                className="n-btn n-btn-go"
+                style={{ minHeight: 54, fontSize: 16 }}
               >
-                {busy === 'approve' ? <Loader size={16} className="animate-spin" aria-hidden="true" /> : <ShieldCheck size={16} aria-hidden="true" />}
+                {busy === 'approve' ? <Loader size={17} className="animate-spin" aria-hidden="true" /> : <ShieldCheck size={17} aria-hidden="true" />}
                 Approve
               </button>
+              <div className="flex justify-center gap-5">
+                {proposal.editable && (
+                  <button type="button" onClick={() => setEditing(true)} disabled={busy !== null} className="n-link">
+                    <Pencil size={15} aria-hidden="true" />
+                    Edit
+                  </button>
+                )}
+                <button type="button" onClick={() => void decide('reject')} disabled={busy !== null} className="n-link">
+                  {busy === 'reject' ? <Loader size={15} className="animate-spin" aria-hidden="true" /> : <X size={15} aria-hidden="true" />}
+                  Reject
+                </button>
+              </div>
             </div>
           ) : (
             <Outcome proposal={proposal} expired={expired} />
@@ -512,17 +507,18 @@ export function ApprovalSheet({ onChange }: { onChange?: ApprovalChange }) {
       aria-modal="true"
       aria-label="Approval"
       onClick={close}
-      style={{ position: 'fixed', inset: 0, zIndex: 60, background: 'rgba(0,0,0,0.42)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
+      className="pl-scrim"
+      style={{ position: 'fixed', inset: 0, zIndex: 60, background: 'rgba(0,0,0,0.36)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
     >
       <div
         onClick={event => event.stopPropagation()}
-        className="w-full"
+        className="w-full pl-sheet"
         style={{
           maxWidth: 520,
           maxHeight: '92vh',
           overflowY: 'auto',
           background: 'var(--paper)',
-          borderRadius: '18px 18px 0 0',
+          borderRadius: '28px 28px 0 0',
           padding: '8px 14px calc(16px + env(safe-area-inset-bottom))',
           boxShadow: '0 -12px 40px -12px rgba(0,0,0,0.4)',
         }}

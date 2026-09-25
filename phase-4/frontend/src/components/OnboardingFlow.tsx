@@ -17,7 +17,7 @@ import {
   Workflow,
   X,
 } from 'lucide-react'
-import { MahatiLogo } from './MahatiLogo'
+import { Bindu } from './pulli'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import {
   apiFetch,
@@ -373,7 +373,7 @@ export function OnboardingFlow({ userId, initialStatus, capabilities, onFinished
             <div style={{ position: 'absolute', inset: 0, opacity: 0.2, backgroundImage: 'repeating-linear-gradient(135deg, transparent 0 15px, rgba(252,250,242,0.08) 15px 16px)' }} />
             <div style={{ position: 'relative', height: '100%', display: 'flex', flexDirection: 'column' }}>
               <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                <MahatiLogo size={37} />
+                <Bindu mood="hello" size={40} />
                 <div>
                   <div style={{ fontFamily: 'var(--font-hero)', fontSize: 19, fontWeight: 750 }}>NARAD.OS</div>
                   <div style={{ marginTop: 1, fontFamily: 'var(--font-mono)', fontSize: 8.5, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'rgba(252,250,242,0.5)' }}>Local-first intelligence</div>
@@ -397,7 +397,7 @@ export function OnboardingFlow({ userId, initialStatus, capabilities, onFinished
           <header style={{ flexShrink: 0, padding: isMobile ? '16px 17px 12px' : '20px 25px 14px', borderBottom: '1px solid rgba(var(--rgb-ink),0.08)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, alignItems: 'center' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                {isMobile && <MahatiLogo size={30} />}
+                {isMobile && <Bindu mood="hello" size={40} />}
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.13em', textTransform: 'uppercase', color: 'rgba(var(--rgb-ink),0.43)' }}>Setup {step + 1} of 4</span>
               </div>
               <button type="button" onClick={() => void finish('chat', true)} disabled={busy !== null} title="Skip setup for now" style={{ border: 0, background: 'transparent', color: 'rgba(var(--rgb-ink),0.42)', display: 'flex', alignItems: 'center', gap: 5, fontSize: 10.5, cursor: 'pointer' }}>

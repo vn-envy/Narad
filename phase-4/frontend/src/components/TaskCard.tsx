@@ -24,18 +24,15 @@ import {
   Check,
   CircleCheck,
   CornerDownLeft,
-  Globe,
   Hand,
   Loader,
   Maximize2,
   Minimize2,
-  Monitor,
   Play,
   RotateCcw,
   Send,
   ShieldAlert,
   ShieldCheck,
-  Smartphone,
   Square,
   X,
   ZoomIn,
@@ -59,6 +56,7 @@ import {
   type TaskEvent,
 } from '@/lib/tasks'
 import { ApprovalCard } from './ApprovalCard'
+import { AvatarTag, Beam, DotText, DotsRow, Fold } from './pulli'
 
 const CARD_POLL_MS = 2_000
 const SCREEN_POLL_MS = 1_000
@@ -167,19 +165,30 @@ function useLiveFrame(taskId: string, on: boolean, everyMs: number): string | nu
   return url
 }
 
+/** Who is on it and where (Matsya runs every errand), and how it stands, in dots. */
 function StatusChip({ task }: { task: KriyaTask }) {
+  const where = task.surface === 'phone' ? 'phone' : task.surface === 'desktop' ? 'on the Mac' : 'errand'
   return (
-    <span className="inline-flex items-center gap-2">
-      <span className="n-chip">
-        {task.surface === 'phone' ? <Smartphone size={14} aria-hidden="true" />
-          : task.surface === 'desktop' ? <Monitor size={14} aria-hidden="true" />
-          : <Globe size={14} aria-hidden="true" />}
-        Task
-      </span>
+    <span className="inline-flex items-center gap-3 min-w-0">
+      <AvatarTag name="Matsya" detail={where} live={task.status === 'running'} />
       <span className="n-status" style={{ color: accentFor(task) }}>
         {TASK_STATUS_LABELS[task.status] ?? task.status}
       </span>
     </span>
+  )
+}
+
+/** The errand's steps as dots, with the count the machine keeps. */
+function StepDots({ task }: { task: KriyaTask }) {
+  if (!isTaskActive(task) || !task.max_steps) return null
+  const step = Math.max(0, task.step)
+  return (
+    <div className="flex items-center gap-3 min-w-0">
+      <div className="min-w-0 overflow-hidden flex-1">
+        <DotsRow total={task.max_steps} done={Math.max(1, step)} colour="var(--avatar-matsya)" gap={9.5} r={2.8} live={task.status === 'running'} label={`Step ${step} of ${task.max_steps}`} />
+      </div>
+      <DotText size={13.5}>{`STEP ${String(step).padStart(2, '0')}/${task.max_steps}`}</DotText>
+    </div>
   )
 }
 
@@ -305,15 +314,15 @@ function StopButton({ task, onChange, large }: { task: KriyaTask; onChange: (nex
     }
   }
   return (
-    <div className={large ? 'w-full' : 'flex-1'}>
+    <div className={large ? 'w-full' : 'flex-none'}>
       {/* On the card Stop is outlined, so Watch is the one filled button; on
           the task screen it is the screen's main control. */}
       <button
         type="button"
         onClick={() => void stop()}
         disabled={busy || task.cancel_requested}
-        className={large ? 'n-btn n-btn-block' : 'n-btn n-btn-danger n-btn-block'}
-        style={large ? { minHeight: 56, fontSize: 16, border: 0, background: 'var(--kesari)', color: '#fff', fontWeight: 700 } : undefined}
+        className={large ? 'n-btn n-btn-block' : 'n-link'}
+        style={large ? { minHeight: 54, fontSize: 16 } : undefined}
       >
         {busy || task.cancel_requested ? <Loader size={17} className="animate-spin" aria-hidden="true" /> : <Square size={15} fill="currentColor" aria-hidden="true" />}
         {task.cancel_requested ? 'Stopping…' : 'Stop'}
@@ -380,13 +389,12 @@ export function TaskCard({ task: incoming }: { task: KriyaTask }) {
       style={{ ['--card-accent' as string]: accentFor(task) }}
       aria-label={`Task: ${task.goal}`}
     >
+      {active && <Beam colour={task.status === 'running' ? 'var(--avatar-matsya)' : 'var(--sindoor)'} live={task.status !== 'queued'} />}
       <div className="n-card-head">
         <StatusChip task={task} />
-        {active && task.step > 0 && (
-          <span className="ml-auto text-[12.5px]" style={{ color: 'var(--ink-55)' }}>Step {task.step}</span>
-        )}
       </div>
       <p className="n-card-title" style={{ marginTop: 0 }}>{task.goal}</p>
+      <StepDots task={task} />
       <Detail task={task} />
       {showFrame && (
         <button type="button" onClick={() => openTaskScreen(task.id)} className="block w-full text-left" aria-label="Watch it live">
@@ -396,7 +404,7 @@ export function TaskCard({ task: incoming }: { task: KriyaTask }) {
       <AppAllowPanel task={task} onChange={setTask} />
       {task.status === 'waiting_approval' && task.approval && <ApprovalCard key={task.approval.id} proposal={task.approval} />}
       <Result task={task} />
-      <div className="n-card-actions" style={{ marginTop: 2 }}>
+      <div className="n-card-actions items-center" style={{ marginTop: 2 }}>
         <button
           type="button"
           onClick={() => openTaskScreen(task.id)}
@@ -561,7 +569,7 @@ export function TaskScreen({ task: incoming, onClose }: { task: KriyaTask; onClo
   const host = task.device || (canTakeOver(task) ? hostOf(task.last_url || task.help?.url) : '')
   return (
     <div role="dialog" aria-modal="true" aria-label="Task" style={{ position: 'fixed', inset: 0, zIndex: 60, background: 'var(--paper)', display: 'flex', flexDirection: 'column' }}>
-      <div className="flex items-center gap-2 px-3" style={{ minHeight: 56, borderBottom: '1px solid var(--ink-12)', paddingTop: 'env(safe-area-inset-top)' }}>
+      <div className="chrome-frost flex items-center gap-2 px-3" style={{ minHeight: 60, paddingTop: 'env(safe-area-inset-top)' }}>
         <button type="button" onClick={onClose} aria-label="Close" className="inline-flex items-center justify-center rounded-full shrink-0" style={{ width: 48, height: 48, color: 'var(--ink-70)' }}>
           <X size={20} />
         </button>
@@ -569,7 +577,8 @@ export function TaskScreen({ task: incoming, onClose }: { task: KriyaTask; onClo
         {host && <span className="ml-auto text-[12.5px] truncate pr-1" style={{ color: 'var(--ink-55)', maxWidth: '40%' }}>{host}</span>}
       </div>
       <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-3" style={{ maxWidth: 720, width: '100%', margin: '0 auto' }}>
-        <p className="text-[17px] leading-snug font-semibold break-words" style={{ color: 'var(--kajal)' }}>{task.goal}</p>
+        <h1 className="font-display break-words" style={{ fontSize: 26, color: 'var(--kajal)' }}>{task.goal}</h1>
+        <StepDots task={task} />
         {!helping && <Detail task={task} />}
         {live && (
           <FrameBox
@@ -587,14 +596,13 @@ export function TaskScreen({ task: incoming, onClose }: { task: KriyaTask; onClo
         {task.status === 'waiting_approval' && task.approval && <ApprovalCard key={task.approval.id} proposal={task.approval} />}
         <Result task={task} />
         {task.events && task.events.length > 0 && (
-          <div className="pt-1">
-            <h2 className="n-section-label" style={{ margin: '4px 0 0' }}>Steps</h2>
-            <div className="mt-2"><StepList events={task.events} /></div>
-          </div>
+          <Fold summary="Steps so far" count={task.events.filter(event => event.kind !== 'created').length}>
+            <div className="px-3 pt-1"><StepList events={task.events} /></div>
+          </Fold>
         )}
       </div>
       {isTaskActive(task) && (
-        <div className="px-4 pt-2" style={{ paddingBottom: 'calc(12px + env(safe-area-inset-bottom))', borderTop: '1px solid var(--ink-12)', maxWidth: 720, width: '100%', margin: '0 auto' }}>
+        <div className="px-4 pt-2" style={{ paddingBottom: 'calc(12px + env(safe-area-inset-bottom))', maxWidth: 720, width: '100%', margin: '0 auto' }}>
           <StopButton task={task} onChange={setTask} large />
         </div>
       )}

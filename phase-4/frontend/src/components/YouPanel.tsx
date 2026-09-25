@@ -4,7 +4,7 @@
  * Memory and System (desktop rail items) open from here on a phone.
  */
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { Brain, ChevronRight, LogOut, Mic, Settings2, ShieldCheck } from 'lucide-react'
+import { Bell, Brain, ChevronRight, KeyRound, LogOut, Mic, Settings2, ShieldCheck } from 'lucide-react'
 import { toast } from 'sonner'
 import { apiFetch, type FamilyProfile } from '@/lib/api'
 import type { AppSurface } from '@/lib/surfaces'
@@ -13,6 +13,7 @@ import { NotificationSettings } from './NotificationSettings'
 import { ProfileTab } from './ProfileTab'
 import { EgressScreen } from './EgressScreen'
 import { PROFILE_COLORS } from './ProfileBadge'
+import { DotText, Sheet } from './pulli'
 
 type ReplyLanguage = 'en' | 'hi' | 'auto'
 type HindiScript = 'devanagari' | 'roman'
@@ -24,36 +25,6 @@ interface VoicePrefs {
 }
 
 const DEFAULT_VOICE: VoicePrefs = { reply_language: 'en', script: 'devanagari', keep_voice_on_mac: false }
-
-function Section({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section style={{ marginTop: 28 }}>
-      <h2 style={{ fontFamily: 'var(--font-hero)', fontSize: 20, lineHeight: 1.2, fontWeight: 600, color: 'var(--kajal)' }}>{title}</h2>
-      {children}
-    </section>
-  )
-}
-
-/** A full-width row that opens something: icon, words, chevron. */
-function RowButton({ icon, title, detail, onClick }: { icon: ReactNode; title: string; detail?: string; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="n-panel"
-      style={{ width: '100%', minHeight: 60, marginTop: 10, display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left', cursor: 'pointer', color: 'var(--kajal)' }}
-    >
-      <span aria-hidden="true" style={{ width: 36, height: 36, flex: '0 0 auto', display: 'grid', placeItems: 'center', borderRadius: 10, background: 'var(--ink-05)', color: 'var(--sindoor)' }}>
-        {icon}
-      </span>
-      <span style={{ flex: 1, minWidth: 0 }}>
-        <span style={{ display: 'block', fontSize: 15, fontWeight: 650 }}>{title}</span>
-        {detail && <span style={{ display: 'block', marginTop: 2, fontSize: 13.5, lineHeight: 1.4, color: 'var(--ink-70)' }}>{detail}</span>}
-      </span>
-      <ChevronRight size={18} aria-hidden="true" style={{ color: 'var(--ink-40)', flex: '0 0 auto' }} />
-    </button>
-  )
-}
 
 function Choice<T extends string>({ label, value, options, onChange, disabled }: {
   label: string
@@ -170,6 +141,34 @@ function VoiceSettingsCard({ onOpenVoice }: { onOpenVoice: () => void }) {
   )
 }
 
+type SheetId = 'notifications' | 'voice' | 'devices'
+
+/** One row of the You menu: what it is, its state in a line, and a chevron. */
+function MenuRow({ icon, title, detail, onClick }: { icon: ReactNode; title: string; detail: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="pl-row"
+      style={{ width: '100%', minHeight: 66, padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 14, border: 0, background: 'transparent', textAlign: 'left', cursor: 'pointer', color: 'var(--kajal)' }}
+    >
+      <span aria-hidden="true" style={{ width: 36, height: 36, flex: '0 0 auto', display: 'grid', placeItems: 'center', borderRadius: 999, background: 'var(--paper)', color: 'var(--kajal)' }}>
+        {icon}
+      </span>
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span style={{ display: 'block', fontSize: 16.5, fontWeight: 600 }}>{title}</span>
+        <span style={{ display: 'block', marginTop: 1, fontSize: 13.5, lineHeight: 1.35, color: 'var(--ink-55)' }}>{detail}</span>
+      </span>
+      <ChevronRight size={18} aria-hidden="true" style={{ color: 'var(--ink-40)', flex: '0 0 auto' }} />
+    </button>
+  )
+}
+
+/**
+ * You is a menu, not a settings wall: who is signed in, then one row per
+ * group. Each group opens in its own sheet, so the screen asks nothing of
+ * the person until they choose.
+ */
 export function YouPanel({ profile, onSignOut, onOpenVoice, onOpenSurface }: {
   profile: FamilyProfile
   onSignOut: () => void
@@ -177,62 +176,58 @@ export function YouPanel({ profile, onSignOut, onOpenVoice, onOpenSurface }: {
   onOpenSurface: (surface: AppSurface) => void
 }) {
   const [egressOpen, setEgressOpen] = useState(false)
+  const [sheet, setSheet] = useState<SheetId | null>(null)
   const isMobile = useIsMobile()
   const colour = PROFILE_COLORS[profile.color] || PROFILE_COLORS.sindoor
+  const close = useCallback(() => setSheet(null), [])
 
   return (
     <div className="panel-scroll" style={{ height: '100%', overflow: 'auto' }}>
       <div style={{ maxWidth: 640, margin: '0 auto', padding: '18px 16px 40px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+        <div className="pl-in" style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
           <span
             aria-hidden="true"
-            style={{ width: 56, height: 56, flex: '0 0 auto', display: 'grid', placeItems: 'center', borderRadius: '18px 18px 18px 6px', background: colour, color: '#fffaf0', fontFamily: 'var(--font-hero)', fontSize: 26 }}
+            className="font-dot"
+            style={{ width: 64, height: 64, flex: '0 0 auto', display: 'grid', placeItems: 'center', borderRadius: 999, background: colour, color: '#ffffff', fontSize: 32 }}
           >
             {profile.initial}
           </span>
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontFamily: 'var(--font-hero)', fontSize: 24, lineHeight: 1.15, color: 'var(--kajal)', overflowWrap: 'anywhere' }}>{profile.display_name}</div>
-            <div style={{ marginTop: 3, fontSize: 14, color: 'var(--ink-70)' }}>
-              {profile.is_owner ? 'Owner of this Narad' : 'Family member'} · private profile
-            </div>
+            <h1 className="font-display" style={{ fontSize: 32, color: 'var(--kajal)', overflowWrap: 'anywhere' }}>{profile.display_name}</h1>
+            <DotText size={13.5}>{profile.is_owner ? 'OWNER OF THIS NARAD' : 'FAMILY MEMBER'} · PRIVATE</DotText>
           </div>
         </div>
 
-        <Section title="Notifications">
-          <NotificationSettings profile={profile} />
-        </Section>
-
-        <Section title="Voice">
-          <VoiceSettingsCard onOpenVoice={onOpenVoice} />
-        </Section>
-
-        <Section title="Privacy">
-          <RowButton
-            icon={<ShieldCheck size={18} />}
-            title="What left my Mac"
-            detail="Every time Narad used a service outside this Mac for you, and what it saw."
-            onClick={() => setEgressOpen(true)}
-          />
-        </Section>
-
-        <Section title="PIN and devices">
-          <ProfileTab profile={profile} onSignedOut={onSignOut} />
-        </Section>
+        <div className="pl-in pl-in2" style={{ marginTop: 24, borderRadius: 22, overflow: 'hidden', background: 'var(--surface-raised)' }}>
+          <MenuRow icon={<Bell size={18} />} title="Notifications" detail="This phone, quiet hours, family" onClick={() => setSheet('notifications')} />
+          <MenuRow icon={<Mic size={18} />} title="Voice" detail="Language, Hindi script, where your voice is heard" onClick={() => setSheet('voice')} />
+          <MenuRow icon={<ShieldCheck size={18} />} title="Privacy" detail="What left the family Mac, and what it saw" onClick={() => setEgressOpen(true)} />
+          <MenuRow icon={<KeyRound size={18} />} title="PIN and devices" detail="Change your PIN, phones signed in" onClick={() => setSheet('devices')} />
+        </div>
 
         {isMobile && (
-          <Section title="More">
-            <RowButton icon={<Brain size={18} />} title="Memory" detail="What Narad remembers from your conversations." onClick={() => onOpenSurface('memory')} />
-            <RowButton icon={<Settings2 size={18} />} title="System" detail="Status, traces and connections." onClick={() => onOpenSurface('system')} />
-          </Section>
+          <div className="pl-in pl-in3" style={{ marginTop: 12, borderRadius: 22, overflow: 'hidden', background: 'var(--surface-raised)' }}>
+            <MenuRow icon={<Brain size={18} />} title="Memory" detail="What Narad remembers from your conversations" onClick={() => onOpenSurface('memory')} />
+            <MenuRow icon={<Settings2 size={18} />} title="System" detail="Status, traces and connections" onClick={() => onOpenSurface('system')} />
+          </div>
         )}
 
-        <button type="button" className="n-btn n-btn-danger n-btn-block" style={{ marginTop: 28 }} onClick={onSignOut}>
-          <LogOut size={17} aria-hidden="true" /> Sign out of this phone
-        </button>
-        <p style={{ marginTop: 8, fontSize: 13, lineHeight: 1.45, color: 'var(--ink-55)', textAlign: 'center' }}>
-          This phone stops getting {profile.display_name.split(' ')[0]}'s notifications until you sign in again.
-        </p>
+        <div style={{ display: 'flex', justifyContent: 'center', marginTop: 18 }}>
+          <button type="button" className="n-link" onClick={onSignOut}>
+            <LogOut size={16} aria-hidden="true" /> Sign out of this phone
+          </button>
+        </div>
       </div>
+
+      <Sheet title="Notifications" open={sheet === 'notifications'} onClose={close}>
+        <NotificationSettings profile={profile} />
+      </Sheet>
+      <Sheet title="Voice" open={sheet === 'voice'} onClose={close}>
+        <VoiceSettingsCard onOpenVoice={() => { close(); onOpenVoice() }} />
+      </Sheet>
+      <Sheet title="PIN and devices" open={sheet === 'devices'} onClose={close}>
+        <ProfileTab profile={profile} onSignedOut={onSignOut} />
+      </Sheet>
       {egressOpen && <EgressScreen onClose={() => setEgressOpen(false)} />}
     </div>
   )

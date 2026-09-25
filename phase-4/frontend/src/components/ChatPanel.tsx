@@ -13,8 +13,8 @@ import type {
 import { useTTS, VOICE_AVATARS } from '../hooks/useTTS'
 import { unlockAudio } from '@/lib/speech-queue'
 import type { TTSAvatar } from '../hooks/useTTS'
-import { Veena, type VeenaMood } from './Veena'
-import { AvatarGlyph } from './AvatarGlyph'
+import { AvatarTag, Bindu, KolamGlyph, type BinduMood } from './pulli'
+import { Threshold } from './Threshold'
 import { GuruMessage } from './GuruCards'
 import { ApprovalCard, type ApprovalChange } from './ApprovalCard'
 import { MessageFooter } from './MessageFooter'
@@ -57,14 +57,6 @@ import { useIsMobile } from '@/hooks/useIsMobile'
 import { PROFILE_COLORS, ProfileBadge } from './ProfileBadge'
 import { textLang } from '@/lib/trust'
 import { toast } from 'sonner'
-
-/** The empty chat introduces the four avatāras; a tap starts a prompt in their line of work. */
-const AVATAR_INTROS: Array<{ name: AvatarName; role: string; prompt: string }> = [
-  { name: 'Matsya',      role: 'Research a topic',   prompt: 'Research the latest on ' },
-  { name: 'Rama',        role: 'Plan my week',       prompt: 'Plan my week from my calendar and open tasks.' },
-  { name: 'Krishna',     role: 'Teach me something', prompt: '/teach me ' },
-  { name: 'Parashurama', role: 'Automate something', prompt: 'Write a script that ' },
-]
 
 const MEDIA_RE = /https?:\/\/\S+\/media\/[^\s"')]+\.(mp4|wav|mp3)/gi
 const LIVE_URL_RE = /https?:\/\/[^\s<>\]\[()"']+/gi
@@ -273,34 +265,18 @@ const MarkdownMessage = memo(function MarkdownMessage({ text, live = false }: { 
 
 function AvatarChips({ avatars }: { avatars: AvatarName[] }) {
   return (
-    <div className="flex flex-wrap gap-1.5 mb-2">
-      {avatars.map(a => (
-        <span
-          key={a}
-          className="pl-1.5 pr-2 py-0.5 rounded-full inline-flex items-center gap-1 font-mono text-[11px] tracking-[0.04em]"
-          style={{
-            color: isAvatarName(a) ? `var(--avatar-${a.toLowerCase()})` : 'var(--ink-70)',
-            background: `rgba(${AVATAR_RGB[a]}, 0.08)`,
-          }}
-        >
-          {isAvatarName(a) && <AvatarGlyph name={a} size={14} />}
-          {a}
-        </span>
-      ))}
+    <div className="flex flex-wrap gap-x-4 gap-y-1 mb-2">
+      {avatars.map(a => <AvatarTag key={a} name={a} />)}
     </div>
   )
 }
 
-/** The answer being written, styled exactly like the assistant bubble it becomes. */
+/** The answer being written, set exactly like the answer it becomes. */
 function LiveAnswerBubble({ live }: { live: LiveAnswer }) {
-  const primary = live.avatars[0]
   return (
     <div className="flex flex-col gap-0.5 w-full items-start" aria-busy="true">
       <div
-        className={cn(
-          'chat-bubble chat-bubble-assistant text-chat folk-card folk-shadow rounded-[4px_16px_16px_16px]',
-          primary ? `avatar-glass-${primary.toLowerCase()}` : '',
-        )}
+        className="chat-bubble chat-bubble-assistant text-chat"
         style={{ color: 'var(--kajal)' }}
         lang={textLang(live.text) === 'hi' ? 'hi' : undefined}
       >
@@ -511,10 +487,10 @@ export function ChatPanel({
 
   const liveText = streaming ? liveAnswer?.text ?? '' : ''
 
-  // Veena's face in the header: thinking while Narad chooses, working (with
-  // that avatar's string humming) while one works, a wince on an error.
+  // Bindu in the header: thinking while Narad chooses, working (the ring in
+  // that avatar's colour, a dot riding it) while one works, a wince on an error.
   const workingAvatar = Object.values(avatars).find(a => a.state === 'active')?.name ?? null
-  const veenaMood: VeenaMood = error ? 'oops' : workingAvatar ? 'working' : streaming ? 'thinking' : 'calm'
+  const binduMood: BinduMood = error ? 'oops' : workingAvatar ? 'working' : streaming ? 'thinking' : 'calm'
 
   useEffect(() => {
     if (followRef.current) scrollToBottom()
@@ -682,23 +658,15 @@ export function ChatPanel({
   return (
     <div className="flex flex-col h-full overflow-hidden" style={{ background: 'var(--paper)' }}>
 
-      {/* Header — frosted, beaded lower edge; Veena's face shows what Narad is doing */}
+      {/* Header — frosted, a row of pulli for its lower edge; Bindu shows what Narad is doing */}
       <header
-        className="chrome-frost flex items-center gap-2 sm:gap-3 pl-3 pr-1.5 sm:px-5 flex-shrink-0 relative overflow-hidden"
-        style={{ minHeight: 'calc(56px + env(safe-area-inset-top))', paddingTop: 'env(safe-area-inset-top)' }}
+        className="chrome-frost flex items-center gap-2.5 sm:gap-3 pl-4 pr-1.5 sm:px-5 flex-shrink-0 relative overflow-hidden"
+        style={{ minHeight: 'calc(60px + env(safe-area-inset-top))', paddingTop: 'env(safe-area-inset-top)' }}
       >
-        <Veena variant="face" size={isMobile ? 34 : 38} mood={veenaMood} active={workingAvatar} />
-        <div className="flex flex-col gap-0 min-w-0">
-          <span
-            className="label-hero leading-none"
-            style={{ color: 'var(--on-chrome)', letterSpacing: '-0.01em', fontSize: isMobile ? 20 : 22 }}
-          >
-            NARAD.OS
-          </span>
-          <span aria-hidden="true" className="text-[12px] leading-tight mt-0.5" style={{ color: 'var(--on-chrome-muted)', fontFamily: 'var(--font-deva)' }}>
-            नारद  अवतारा
-          </span>
-        </div>
+        <Bindu mood={binduMood} size={40} active={workingAvatar} />
+        <span className="font-dot leading-none" style={{ color: 'var(--on-chrome)', fontSize: 23 }}>
+          NARAD
+        </span>
         <div className="ml-auto z-10 flex items-center gap-0.5 sm:gap-1.5" style={{ color: 'rgba(var(--rgb-on-chrome),0.82)' }}>
           {onOpenVoice && (
             <button type="button" onClick={onOpenVoice} className={HEADER_BUTTON} aria-label="Talk to Narad (voice mode)" title="Voice mode">
@@ -773,32 +741,7 @@ export function ChatPanel({
         aria-busy={streaming}
         aria-label="Conversation"
       >
-        {messages.length === 0 && (
-          <div className="flex flex-col items-center justify-center gap-3 my-auto py-6 px-2 text-center">
-            <Veena mood="hello" size={isMobile ? 104 : 120} />
-            <p className="text-[36px] leading-tight" lang="hi" style={{ fontFamily: 'var(--font-deva)', color: 'var(--sindoor)' }}>नमस्ते</p>
-            <p className="label-hero text-[17px] text-balance max-w-[320px]" style={{ color: 'var(--ink-70)' }}>
-              Ask anything — Narad plucks the right string.
-            </p>
-            <div className="grid grid-cols-2 gap-2.5 mt-3 w-full max-w-[440px] text-left">
-              {AVATAR_INTROS.map(a => (
-                <button
-                  key={a.name}
-                  type="button"
-                  onClick={() => handleEdit(a.prompt)}
-                  className="folk-card flex items-center gap-2 px-2.5 py-3 cursor-pointer active:scale-[0.97] transition-transform duration-150"
-                  style={{ minHeight: 64 }}
-                >
-                  <AvatarGlyph name={a.name} size={28} style={{ flex: 'none' }} />
-                  <span className="flex flex-col min-w-0">
-                    <span className="label-hero text-[15px] leading-tight" style={{ color: `var(--avatar-${a.name.toLowerCase()})` }}>{a.name}</span>
-                    <span className="text-[12.5px] leading-snug" style={{ color: 'var(--ink-55)' }}>{a.role}</span>
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
+        {messages.length === 0 && <Threshold profile={profile} onPrompt={handleEdit} />}
 
         {messages.map(msg => {
           // Anumati: a side effect waiting for this person's OK.
@@ -850,10 +793,6 @@ export function ChatPanel({
             )
           }
 
-          const primaryAvatar = msg.avatarsInvolved?.[0]
-          const avatarClass = primaryAvatar
-            ? `avatar-glass-${primaryAvatar.toLowerCase()}`
-            : ''
           const hindi = textLang(msg.text) === 'hi'
           const showActions = !isMobile || revealedId === msg.id || (msg.id === lastAssistantId && !streaming)
 
@@ -871,14 +810,14 @@ export function ChatPanel({
                   'chat-bubble text-chat',
                   msg.role === 'user'
                     ? 'chat-bubble-user'
-                    : cn('chat-bubble-assistant folk-card folk-shadow rounded-[4px_16px_16px_16px]', avatarClass)
+                    : 'chat-bubble-assistant'
                 )}
                 style={
                   msg.role === 'user'
                     ? {
                         background: 'var(--kajal)',
                         color: 'var(--paper)',
-                        borderRadius: '16px 16px 4px 16px',
+                        borderRadius: '22px 22px 6px 22px',
                       }
                     : { color: 'var(--kajal)' }
                 }
@@ -1016,60 +955,31 @@ export function ChatPanel({
         {/* The answer as it is written; the final reply replaces it in place. */}
         {liveText && liveAnswer && <LiveAnswerBubble live={liveAnswer} />}
 
-        {/* Streaming indicator — breathes in the active avatar's colour */}
+        {/* Who is working: the avatar's kolam drawing itself, its name in dots,
+            and three pulli breathing until the words arrive. */}
         {streaming && (() => {
           const activeName = activeAvatar?.name
           const streamColour = activeName && isAvatarName(activeName)
             ? `var(--avatar-${activeName.toLowerCase()})`
             : 'var(--sindoor)'
-          const streamRgb = activeName && isAvatarName(activeName)
-            ? AVATAR_RGB[activeName]
-            : 'var(--rgb-sindoor)'
           return (
             <div className="flex flex-col gap-2 w-full sm:max-w-[82%]" role="status">
-
-              {/* Active avatar label + task */}
               <div className="flex items-center gap-2 px-1 min-w-0">
-                <AvatarGlyph name={activeName && isAvatarName(activeName) ? activeName : 'narad'} size={20} live />
-                <span className="text-[13px] font-semibold flex-shrink-0" style={{ color: streamColour }}>
-                  {activeAvatar ? activeAvatar.name : 'Narad'}
+                <KolamGlyph name={activeName && isAvatarName(activeName) ? activeName : 'narad'} size={22} live dots={false} />
+                <span className="font-dot flex-shrink-0" style={{ color: streamColour, fontSize: 15 }}>
+                  {(activeAvatar ? activeAvatar.name : 'Narad').toUpperCase()}
                 </span>
-                <span className="text-[13px] truncate flex-1" style={{ color: 'var(--ink-55)' }}>
+                <span className="text-[13.5px] truncate flex-1" style={{ color: 'var(--ink-55)' }}>
                   {activeAvatar?.task || (liveText ? 'is writing…' : 'is thinking…')}
                 </span>
               </div>
-
-              {/* Progress bar */}
-              <div
-                className="h-[2px] rounded-full overflow-hidden mx-1"
-                style={{ background: 'var(--ink-08)' }}
-                aria-hidden="true"
-              >
-                <div
-                  className="h-full w-[35%] rounded-full"
-                  style={{
-                    background: streamColour,
-                    animation: 'progress-sweep 1.6s ease-in-out infinite',
-                  }}
-                />
-              </div>
-
-              {/* Breathing dots until text streams in */}
               {!liveText && (
-                <div className="folk-card flex items-center gap-1.5 px-4 py-3.5 rounded w-fit" aria-hidden="true">
-                  {[0, 200, 400].map(delay => (
-                    <span
-                      key={delay}
-                      className="inline-block w-[7px] h-[7px] rounded-full"
-                      style={{
-                        background: `rgba(${streamRgb}, 0.9)`,
-                        animation: `breath 1.2s ease-in-out ${delay}ms infinite`,
-                      }}
-                    />
+                <svg width="46" height="12" viewBox="0 0 46 12" aria-hidden="true" style={{ marginLeft: 6 }}>
+                  {[0, 1, 2].map(i => (
+                    <circle key={i} cx={6 + i * 16} cy="6" r="3.6" fill={streamColour} className="pl-breathe" style={{ animationDelay: `${i * 0.2}s` }} />
                   ))}
-                </div>
+                </svg>
               )}
-
             </div>
           )
         })()}
@@ -1332,7 +1242,7 @@ export function ChatPanel({
           rows={1}
           enterKeyHint="send"
           className={cn(
-            'chat-composer flex-1 min-w-0 resize-none px-3.5 py-2.5 rounded-lg',
+            'chat-composer flex-1 min-w-0 resize-none px-4 py-2.5 rounded-[22px]',
             'leading-snug placeholder:opacity-50',
             'outline-none transition-[border-color,box-shadow] duration-150',
             'min-h-[44px] max-h-[140px]',
@@ -1341,7 +1251,7 @@ export function ChatPanel({
           style={{
             background: 'var(--field)',
             color: 'var(--kajal)',
-            border: '1px solid var(--ink-12)',
+            border: '1.5px solid var(--line)',
             boxShadow: 'none',
           }}
         />
@@ -1362,8 +1272,8 @@ export function ChatPanel({
             onClick={handleSend}
             disabled={!canSend}
             aria-label="Send"
-            className="w-11 h-11 rounded-lg flex-shrink-0 flex items-center justify-center border-0 cursor-pointer disabled:cursor-not-allowed transition-opacity"
-            style={{ background: 'var(--sindoor)', color: '#fff', opacity: canSend ? 1 : 0.4 }}
+            className="w-11 h-11 rounded-full flex-shrink-0 flex items-center justify-center border-0 cursor-pointer disabled:cursor-not-allowed transition-colors"
+            style={canSend ? { background: 'var(--kajal)', color: 'var(--paper)' } : { background: 'var(--surface-raised)', color: 'var(--ink-40)' }}
           >
             <ArrowUp size={20} strokeWidth={2.4} aria-hidden="true" />
           </button>

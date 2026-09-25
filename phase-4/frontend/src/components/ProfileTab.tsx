@@ -22,8 +22,8 @@ type MemberAction = { userId: string; action: 'reset' | 'signout' } | null
 
 const card = {
   padding: '16px',
-  borderRadius: 16,
-  border: '1px solid var(--line)',
+  borderRadius: 20,
+  border: 0,
   background: 'var(--surface-raised)',
   margin: '10px 0 18px',
 } as const
@@ -31,10 +31,10 @@ const card = {
 const primaryButton = (enabled: boolean) => ({
   minHeight: 48,
   padding: '0 18px',
-  borderRadius: 10,
+  borderRadius: 999,
   border: 'none',
   background: enabled ? 'var(--sindoor)' : 'var(--ink-12)',
-  color: enabled ? '#fcfaf2' : 'var(--ink-55)',
+  color: enabled ? 'var(--accent-foreground)' : 'var(--ink-55)',
   fontSize: 14,
   fontWeight: 650,
   cursor: enabled ? 'pointer' : 'default',
@@ -43,7 +43,7 @@ const primaryButton = (enabled: boolean) => ({
 const outlineButton = (danger = false) => ({
   minHeight: 48,
   padding: '0 16px',
-  borderRadius: 10,
+  borderRadius: 999,
   border: danger ? '1px solid color-mix(in srgb, var(--kesari) 50%, transparent)' : '1px solid var(--ink-20)',
   background: 'transparent',
   color: danger ? 'var(--kesari)' : 'var(--ink-85)',

@@ -10,7 +10,7 @@ import {
   type ConsentStatus,
   type TrustLang,
 } from '@/lib/trust'
-import { MahatiLogo } from './MahatiLogo'
+import { Bindu } from './pulli'
 import { LangToggle } from './EgressScreen'
 
 type Phase = 'checking' | 'ready' | 'reading' | 'later'
@@ -111,7 +111,7 @@ export function ConsentGate({
         style={{ background: 'var(--paper)', color: 'var(--kajal)' }}
       >
         <div className="w-full max-w-[420px] flex flex-col items-center text-center gap-4">
-          <MahatiLogo size={44} />
+          <Bindu mood="hello" size={44} />
           <h1 className="text-[22px] font-semibold leading-snug">
             {hi ? 'कोई बात नहीं' : 'That is completely fine'}
           </h1>
@@ -164,7 +164,7 @@ export function ConsentGate({
       </header>
 
       <div className="flex-1 w-full max-w-[600px] mx-auto px-5 pt-6 pb-40">
-        <MahatiLogo size={40} />
+        <Bindu mood="hello" size={40} />
         <h1 className="mt-3 text-[26px] leading-tight font-semibold" style={{ fontFamily: hi ? 'var(--font-hindi)' : 'var(--font-hero)' }}>
           {hi ? `नमस्ते, ${profile.display_name}` : `Namaste, ${profile.display_name}`}
         </h1>

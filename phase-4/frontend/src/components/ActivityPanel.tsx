@@ -9,7 +9,7 @@
  * opens Paths. A carer's shared copy only shows who shared it; it links
  * nowhere, because only the subject can act on it.
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import {
   ArrowRight,
   Bell,
@@ -19,25 +19,24 @@ import {
   Globe,
   Hand,
   HeartPulse,
-  Inbox,
   LoaderCircle,
   Mail,
   MessageCircleQuestion,
   Moon,
   Pill,
-  RefreshCw,
   Route,
   ShieldCheck,
   TriangleAlert,
   Users,
 } from 'lucide-react'
 import { apiFetch, apiUrl, type WorkflowRun } from '@/lib/api'
-import { fetchInbox, markInboxRead, type InboxItem } from '@/lib/notifications'
+import { fetchInbox, groupInbox, markInboxRead, type InboxItem } from '@/lib/notifications'
 import { fetchActiveTasks, openTaskScreen, type KriyaTask } from '@/lib/tasks'
 import { PUSH_EVENT } from '@/lib/pwa'
 import { relativeTime } from '@/lib/format-time'
 import { textLang } from '@/lib/trust'
 import { PhoneNotificationsCard } from './NotificationSettings'
+import { Bindu, Fold, FocusCard, KolamFull, ScreenTitle } from './pulli'
 
 interface Props {
   userId: string
@@ -50,14 +49,14 @@ interface Props {
 
 type Target = { label: string; open: () => void } | null
 
-const NEEDS_YOU_WINDOW_MS = 24 * 60 * 60_000
 const REFRESH_MS = 30_000
 // While an errand runs, its state here keeps up with the card in the chat.
 const TASK_REFRESH_MS = 8_000
 
+// Inside a fold, things are quiet rows: no box, a highlight when pressed.
 const cardStyle: CSSProperties = {
-  border: '1px solid var(--line)',
-  background: 'var(--surface-raised)',
+  border: 0,
+  background: 'transparent',
   borderRadius: 14,
 }
 
@@ -95,29 +94,6 @@ const TASK_STATES: Record<string, { label: string; tone: string; icon: typeof Gl
   waiting_help: { label: 'Needs your help', tone: 'var(--sindoor)', icon: Hand },
 }
 
-function isRecent(item: InboxItem): boolean {
-  const age = Date.now() - new Date(item.ts).getTime()
-  const expires = Date.parse(String(item.data?.expires_at ?? ''))
-  if (Number.isFinite(expires) && expires < Date.now()) return false
-  return Number.isFinite(age) && age < NEEDS_YOU_WINDOW_MS
-}
-
-/** Needs you: open approval requests and questions from the last day. Everything else is done. */
-export function groupInbox(items: InboxItem[]): { needsYou: InboxItem[]; done: InboxItem[] } {
-  const decided = new Set(
-    items
-      .filter(item => item.kind === 'approval_result' && !item.shared_from && item.data?.proposal_id)
-      .map(item => String(item.data?.proposal_id)),
-  )
-  const needsYou = items.filter(item => {
-    if (item.shared_from || !isRecent(item)) return false
-    if (item.kind === 'question') return true
-    return item.kind === 'approval_request' && !decided.has(String(item.data?.proposal_id ?? ''))
-  })
-  const waiting = new Set(needsYou.map(item => item.id))
-  return { needsYou, done: items.filter(item => !waiting.has(item.id)) }
-}
-
 function readableTime(ts: string): string {
   const date = new Date(ts)
   if (Number.isNaN(date.valueOf())) return ''
@@ -127,21 +103,9 @@ function readableTime(ts: string): string {
     : { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(date)
 }
 
-function SectionLabel({ children, count }: { children: ReactNode; count?: number }) {
-  return (
-    <h2 className="n-section-label">
-      {children}{typeof count === 'number' && <span style={{ color: 'var(--ink-40)' }}>· {count}</span>}
-    </h2>
-  )
-}
-
-function Empty({ children }: { children: ReactNode }) {
-  return <p style={{ fontSize: 14, lineHeight: 1.5, color: 'var(--ink-55)', padding: '2px 2px 4px' }}>{children}</p>
-}
-
 function IconTile({ icon: Icon, tone }: { icon: typeof Bell; tone: string }) {
   return (
-    <span aria-hidden="true" style={{ width: 36, height: 36, flex: '0 0 auto', display: 'grid', placeItems: 'center', borderRadius: 10, color: tone, background: 'var(--ink-05)' }}>
+    <span aria-hidden="true" style={{ width: 36, height: 36, flex: '0 0 auto', display: 'grid', placeItems: 'center', borderRadius: 999, color: tone, background: 'var(--surface-raised)' }}>
       <Icon size={17} />
     </span>
   )
@@ -257,8 +221,7 @@ export function ActivityPanel({ userId, focusEventId, onOpenUrl, onOpenRun, onUn
           display: 'grid',
           gridTemplateColumns: '36px minmax(0,1fr)',
           gap: 12,
-          boxShadow: focused ? 'inset 3px 0 var(--sindoor)' : 'none',
-          background: fresh ? 'color-mix(in srgb, var(--haldi) 10%, var(--paper))' : cardStyle.background,
+          background: focused ? 'var(--surface-raised)' : cardStyle.background,
         }}
       >
         <IconTile icon={Icon} tone={item.kind === 'health_alert' || item.kind === 'andon' ? 'var(--sindoor)' : 'var(--kajal)'} />
@@ -329,7 +292,8 @@ export function ActivityPanel({ userId, focusEventId, onOpenUrl, onOpenRun, onUn
         key={task.id}
         onClick={() => openTaskScreen(task.id)}
         aria-label={`${task.goal}. ${state.label}. Open the task`}
-        style={{ ...cardStyle, width: '100%', minHeight: 64, padding: '12px', display: 'grid', gridTemplateColumns: '36px minmax(0,1fr) auto', alignItems: 'center', gap: 12, textAlign: 'left', cursor: 'pointer', color: 'inherit', borderLeft: `3px solid ${state.tone}` }}
+        className="pl-row"
+        style={{ ...cardStyle, width: '100%', minHeight: 64, padding: '10px 12px', display: 'grid', gridTemplateColumns: '36px minmax(0,1fr) auto', alignItems: 'center', gap: 12, textAlign: 'left', cursor: 'pointer', color: 'inherit' }}
       >
         <IconTile icon={state.icon} tone={state.tone} />
         <span style={{ minWidth: 0 }}>
@@ -350,7 +314,8 @@ export function ActivityPanel({ userId, focusEventId, onOpenUrl, onOpenRun, onUn
       type="button"
       key={run.run_id}
       onClick={() => onOpenRun(run.run_id)}
-      style={{ ...cardStyle, width: '100%', minHeight: 64, padding: '12px', display: 'grid', gridTemplateColumns: '36px minmax(0,1fr) auto', alignItems: 'center', gap: 12, textAlign: 'left', cursor: 'pointer', color: 'inherit', borderLeft: `3px solid ${run.definition?.accent || '#b45309'}` }}
+      className="pl-row"
+      style={{ ...cardStyle, width: '100%', minHeight: 64, padding: '10px 12px', display: 'grid', gridTemplateColumns: '36px minmax(0,1fr) auto', alignItems: 'center', gap: 12, textAlign: 'left', cursor: 'pointer', color: 'inherit' }}
     >
       <IconTile icon={Route} tone={run.definition?.accent || 'var(--kajal)'} />
       <span style={{ minWidth: 0 }}>
@@ -364,55 +329,106 @@ export function ActivityPanel({ userId, focusEventId, onOpenUrl, onOpenRun, onUn
   )
 
   const runningCount = tasks.length + activeRuns.length
+  const waitingCount = needsYou.length + waitingRuns.length
+  // One thing in focus: the first that needs this person. The rest folds.
+  const focusItem = needsYou[0] ?? null
+  const focusRun = focusItem ? null : waitingRuns[0] ?? null
+  const otherNeeds = needsYou.slice(focusItem ? 1 : 0)
+  const otherRuns = waitingRuns.filter(run => run !== focusRun)
+  const moreCount = otherNeeds.length + otherRuns.length
+  const focusInDone = !!focusEventId && done.some(item => item.id === focusEventId)
+  const nothingAtAll = waitingCount === 0 && runningCount === 0 && done.length === 0
+
+  const renderFocus = () => {
+    if (focusItem) {
+      const target = targetFor(focusItem)
+      const kicker = focusItem.kind === 'question' ? 'A question for you' : 'Needs your OK'
+      return (
+        <FocusCard
+          kicker={`${kicker}${waitingCount > 1 ? ` · 1 of ${waitingCount}` : ''}`.toUpperCase()}
+          title={focusItem.title || KIND_LABELS[focusItem.kind] || 'Needs you'}
+          body={focusItem.body ? <span style={{ display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{focusItem.body}</span> : undefined}
+          live={Boolean(target)}
+          action={target ? (
+            <button type="button" className="n-btn n-btn-accent" style={{ flex: 1, minHeight: 52 }} onClick={target.open}>
+              {target.label === 'Review' ? 'Review it' : target.label}
+            </button>
+          ) : undefined}
+        >
+          {focusItem.shared_from && (
+            <p style={{ marginTop: 10, fontSize: 13.5, color: 'var(--ink-55)' }}>Shared by {focusItem.shared_from_name || focusItem.shared_from}. Only they can decide.</p>
+          )}
+        </FocusCard>
+      )
+    }
+    if (focusRun) {
+      return (
+        <FocusCard
+          kicker="PATH · WAITING FOR YOUR OK"
+          colour={focusRun.definition?.accent || 'var(--sindoor)'}
+          title={focusRun.title}
+          body={focusRun.current_stage?.title}
+          action={<button type="button" className="n-btn n-btn-accent" style={{ flex: 1, minHeight: 52 }} onClick={() => onOpenRun(focusRun.run_id)}>Open the path</button>}
+        />
+      )
+    }
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 4px 6px' }}>
+        <Bindu mood="calm" size={52} decorative />
+        <p style={{ fontSize: 16, lineHeight: 1.45, color: 'var(--ink-70)' }}>Nothing needs you right now.</p>
+      </div>
+    )
+  }
 
   return (
     <div className="panel-scroll" style={{ height: '100%', overflow: 'auto', background: 'var(--paper)' }}>
-      <div style={{ maxWidth: 680, margin: '0 auto', padding: '14px 16px 36px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-          <p style={{ fontSize: 14, lineHeight: 1.45, color: 'var(--ink-70)' }}>Reminders, approvals, errands and finished work, newest first.</p>
-          <button type="button" onClick={() => void load()} className="n-icon-btn" aria-label="Refresh Activity" title="Refresh" style={{ border: '1px solid var(--line)', borderRadius: 12, color: 'var(--ink-70)' }}>
-            <RefreshCw size={17} className={loading ? 'animate-spin' : ''} aria-hidden="true" />
-          </button>
-        </div>
-
-        <div style={{ marginTop: 12 }}>
-          <PhoneNotificationsCard userId={userId} compact />
-        </div>
+      <div style={{ maxWidth: 680, margin: '0 auto', padding: '4px 16px 36px' }}>
+        <ScreenTitle title="Activity" status={waitingCount > 0 ? `${waitingCount} NEED YOU` : undefined} statusColour="var(--sindoor)" />
 
         {error && (
-          <div role="alert" style={{ ...cardStyle, marginTop: 12, padding: '10px 12px', borderColor: 'rgba(var(--rgb-sindoor),0.25)', color: 'var(--sindoor)', fontSize: 14 }}>{error}</div>
+          <div role="alert" style={{ marginTop: 12, padding: '10px 14px', borderRadius: 14, background: 'var(--surface-raised)', color: 'var(--sindoor)', fontSize: 14 }}>{error}</div>
         )}
 
         {loading && items.length === 0 && runs.length === 0 && tasks.length === 0 ? (
-          <div role="status" aria-label="Loading Activity" style={{ padding: 40, display: 'grid', placeItems: 'center', color: 'var(--ink-40)' }}><LoaderCircle size={24} className="animate-spin" aria-hidden="true" /></div>
+          <div role="status" aria-label="Loading Activity" style={{ padding: 40, display: 'grid', placeItems: 'center' }}><Bindu mood="thinking" size={56} decorative /></div>
+        ) : nothingAtAll ? (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, padding: '36px 12px 20px', textAlign: 'center' }}>
+            <KolamFull size={220} />
+            <h2 className="font-display" style={{ fontSize: 28 }}>All clear.</h2>
+            <p style={{ fontSize: 16, lineHeight: 1.5, color: 'var(--ink-70)', maxWidth: 290 }}>Nothing needs you. When something does, a dot lights here first.</p>
+          </div>
         ) : (
           <>
-            <SectionLabel count={needsYou.length + waitingRuns.length}>Needs you</SectionLabel>
-            <div style={{ display: 'grid', gap: 10 }}>
-              {needsYou.length + waitingRuns.length === 0 && <Empty>Nothing is waiting on you.</Empty>}
-              {needsYou.map(renderItem)}
-              {waitingRuns.map(run => renderRun(run, true))}
-            </div>
-
-            <SectionLabel count={runningCount}>Running</SectionLabel>
-            <div style={{ display: 'grid', gap: 10 }}>
-              {runningCount === 0 && <Empty>Nothing is running right now. Errands and paths you start show up here.</Empty>}
-              {tasks.map(renderTask)}
-              {activeRuns.map(run => renderRun(run, false))}
-            </div>
-
-            <SectionLabel count={done.length}>Done</SectionLabel>
-            <div style={{ display: 'grid', gap: 10 }}>
-              {done.length === 0 && (
-                <div style={{ ...cardStyle, padding: '18px 14px', display: 'flex', gap: 12, alignItems: 'center', color: 'var(--ink-70)', fontSize: 14, lineHeight: 1.5 }}>
-                  <Inbox size={20} aria-hidden="true" style={{ flex: '0 0 auto' }} />
-                  Nothing yet. Reminders, results and finished work will show up here.
-                </div>
+            <div className="pl-in" style={{ marginTop: 16 }}>{renderFocus()}</div>
+            <div style={{ marginTop: 12, display: 'grid', gap: 2 }}>
+              {moreCount > 0 && (
+                <Fold summary={moreCount === 1 ? 'One more needs you' : `${moreCount} more need you`} count={moreCount}>
+                  {otherNeeds.map(renderItem)}
+                  {otherRuns.map(run => renderRun(run, true))}
+                </Fold>
               )}
-              {done.map(renderItem)}
+              {runningCount > 0 && (
+                <Fold summary="Running" count={runningCount} defaultOpen={waitingCount === 0}>
+                  {tasks.map(renderTask)}
+                  {activeRuns.map(run => renderRun(run, false))}
+                </Fold>
+              )}
+              {done.length > 0 && (
+                <Fold summary="Done" count={done.length} defaultOpen={focusInDone}>
+                  {done.map(renderItem)}
+                </Fold>
+              )}
             </div>
           </>
         )}
+
+        <div style={{ marginTop: 2 }}>
+          <Fold summary="Notifications on this phone">
+            <div style={{ padding: '4px 4px 0' }}>
+              <PhoneNotificationsCard userId={userId} compact />
+            </div>
+          </Fold>
+        </div>
       </div>
     </div>
   )
